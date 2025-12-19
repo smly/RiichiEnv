@@ -116,6 +116,7 @@ class Conditions:
     haitei: bool = False
     houtei: bool = False
     rinshan: bool = False
+    chankan: bool = False
 
     player_wind: int = 0 # E,S,W,N = (0,1,2,3)
     round_wind: int = 0 # E,S,W,N = (0,1,2,3)
@@ -346,6 +347,7 @@ class AgariCalculator:
             haitei=conditions.haitei,
             houtei=conditions.houtei,
             rinshan=conditions.rinshan,
+            chankan=conditions.chankan,
             player_wind=conditions.player_wind,
             round_wind=conditions.round_wind,
             kyoutaku=conditions.kyoutaku,
@@ -373,15 +375,8 @@ class AgariCalculator:
         if not res.agari:
             return Agari(agari=False)
         
-        # Map Tenhou IDs to MJSoul IDs
-        mjsoul_yaku = []
-        for tid in res.yaku:
-            try:
-                yaku = YakuList.get_yaku_from_tenhou_id(tid)
-                mjsoul_yaku.append(yaku.mjsoul_id)
-            except ValueError:
-                # Fallback or ignore unknown IDs
-                pass
+        # Rust core now returns MJSoul IDs directly
+        mjsoul_yaku = res.yaku
 
         return Agari(
             agari=True,

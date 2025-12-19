@@ -75,6 +75,7 @@ impl AgariCalculator {
         ctx.is_haitei = conditions.haitei;
         ctx.is_houtei = conditions.houtei;
         ctx.is_rinshan = conditions.rinshan;
+        ctx.is_chankan = conditions.chankan;
         
         // Count doras
         let mut dora_count = 0;

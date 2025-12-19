@@ -5,10 +5,8 @@ import yaml
 import json
 import gzip
 
-from riichienv.hand import AgariCalculator, Conditions, Agari
-
+from riichienv import AgariCalculator, Conditions, Agari, Meld, MeldType as RiichiMeldType
 from mahjong.tile import TilesConverter
-from mahjong.meld import Meld
 
 
 with open("./data/yans.yml", "r") as f:
@@ -75,19 +73,19 @@ class Round:
             match meld_tuple[0]:
                 case MeldType.CHI:
                     tiles = self._get_tiles(meld_tuple[1])
-                    melds_.append(Meld(Meld.CHI, tiles))
+                    melds_.append(Meld(RiichiMeldType.Chi, tiles, True))
                     hola_tiles += tiles
                 case MeldType.PENG:
                     tiles = self._get_tiles(meld_tuple[1])
-                    melds_.append(Meld(Meld.PON, tiles))
+                    melds_.append(Meld(RiichiMeldType.Peng, tiles, True))
                     hola_tiles += tiles
                 case MeldType.GANG:
                     tiles = self._get_tiles(meld_tuple[1])
-                    melds_.append(Meld(Meld.KAN, tiles, True))
+                    melds_.append(Meld(RiichiMeldType.Gang, tiles, True))
                     hola_tiles += tiles
                 case MeldType.ANGANG:
                     tiles = self._get_tiles(meld_tuple[1])
-                    melds_.append(Meld(Meld.KAN, tiles, False))
+                    melds_.append(Meld(RiichiMeldType.Angang, tiles, False))
                     hola_tiles += tiles
                 case MeldType.ADDGANG:
                     # 対応するポンを明槓にする
@@ -97,9 +95,9 @@ class Round:
                     hola_tiles += [kan_tile_int]
 
                     for meld_idx, meld in enumerate(melds_):
-                        if meld.type == Meld.PON and (meld.tiles[0] // 4) == (kan_tile_int // 4):
+                        if meld.meld_type == RiichiMeldType.Peng and (meld.tiles[0] // 4) == (kan_tile_int // 4):
                             new_tiles = sorted(meld.tiles + [kan_tile_int])
-                            melds_[meld_idx] = Meld(Meld.KAN, new_tiles, True)
+                            melds_[meld_idx] = Meld(RiichiMeldType.Addgang, new_tiles, True)
                             break
                     else:
                         assert False, "PENG not found"
@@ -153,6 +151,8 @@ class Round:
                 dora_indicators += self._get_tiles(hule["li_doras"])
 
             # 和了判定の計算
+            is_chankan = any(f["id"] == 3 for f in hule.get("fans", []))
+            
             agari_calc = AgariCalculator(
                 tiles=hola_tiles,
                 melds=melds_,
@@ -165,6 +165,7 @@ class Round:
                 haitei=(self.left_tile_count == 0) and is_zimo,
                 houtei=(self.left_tile_count == 0) and not is_zimo,
                 rinshan=self.rinshan[seat],
+                chankan=is_chankan,
                 kyoutaku=self.liqibang,
                 tsumi=self.ben,
                 player_wind=(seat - self.ju + 4) % 4,
@@ -179,6 +180,13 @@ class Round:
                 print(f"Liqi: {self.liqi[seat]}")
                 print(f"Internal r2: {r2}")
             assert r2.agari
+            if hule["yiman"] != r2.yakuman:
+                print(f"Yakuman Mismatch: seat={seat}")
+                print(f"Info: seat={seat}, ju={self.ju}, chang={self.chang}")
+                print(f"Hand: {hule['hand']} + {hule['hu_tile']}")
+                print(f"Expected Yakuman: {hule['yiman']}")
+                print(f"Actual Yakuman: {r2.yakuman}")
+                print(f"Actual Yaku: {r2.yaku}")
             assert hule["yiman"] == r2.yakuman
  
             if hule["yiman"]:
@@ -196,7 +204,14 @@ class Round:
                 assert r2.han == hule["count"]
                 assert r2.fu == hule["fu"]
             valid_fans = [f for f in hule["fans"] if f["id"] not in [31, 33]]
-            assert len(valid_fans) == len([mjsoul_id for mjsoul_id in r2.yaku if mjsoul_id not in [31, 33]])
+            r2_valid_yaku = [mjsoul_id for mjsoul_id in r2.yaku if mjsoul_id not in [31, 33]]
+            if len(valid_fans) != len(r2_valid_yaku):
+                 print(f"Mismatch Yaku Count: seat={seat}")
+                 print(f"Expected Fans: {[f['id'] for f in valid_fans]}")
+                 print(f"Actual IDs: {r2_valid_yaku}")
+                 print(f"Hand: {hule['hand']} + {hule['hu_tile']}")
+                 print(f"Agari: {r2}")
+            assert len(valid_fans) == len(r2_valid_yaku)
 
             if not is_zimo:
                 assert hule["point_rong"] == r2.ron_agari # 直接の得点
@@ -287,6 +302,24 @@ class Round:
 def main() -> None:
     base_dir = "./data/game_record_4p_thr_2025-12-14_out/"
     for j, path in enumerate(list(sorted(Path(base_dir).glob("*.json.gz")))):
+        if j % 100 == 0:
+            print(j)
+        data = load_game_record(path)
+        for i, round_data in enumerate(data["rounds"]):
+            mjai_records = []
+            assert round_data[0]["name"] == "NewRound"
+            assert round_data[-1]["name"] in ["LiuJu", "Hule", "NoTile"]
+
+            r = Round(round_data[0]["data"])
+            assert len(r.hands[r.oya_seat()]) == 14
+
+            for action in round_data[1:]:
+                r.apply_action(action)
+
+    base_dir = "./data/game_record_4p_jad_2025-12-14_out/"
+    for j, path in enumerate(list(sorted(Path(base_dir).glob("*.json.gz")))):
+        if j % 100 == 0:
+            print(j)
         data = load_game_record(path)
         for i, round_data in enumerate(data["rounds"]):
             mjai_records = []
