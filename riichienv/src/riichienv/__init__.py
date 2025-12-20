@@ -39,7 +39,6 @@ def _to_mahjong_args(self):
         # riichienv.MeldType to mahjong.meld.Meld type
         # Peng=1, Gang=2, Angang=3, Addgang=4 in riichienv
         # mahjong uses CHI, PONG, KAN, etc.
-        m_type = MahjongMeld.CHI
         if m.meld_type == 0: m_type = MahjongMeld.CHI
         elif m.meld_type == 1: m_type = MahjongMeld.PON
         elif m.meld_type in [2, 3, 4]: m_type = MahjongMeld.KAN
