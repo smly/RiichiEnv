@@ -329,7 +329,6 @@ def main() -> None:
             print(j)
         data = load_game_record(path)
         for i, round_data in enumerate(data["rounds"]):
-            mjai_records = []
             assert round_data[0]["name"] == "NewRound"
             assert round_data[-1]["name"] in ["LiuJu", "Hule", "NoTile"]
 
@@ -355,7 +354,6 @@ def main() -> None:
     #         print(j)
     #     data = load_game_record(path)
     #     for i, round_data in enumerate(data["rounds"]):
-    #         mjai_records = []
     #         assert round_data[0]["name"] == "NewRound"
     #         assert round_data[-1]["name"] in ["LiuJu", "Hule", "NoTile"]
 

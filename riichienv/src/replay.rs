@@ -41,7 +41,7 @@ pub struct HuleData {
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(tag = "name", content = "data")]
-pub enum MjaiAction {
+pub enum RawAction {
     #[serde(rename = "NewRound")]
     NewRound {
         scores: Vec<i32>,
@@ -145,8 +145,8 @@ pub struct TypedRound {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct MjaiLog {
-    pub rounds: Vec<Vec<MjaiAction>>,
+pub struct GameLog {
+    pub rounds: Vec<Vec<RawAction>>,
 }
 
 #[pyclass]
@@ -165,11 +165,11 @@ impl ReplayGame {
         use std::io::Read;
         decoder.read_to_end(&mut buffer).map_err(|e| PyValueError::new_err(format!("Failed to decompress: {}", e)))?;
         
-        let log: MjaiLog = serde_json::from_slice(&buffer).map_err(|e| PyValueError::new_err(format!("Failed to parse JSON: {}", e)))?;
+        let log: GameLog = serde_json::from_slice(&buffer).map_err(|e| PyValueError::new_err(format!("Failed to parse JSON: {}", e)))?;
         
         let mut rounds = Vec::with_capacity(log.rounds.len());
-        for r_mjai in log.rounds {
-            rounds.push(Kyoku::from_mjai_actions(r_mjai));
+        for r_raw in log.rounds {
+            rounds.push(Kyoku::from_raw_actions(r_raw));
         }
         
         Ok(ReplayGame { rounds })
@@ -301,7 +301,7 @@ impl Kyoku {
 }
 
 impl Kyoku {
-    pub fn from_mjai_actions(mjai_actions: Vec<MjaiAction>) -> Self {
+    pub fn from_raw_actions(raw_actions: Vec<RawAction>) -> Self {
         let mut scores = Vec::new();
         let mut doras = Vec::new();
         let mut hands = vec![Vec::new(); 4];
@@ -312,7 +312,7 @@ impl Kyoku {
         let mut left_tile_count = 70;
         let mut ura_doras = Vec::new();
 
-        if let MjaiAction::NewRound { scores: s, doras: d_opt, dora_indicators, dora_marker, tiles0, tiles1, tiles2, tiles3, chang: c, ju: j, ben: b, honba, liqibang: l, left_tile_count: lc, ura_doras: ud } = &mjai_actions[0] {
+        if let RawAction::NewRound { scores: s, doras: d_opt, dora_indicators, dora_marker, tiles0, tiles1, tiles2, tiles3, chang: c, ju: j, ben: b, honba, liqibang: l, left_tile_count: lc, ura_doras: ud } = &raw_actions[0] {
             scores = s.clone();
             if let Some(da) = dora_indicators.as_ref().or(d_opt.as_ref()) {
                 for v in da { doras.push(TileConverter::parse_tile_136(v)); }
@@ -335,9 +335,9 @@ impl Kyoku {
             }
         }
         
-        let mut actions = Vec::with_capacity(mjai_actions.len());
-        for ma in mjai_actions {
-            actions.push(Self::parse_mjai_action(ma));
+        let mut actions = Vec::with_capacity(raw_actions.len());
+        for ma in raw_actions {
+            actions.push(Self::parse_raw_action(ma));
         }
 
         Kyoku {
@@ -346,9 +346,9 @@ impl Kyoku {
         }
     }
 
-    fn parse_mjai_action(ma: MjaiAction) -> Action {
+    fn parse_raw_action(ma: RawAction) -> Action {
         match ma {
-            MjaiAction::DiscardTile { seat, tile, is_liqi, is_wliqi, doras } => {
+            RawAction::DiscardTile { seat, tile, is_liqi, is_wliqi, doras } => {
                 Action::DiscardTile {
                     seat,
                     tile: TileConverter::parse_tile_136(&tile),
@@ -357,7 +357,7 @@ impl Kyoku {
                     doras: if doras.is_empty() { None } else { Some(doras.iter().map(|v| TileConverter::parse_tile_136(v)).collect()) },
                 }
             }
-            MjaiAction::DealTile { seat, tile, doras, dora_marker, left_tile_count } => {
+            RawAction::DealTile { seat, tile, doras, dora_marker, left_tile_count } => {
                 let mut d_res = if doras.is_empty() { None } else { Some(doras.iter().map(|v| TileConverter::parse_tile_136(v)).collect()) };
                 if d_res.is_none() {
                     if let Some(dm) = dora_marker {
@@ -371,7 +371,7 @@ impl Kyoku {
                     left_tile_count,
                 }
             }
-            MjaiAction::ChiPengGang { seat, meld_type, tiles, froms } => {
+            RawAction::ChiPengGang { seat, meld_type, tiles, froms } => {
                 let m_type = match meld_type {
                     0 => MeldType::Chi, 1 => MeldType::Peng, 2 => MeldType::Gang, 3 => MeldType::Angang, _ => MeldType::Chi,
                 };
@@ -382,7 +382,7 @@ impl Kyoku {
                     froms,
                 }
             }
-            MjaiAction::AnGangAddGang { seat, meld_type, tiles } => {
+            RawAction::AnGangAddGang { seat, meld_type, tiles } => {
                 let m_type = if meld_type == 3 { MeldType::Angang } else { MeldType::Addgang };
                 let tile_raw_id = TileConverter::parse_tile_34(&tiles).0;
                 Action::AnGangAddGang {
@@ -393,7 +393,7 @@ impl Kyoku {
                     doras: None, // Will be updated by Dora action or DealTile
                 }
             }
-            MjaiAction::Hule { hules } => {
+            RawAction::Hule { hules } => {
                 let hules_typed = hules.into_iter().map(|h| HuleData {
                     seat: h.seat,
                     hu_tile: TileConverter::parse_tile_136(&h.hu_tile),
@@ -409,9 +409,9 @@ impl Kyoku {
                 }).collect();
                 Action::Hule { hules: hules_typed }
             }
-            MjaiAction::Dora { dora_marker } => Action::Dora { dora_marker: TileConverter::parse_tile_136(&dora_marker) },
-            MjaiAction::NoTile {} => Action::NoTile,
-            MjaiAction::LiuJu {} => Action::LiuJu,
+            RawAction::Dora { dora_marker } => Action::Dora { dora_marker: TileConverter::parse_tile_136(&dora_marker) },
+            RawAction::NoTile {} => Action::NoTile,
+            RawAction::LiuJu {} => Action::LiuJu,
             _ => Action::Other("Other".to_string()),
         }
     }
