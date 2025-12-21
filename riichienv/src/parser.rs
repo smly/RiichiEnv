@@ -142,7 +142,12 @@ pub fn parse_hand(text: &str) -> PyResult<(Vec<u8>, Vec<Meld>)> {
 
 #[pyfunction]
 pub fn parse_tile(text: &str) -> PyResult<u8> {
-    let (tiles, _) = parse_hand(text)?;
+    let (tiles, melds) = parse_hand(text)?;
+    if !melds.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "parse_tile expects a single tile, but found meld syntax in input",
+        ));
+    }
     if tiles.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No tile found in string",
