@@ -64,6 +64,17 @@ pub enum MeldType {
     Addgang = 4,
 }
 
+/// Represents wind directions in mahjong, used for player seats and round wind.
+///
+/// In mahjong, winds are assigned to players to indicate their seating position
+/// and also used to denote the current round. The values map to integers as follows:
+/// - East = 0: The dealer (oya) position in most rulesets
+/// - South = 1: Player to dealer's right
+/// - West = 2: Player across from dealer
+/// - North = 3: Player to dealer's left
+///
+/// Wind values are used in scoring calculations and yaku determination,
+/// particularly for yakuhai (wind honor tiles) and determining dealer bonuses.
 #[pyclass(eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wind {
