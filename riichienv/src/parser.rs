@@ -140,6 +140,44 @@ pub fn parse_hand(text: &str) -> PyResult<(Vec<u8>, Vec<Meld>)> {
     Ok((tiles_136, melds))
 }
 
+/// Parse a single tile string into a 136-format tile ID.
+///
+/// The function accepts tile notation in the format: `{rank}{suit}` where:
+/// - `rank` is a digit 0-9 (0 represents red five)
+/// - `suit` is one of: m (man/characters), p (pin/circles), s (sou/bamboo), z (honors)
+///
+/// # Arguments
+///
+/// * `text` - A string containing exactly one tile (e.g., "2z", "5m", "0p")
+///
+/// # Returns
+///
+/// Returns a u8 tile ID in the 136-format where:
+/// - Each of the 34 unique tiles has 4 copies (0-135 total)
+/// - Tile ID = (tile_type * 4) + copy_index
+/// - For red fives (0m, 0p, 0s), the ID corresponds to the first copy (index 0)
+///
+/// # Examples
+///
+/// ```python
+/// import riichienv as rv
+///
+/// # Regular tiles
+/// tile_id = rv.parse_tile("2z")  # Honor tile (South wind)
+/// tile_id = rv.parse_tile("5m")  # Normal 5-man (black)
+///
+/// # Red fives
+/// tile_id = rv.parse_tile("0m")  # Red 5-man
+/// tile_id = rv.parse_tile("0p")  # Red 5-pin
+/// tile_id = rv.parse_tile("0s")  # Red 5-sou
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The input contains meld syntax (parentheses)
+/// - The input contains no tiles or multiple tiles
+/// - The input has invalid tile notation
 #[pyfunction]
 pub fn parse_tile(text: &str) -> PyResult<u8> {
     let (tiles, melds) = parse_hand(text)?;
