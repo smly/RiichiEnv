@@ -163,13 +163,19 @@ pub fn parse_hand(text: &str) -> PyResult<(Vec<u8>, Vec<Meld>)> {
 /// import riichienv as rv
 ///
 /// # Regular tiles
-/// tile_id = rv.parse_tile("2z")  # Honor tile (South wind)
-/// tile_id = rv.parse_tile("5m")  # Normal 5-man (black)
+/// tile_id = rv.parse_tile("1m")  # Returns 0 (1-man, first copy)
+/// tile_id = rv.parse_tile("5m")  # Returns 17 (5-man, black, first available)
+/// tile_id = rv.parse_tile("1z")  # Returns 108 (East wind, first copy)
 ///
-/// # Red fives
-/// tile_id = rv.parse_tile("0m")  # Red 5-man
-/// tile_id = rv.parse_tile("0p")  # Red 5-pin
-/// tile_id = rv.parse_tile("0s")  # Red 5-sou
+/// # Red fives (special notation using 0)
+/// tile_id = rv.parse_tile("0m")  # Returns 16 (red 5-man)
+/// tile_id = rv.parse_tile("0p")  # Returns 52 (red 5-pin)
+/// tile_id = rv.parse_tile("0s")  # Returns 88 (red 5-sou)
+///
+/// # Use with AgariCalculator
+/// hand = rv.AgariCalculator.hand_from_text("123m456p789s111z2z")
+/// win_tile = rv.parse_tile("2z")  # Parse the winning tile
+/// result = hand.calc(win_tile, conditions=rv.Conditions())
 /// ```
 ///
 /// # Errors
