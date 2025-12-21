@@ -1,34 +1,6 @@
 import pytest
 import riichienv
 
-def test_hand_creation():
-    h = riichienv.Hand([0, 1, 2, 3, 4, 5, 0])
-    assert str(h).startswith("Hand(counts=")
-
-def test_agari():
-    # 123m 456m 789m 123p 11s (indices: 0-8, 9-11, 18)
-    tiles = [0,1,2, 3,4,5, 6,7,8, 9,10,11, 18,18]
-    h = riichienv.Hand(tiles)
-    assert riichienv.is_agari(h) == True
-
-def test_not_agari():
-    tiles = [0,0,0, 1,2,3, 4,5,6, 7,8,9, 10] # 13 tiles
-    h = riichienv.Hand(tiles)
-    # usually 14 tiles needed for standard check? 
-    # Current impl just checks decomposition. 13 tiles might evaluate false or strictly 14?
-    # Our backtrack checks "if pair found, decompose rest".
-    # 13 tiles: 1 pair (2) -> 11 tiles. 11 is not divisible by 3.
-    # It should return false.
-    assert riichienv.is_agari(h) == False
-
-def test_score_calculation():
-    # 30fu 4han -> 7700 or 7900/8000(Kiriage).
-    # with Kiriage -> 8000.
-    # without Kiriage -> 7900 (3900/2000)
-    score = riichienv.calculate_score(4, 30, False, True)
-    assert score.pay_tsumo_oya == 3900
-    assert score.pay_tsumo_ko == 2000
-    assert score.total == 7900
 
 def test_hand_parsing():
     from riichienv import AgariCalculator, Meld, MeldType

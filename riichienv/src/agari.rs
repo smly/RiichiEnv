@@ -1,5 +1,4 @@
 use crate::types::{Hand, TILE_MAX};
-use pyo3::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mentsu {
@@ -13,7 +12,6 @@ pub struct Division {
     pub body: Vec<Mentsu>,
 }
 
-#[pyfunction]
 pub fn is_agari(hand: &Hand) -> bool {
     if is_kokushi(hand) {
         return true;

@@ -3,7 +3,6 @@ use pyo3::prelude::*;
 pub const TILE_MAX: usize = 34;
 
 /// A hand representation using a histogram of tile types (0-33).
-#[pyclass]
 #[derive(Debug, Clone)]
 pub struct Hand {
     pub counts: [u8; TILE_MAX],
@@ -11,10 +10,7 @@ pub struct Hand {
     pub shuntsu_counts: [u8; TILE_MAX],
 }
 
-#[pymethods]
 impl Hand {
-    #[new]
-    #[pyo3(signature = (tiles=None))]
     pub fn new(tiles: Option<Vec<u8>>) -> Self {
         let mut h = Hand {
             counts: [0; TILE_MAX],
