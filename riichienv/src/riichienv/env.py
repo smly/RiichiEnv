@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Union
 from .meld import Meld
 from .hand import AgariCalculator, Conditions
 from .action import Action, ActionType
+from .game_mode import GameType
+
 
 
 @dataclass
@@ -90,9 +92,18 @@ class Phase(IntEnum):
 
 
 class RiichiEnv:
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: Optional[int] = None, game_type: GameType = GameType.YON_IKKYOKU, round_wind: int = 0, initial_scores: Optional[List[int]] = None, kyotaku: int = 0, honba: int = 0):
+        if game_type != GameType.YON_IKKYOKU:
+            raise NotImplementedError(f"GameType {game_type} is not yet supported.")
+            
         self._seed = seed
         self._rng = random.Random(seed)
+        
+        self.game_type = game_type
+        self._custom_round_wind = round_wind
+        self._custom_initial_scores = initial_scores
+        self._custom_kyotaku = kyotaku
+        self._custom_honba = honba
         
         # Game State
         self.wall: List[int] = []
@@ -103,6 +114,9 @@ class RiichiEnv:
         self.turn_count: int = 0
         self.is_done: bool = False
         self._rewards: Dict[int, float] = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
+        self.scores: List[int] = [25000, 25000, 25000, 25000]
+        self.riichi_sticks: int = 0
+        self.riichi_declared: List[bool] = [False, False, False, False] # To track who declared riichi
         
         # Phases
         self.phase: Phase = Phase.WAIT_ACT
@@ -140,6 +154,20 @@ class RiichiEnv:
         self.hands = {0: [], 1: [], 2: [], 3: []}
         self.discards = {0: [], 1: [], 2: [], 3: []}
         self._rewards = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
+        
+        # Initialize scores & kyotaku from custom settings or defaults
+        if self._custom_initial_scores:
+            if len(self._custom_initial_scores) != 4:
+                # Fallback or error? Assuming 4 for now.
+                self.scores = self._custom_initial_scores[:]
+            else:
+                 self.scores = self._custom_initial_scores[:]
+        else:
+            self.scores = [25000, 25000, 25000, 25000]
+            
+        self.riichi_sticks = self._custom_kyotaku
+        
+        self.riichi_declared = [False, False, False, False]
         self.is_done = False
         self.turn_count = 0
         self.current_player = 0 # Dealer = 0 (East)
@@ -173,10 +201,10 @@ class RiichiEnv:
             
         start_kyoku_event = {
             "type": "start_kyoku",
-            "bakaze": "E",
+            "bakaze": "E" if self._custom_round_wind == 0 else "S", # TODO: Proper wind mapping
             "kyoku": 1,
-            "honba": 0,
-            "kyotaku": 0,
+            "honba": self._custom_honba,
+            "kyotaku": self._custom_kyotaku,
             "oya": 0,
             "dora_marker": _to_mjai_tile(self.wall[0]), # Fake dora marker logic: usually wall[5] or similar. Using wall[0] for current simplistic impl.
             "tehais": tehais
@@ -220,12 +248,33 @@ class RiichiEnv:
             
             if action.type == ActionType.TSUMO:
                 # Handle tsumo (self-draw win): record the event and stop further processing.
+                hand_13 = self.hands[self.current_player][:]
+                if self.drawn_tile in hand_13:
+                    hand_13.remove(self.drawn_tile)
+                
+                player_melds = self.melds.get(self.current_player, [])
+                # 0=East, 1=South, 2=West, 3=North (relative to dealer 0). In simulator pid=wind usually.
+                cond = Conditions(tsumo=True, player_wind=self.current_player, round_wind=self._custom_round_wind)
+                res = AgariCalculator(hand_13, player_melds).calc(self.drawn_tile, conditions=cond)
+                
+                deltas = self._calculate_deltas(res, self.current_player, is_tsumo=True)
+                
                 hora_event = {
                     "type": "hora",
                     "actor": self.current_player,
                     "target": self.current_player,
+                    "tsumo": True,
+                    "pai": _to_mjai_tile(self.drawn_tile) if self.drawn_tile is not None else "?",
+                    "deltas": deltas,
                 }
+                
+                # Check for Riichi to add ura markers
+                if self.riichi_declared[self.current_player]:
+                    hora_event["ura_markers"] = self._get_ura_markers()
+                    
                 self.mjai_log.append(hora_event)
+                self.mjai_log.append({"type": "end_kyoku"})
+                self.mjai_log.append({"type": "end_game"})
 
                 # Set is_done to True
                 self.is_done = True
@@ -361,18 +410,32 @@ class RiichiEnv:
                         winner = p
                         break
                         
+                # Calculate scores
+                tile = self.last_discard["tile"]
+                cond = Conditions(tsumo=False, player_wind=winner, round_wind=self._custom_round_wind)
+                res = AgariCalculator(self.hands[winner], self.melds.get(winner, [])).calc(tile, conditions=cond)
+                deltas = self._calculate_deltas(res, winner, is_tsumo=False, loser=self.current_player)
+
                 self.is_done = True
-                self.mjai_log.append({
+                hora_event = {
                     "type": "hora",
                     "actor": winner,
                     "target": self.current_player,
                     "tile": _to_mjai_tile(self.last_discard["tile"]),
+                    "deltas": deltas,
                     # "yakus": ... TODO
-                })
+                }
+                
+                # Check for Riichi to add ura markers
+                if self.riichi_declared[winner]:
+                    hora_event["ura_markers"] = self._get_ura_markers()
+                    
+                self.mjai_log.append(hora_event)
                 # rewards logic...
                 # Note: Currently verification script checks 'end_game' type.
                 # step (WAIT_ACT -> Ryukyoku) logs 'end_game'.
                 # We should log 'end_game' here too.
+                self.mjai_log.append({"type": "end_kyoku"})
                 self.mjai_log.append({"type": "end_game"})
                 
                 return self._get_observations([])
@@ -614,5 +677,127 @@ class RiichiEnv:
                 c2 = next(t for t in hand if t // 4 == t_type + 2)
                 options.append([c1, c2])
         return options
+
+    def _calculate_deltas(self, agari, winner, is_tsumo, loser=None):
+        """
+        Calculate score deltas based on Agari result.
+        Returns list of 4 integers [delta0, delta1, delta2, delta3].
+        Also updates self.scores.
+        """
+        deltas = [0, 0, 0, 0]
+        
+        # Base win points
+        if is_tsumo:
+            # Tsumo
+            # Dealer win: all others pay oya_payment (which is usually split? No, tsumo_agari_oya implies total?)
+            # Wait, Rust Agari struct:
+            # tsumo_agari_oya: payment from EACH child? Or total?
+            # tsumo_agari_ko: payment from Dealer? or Child?
+            
+            # Looking at mahjong lib / typical usage:
+            # If Dealer wins (Oya): 
+            #   get 'tsumo_agari_oya' from *each* child? 
+            #   Wait, 'tsumo_agari_oya' usually refers to the payment *amount* specifically?
+            #   Let's assume AgariCalculator returns standard points.
+            #   Usually: 
+            #     Dealer Tsumo: 4000 all -> everyone pays 4000.
+            #     Child Tsumo: 1000/2000 -> Dealer pays 2000, Child pays 1000.
+            
+            # Checking `agari_calculator.rs`:
+            # It just returns points.
+            # Let's check `hand.py` Agari dataclass fields:
+            # tsumo_agari_oya: int
+            # tsumo_agari_ko: int
+            
+            # Standard Convention:
+            # If Winner is Dealer:
+            #   Each child pays `tsumo_agari_oya` (or checks total?)
+            #   Actually `tsumo_agari_oya` usually means "Payment FOR Oya" (when Ko wins)? 
+            #   OR "Payment BY Oya"?
+            
+            # Corrections based on typical `mahjong` library:
+            # If Ko wins:
+            #   main_payment = tsumo_agari_oya (Dealer pays this)
+            #   other_payment = tsumo_agari_ko (Other Ko pays this)
+            # If Oya wins:
+            #   all_payment = tsumo_agari_oya (All Ko pay this) (wait, usually oya payment is higher?)
+            #   Actually, with `mahjong` library:
+            #     calculate_scores returns: {"main": X, "additional": Y}
+            #     If oya Tsumo: main=X (per person). 
+            #     If ko Tsumo: main=DealerPay, additional=ChildPay.
+            
+            # The Rust struct names are `tsumo_agari_oya` and `tsumo_agari_ko`.
+            # If Oya wins, `tsumo_agari_oya` is likely the payment per person.
+            # If Ko wins, `tsumo_agari_oya` is payment by Oya, `tsumo_agari_ko` is payment by Ko.
+            
+            if winner == 0: # Dealer (in this simplified kyoku=1, oya=0 env)
+                 # Dealer Tsumo
+                 # Based on verification: tsumo_agari_ko holds the payment amount for Kids.
+                 # tsumo_agari_oya is 0 because there is no Oya to pay.
+                 payment_all = agari.tsumo_agari_ko
+                 total_win = 0
+                 for pid in range(4):
+                     if pid != winner:
+                         deltas[pid] = -payment_all
+                         total_win += payment_all
+                 deltas[winner] = total_win
+            else:
+                 # Child Tsumo
+                 payment_oya = agari.tsumo_agari_oya
+                 payment_ko = agari.tsumo_agari_ko
+                 total_win = 0
+                 for pid in range(4):
+                     if pid != winner:
+                         if pid == 0: # Oya
+                             deltas[pid] = -payment_oya
+                             total_win += payment_oya
+                         else: # Ko
+                             deltas[pid] = -payment_ko
+                             total_win += payment_ko
+                 deltas[winner] = total_win
+                 
+        else:
+            # Ron
+            # Loser pays full amount 'ron_agari'
+            score = agari.ron_agari
+            deltas[loser] = -score
+            deltas[winner] = score
+            
+        # Add Riichi Sticks to validity
+        # Any riichi sticks currently on table go to winner
+        # Note: self.riichi_sticks tracks 1000 point sticks
+        if self.riichi_sticks > 0:
+            bonus = self.riichi_sticks * 1000
+            deltas[winner] += bonus
+            self.riichi_sticks = 0 # Reset after claimed
+            
+        # Update internal scores
+        for pid in range(4):
+            self.scores[pid] += deltas[pid]
+            
+        return deltas
+
+    def _get_ura_markers(self) -> List[str]:
+        """
+        Return ura dora markers from the wall.
+        For this simplified implementation, we return the tile under the first dora indicator.
+        Dora indicator is at index 0 (self.wall[0]).
+        Ura indicator would be at index 1? Or conventionally determined index.
+        In standard wall construction:
+        Dead wall 14 tiles.
+        Dora ind: 3rd tile from back (index 5 in 0-indexed 14-tile dead wall).
+        Ura ind: 4th tile (under dora).
+        
+        Our `reset` logic:
+        wall = list(range(136))
+        shuffle(wall)
+        
+        We used `wall[0]` as dora_marker in `start_kyoku`.
+        Let's use `wall[1]` as ura_marker for consistency with that simple choice.
+        """
+        if len(self.wall) > 1:
+            return [_to_mjai_tile(self.wall[1])]
+        return []
+
 
         

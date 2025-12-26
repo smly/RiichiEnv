@@ -13,6 +13,8 @@ from ._riichienv import (
 from .hand import AgariCalculator, Conditions, Agari
 from .env import RiichiEnv
 from .action import Action, ActionType
+from .game_mode import GameType
+
 
 EAST = Wind.East
 SOUTH = Wind.South
