@@ -36,7 +36,6 @@ agent = RandomAgent()
 env = RiichiEnv()
 obs_dict = env.reset()
 while not env.done():
-    # action = obs.env.action_space.sample()
     actions = {player_id: agent.act(obs)
                for player_id, obs in obs_dict.items()}
     obs_dict = env.step(actions)
