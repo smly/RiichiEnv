@@ -2,7 +2,7 @@ from typing import Optional
 import random
 
 from riichienv.env import Observation
-from riichienv.action import Action, ActionType
+from riichienv.action import Action
 
 
 class RandomAgent:
