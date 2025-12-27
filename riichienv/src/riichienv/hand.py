@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
-from . import _riichienv as rust_core
-from ._riichienv import Wind
+from . import _riichienv as rust_core  # type: ignore
+from ._riichienv import Wind  # type: ignore
 from .meld import Meld
 
 
@@ -119,7 +119,7 @@ class Conditions:
 
 
 class AgariCalculator:
-    def __init__(self, tiles: list[int], melds: list[Meld] = None) -> None:
+    def __init__(self, tiles: list[int], melds: list[Meld] | None = None) -> None:
         self.tiles_136 = tiles
         self.melds = melds or []
         rust_melds = []
@@ -364,10 +364,14 @@ class AgariCalculator:
     def calc(
         self,
         win_tile: int,
-        dora_indicators: list[int] = None,
+        dora_indicators: list[int] | None = None,
         conditions: Conditions = Conditions(),
-        ura_indicators: list[int] = None,
+        ura_indicators: list[int] | None = None,
     ) -> Agari:
+        if dora_indicators is None:
+            dora_indicators = []
+        if ura_indicators is None:
+            ura_indicators = []
         rust_conditions = rust_core.Conditions(
             tsumo=conditions.tsumo,
             riichi=conditions.riichi,

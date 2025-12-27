@@ -1,5 +1,5 @@
 from . import convert
-from ._riichienv import (
+from ._riichienv import (  # type: ignore
     AgariContext,
     Kyoku,
     Meld,

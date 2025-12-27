@@ -130,7 +130,7 @@ class RiichiEnv:
         # Phases
         self.phase: Phase = Phase.WAIT_ACT
         self.active_players: list[int] = [0]  # Initially 0
-        self.last_discard: dict[str, Any] = None  # {seat, tile_136}
+        self.last_discard: dict[str, Any] | None = None  # {seat, tile_136}
 
         self.current_claims: dict[int, list[Action]] = {}  # Potential claims for current discard
 
@@ -266,6 +266,8 @@ class RiichiEnv:
 
             if action.type == ActionType.TSUMO:
                 # Handle tsumo (self-draw win): record the event and stop further processing.
+                if self.drawn_tile is None:
+                    raise RuntimeError("Tsumo action without drawn tile")
                 hand_13 = self.hands[self.current_player][:]
                 if self.drawn_tile in hand_13:
                     hand_13.remove(self.drawn_tile)
@@ -304,6 +306,9 @@ class RiichiEnv:
 
             # Execute discard
             # Remove from hand
+            if discard_tile_id is None:
+                 raise ValueError("Discard action must have a tile")
+
             if self.drawn_tile == discard_tile_id:
                 self.drawn_tile = None
             else:
@@ -326,7 +331,7 @@ class RiichiEnv:
             dahai_event = {
                 "type": "dahai",
                 "actor": self.current_player,
-                "tile": _to_mjai_tile(discard_tile_id),
+                "tile": _to_mjai_tile(discard_tile_id) if discard_tile_id is not None else "?",
                 "tsumogiri": False,  # TODO: Handle tsumogiri (self-draw)
             }
             self.mjai_log.append(dahai_event)
@@ -435,6 +440,8 @@ class RiichiEnv:
                         break
 
                 # Calculate scores
+                if self.last_discard is None:
+                    raise RuntimeError("Winner on Ron but last_discard is None")
                 tile = self.last_discard["tile"]
                 cond = Conditions(tsumo=False, player_wind=winner, round_wind=self._custom_round_wind)
                 res = AgariCalculator(self.hands[winner], self.melds.get(winner, [])).calc(tile, conditions=cond)
@@ -621,6 +628,8 @@ class RiichiEnv:
 
         # 2. Create Meld
         target_tile = action.tile
+        if target_tile is None:
+            raise ValueError("Claim action must have a target tile")
         tiles = sorted(consume + [target_tile])
 
         # Determine Meld Type
@@ -782,7 +791,8 @@ class RiichiEnv:
             # Ron
             # Loser pays full amount 'ron_agari'
             score = agari.ron_agari
-            deltas[loser] = -score
+            if loser is not None:
+                deltas[loser] = -score
             deltas[winner] = score
 
         # Add Riichi Sticks to validity

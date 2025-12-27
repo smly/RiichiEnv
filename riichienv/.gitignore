@@ -2,3 +2,5 @@
 **/*.so
 target
 trunk
+*.txt
+data

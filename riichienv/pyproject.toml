@@ -28,7 +28,7 @@ dev = [
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-extend-exclude = ["trunk"]
+extend-exclude = ["trunk", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP"]
@@ -43,3 +43,6 @@ test = "pytest:console_main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["trunk"]
+
+[tool.ty.src]
+exclude = ["scripts", "tests"]
