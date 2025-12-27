@@ -65,20 +65,11 @@ def to_mahjong_args(ctx):
 
 
 def main() -> None:
-    # Adjust path to data if running from benchmark dir, assume data is in sibling riichienv/data/ or copied?
-    # User didn't specify data location change. I'll search in parent's riichienv/data/game_record...
-    # Or assume user runs from project root? 
-    # If I run `python benchmark/bench_agari_mahjong.py`, CWD is project root.
-    # But `main` had `Path("data/...")`.
-    # I'll check if `data` exists in `benchmark`. It doesn't.
-    # It exists in `riichienv/data`? No, `riichienv` folder is package source.
-    # Wait, previous `ls` showed `data` in `riichienv` root (`/Users/smly/gitws/riichienv/riichienv/data`).
-    # Wait, previous `ls -R` or `ls` of `riichienv` (root) showed `riichienv` (pkg) and `riichienv-serv`.
-    # Let's check where `data` is.
+    # Prefer data directory in sibling riichienv package; fall back to local data/ when running from project root.
     log_dir = Path("../riichienv/data/game_record_4p_thr_2025-12-14_out/")
     if not log_dir.exists():
-         # Fallback to current dir if run from riichienv/
-         log_dir = Path("data/game_record_4p_thr_2025-12-14_out/")
+        # Fallback to data directory relative to current working directory.
+        log_dir = Path("data/game_record_4p_thr_2025-12-14_out/")
 
     total_agari = 0
     t_riichienv = 0.0
