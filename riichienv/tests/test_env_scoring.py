@@ -62,7 +62,7 @@ class TestRiichiScoring:
         assert ron_action is not None
 
         # P0 declares Ron
-        obs = env.step({0: Action(ActionType.RON, tile=126)})
+        env.step({0: Action(ActionType.RON, tile=126)})
 
         # Check log
         last_event = env.mjai_log[-1]
