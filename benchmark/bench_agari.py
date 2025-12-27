@@ -41,6 +41,8 @@ def to_mahjong_args(ctx):
             m_type = MahjongMeld.PON
         elif m.meld_type in [2, 3, 4]:
             m_type = MahjongMeld.KAN
+        else:
+            raise ValueError(f"Unexpected meld_type: {m.meld_type!r} in ctx.melds")
 
         # IMPORTANT: Sort tiles for Mahjong package!
         # Mahjong package's is_chi requires tiles to be sorted by 34-index.
