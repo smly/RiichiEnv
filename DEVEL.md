@@ -1,6 +1,6 @@
 # Development Guide
 
-This document documents the procedures for checking compilation, running tests, executing benchmarks, and adhering to coding standards.
+This guide describes the procedures for checking compilation, running tests, executing benchmarks, and adhering to coding standards.
 
 ## Prerequisites
 
