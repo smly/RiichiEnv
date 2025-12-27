@@ -262,7 +262,7 @@ class RiichiEnv:
 
             action: Action = action_raw
 
-            discard_tile_id = -1
+            discard_tile_id: int | None = None
 
             if action.type == ActionType.TSUMO:
                 # Handle tsumo (self-draw win): record the event and stop further processing.
@@ -322,7 +322,8 @@ class RiichiEnv:
                     self.hands[self.current_player].remove(discard_tile_id)
                 else:
                     raise ValueError(
-                        f"Discard tile {discard_tile_id} not found in player {self.current_player}'s hand: {self.hands[self.current_player]}"
+                        f"Discard tile {discard_tile_id} not found in player {self.current_player}'s hand: "
+                        f"{self.hands[self.current_player]}"
                     )
 
             self.discards[self.current_player].append(discard_tile_id)

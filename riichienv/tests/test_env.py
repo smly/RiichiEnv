@@ -252,8 +252,9 @@ class TestRiichiEnv:
         env.current_player = 0
 
         # P0 Discards 5m (ID 17, matches pair for 5m)
-
         tile_5m_target = 17
+        env.hands[0] = [tile_5m_target] + list(range(40, 40 + 13))
+        env.hands[0].sort()
 
         env.step({0: Action(ActionType.DISCARD, tile=tile_5m_target)})
 
