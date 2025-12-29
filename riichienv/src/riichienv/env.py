@@ -664,6 +664,19 @@ class RiichiEnv:
                 self.active_players = [self.current_player]
                 self.drawn_tile = None  # No draw after call (except some Kan...)
 
+                if action.type == ActionType.DAIMINKAN:
+                    if not self.wall:
+                        self.is_done = True
+                        self.mjai_log.append({"type": "ryukyoku", "reason": "exhaustive_draw"})
+                        self.mjai_log.append({"type": "end_kyoku"})
+                        self.mjai_log.append({"type": "end_game"})
+                        return self._get_observations([])
+
+                    self.drawn_tile = self.wall.pop()
+                    # Log Tsumo (Rinshan)
+                    tsumo_event = {"type": "tsumo", "actor": self.current_player, "tile": _to_mjai_tile(self.drawn_tile)}
+                    self.mjai_log.append(tsumo_event)
+
                 return self._get_observations(self.active_players)
 
             # 3. Check Chi
