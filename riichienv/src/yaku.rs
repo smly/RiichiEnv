@@ -26,7 +26,7 @@ pub const ID_TOITOI: u32 = 21;
 pub const ID_SANANKOU: u32 = 22;
 pub const ID_SHOSANGEN: u32 = 23;
 pub const ID_HONROUTO: u32 = 24;
-// pub const ID_CHITOITSU: u32 = 25;
+pub const ID_CHITOITSU: u32 = 25;
 pub const ID_JUNCHAN: u32 = 26;
 pub const ID_HONITSU: u32 = 27;
 pub const ID_RYANPEIKO: u32 = 28;
@@ -35,7 +35,8 @@ pub const ID_IPPATSU: u32 = 30;
 pub const ID_DORA: u32 = 31;
 pub const ID_AKADORA: u32 = 32;
 pub const ID_URADORA: u32 = 33;
-// pub const ID_NUKIDORA: u32 = 34;
+#[allow(dead_code)]
+pub const ID_NUKIDORA: u32 = 34;
 pub const ID_TENHO: u32 = 35;
 pub const ID_CHIHO: u32 = 36;
 pub const ID_DAISANGEN: u32 = 37;
@@ -43,13 +44,13 @@ pub const ID_SUANKO: u32 = 38;
 pub const ID_TSUISO: u32 = 39;
 pub const ID_RYUISOU: u32 = 40;
 pub const ID_CHINROUTO: u32 = 41;
-// pub const ID_KOKUSHI: u32 = 42;
+pub const ID_KOKUSHI: u32 = 42;
 pub const ID_SHOUSUUSHI: u32 = 43;
-// pub const ID_SUKANTSU: u32 = 44;
+pub const ID_SUKANTSU: u32 = 44;
 pub const ID_CHUUREN: u32 = 45;
 pub const ID_JUNSEI_CHUUREN: u32 = 47;
 pub const ID_SUANKO_TANKI: u32 = 48;
-// pub const ID_KOKUSHI_13: u32 = 49;
+pub const ID_KOKUSHI_13: u32 = 49;
 pub const ID_DAISUUSHI: u32 = 50;
 
 #[derive(Debug, Clone, Default)]
@@ -112,14 +113,14 @@ pub fn calculate_yaku(hand: &Hand, melds: &[Meld], ctx: &YakuContext, win_tile: 
             if is_13_wait {
                 best_res.han = 26;
                 best_res.yakuman_count = 2;
-                best_res.yaku_ids.push(49);
+                best_res.yaku_ids.push(ID_KOKUSHI_13);
                 best_res
                     .yaku_names
                     .push("Kokushi Musou 13-wait".to_string());
             } else {
                 best_res.han = 13;
                 best_res.yakuman_count = 1;
-                best_res.yaku_ids.push(42);
+                best_res.yaku_ids.push(ID_KOKUSHI);
                 best_res.yaku_names.push("Kokushi Musou".to_string());
             }
             return best_res;
@@ -127,7 +128,7 @@ pub fn calculate_yaku(hand: &Hand, melds: &[Meld], ctx: &YakuContext, win_tile: 
         if agari::is_chiitoitsu(hand) {
             best_res.han = 2;
             best_res.fu = 25;
-            best_res.yaku_ids.push(25);
+            best_res.yaku_ids.push(ID_CHITOITSU);
             best_res.yaku_names.push("Chiitoitsu".to_string());
 
             if is_tanyao(hand, melds) {
@@ -812,7 +813,7 @@ fn apply_yakuman(
         == 4
     {
         yakuman_count += 1;
-        res.yaku_ids.push(44);
+        res.yaku_ids.push(ID_SUKANTSU);
         res.yaku_names.push("Su Kantsu".to_string());
     }
 

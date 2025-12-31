@@ -141,14 +141,8 @@ class MjsoulEnvVerifier:
                 raise
 
         self.using_paishan = True
-        self.env = RiichiEnv()
         bakaze_idx = data.get("chang", 0)
         self.env.reset(oya=data["ju"] % 4, wall=paishan_wall, bakaze=bakaze_idx)
-
-        if not self.env.dora_indicators:
-            logger.warning(">> WARNING: RiichiEnv did not extract any Dora from Paishan!")
-
-        # self.dora_indicators used by verifier:
         self.dora_indicators = self.env.dora_indicators[:]
 
         self.env.mjai_log = [
@@ -726,6 +720,20 @@ class MjsoulEnvVerifier:
                             # Optional: We could force sync if we distrust Env, but we want to verify Env.
                             # If count is less, Env missed a reveal?
                             pass
+
+                # If Env is waiting for responses (Ron/Pon/Chi) but the Log event is not one of those,
+                # it means all players PASSed. We must synchronize the Env.
+                while self.env.phase == Phase.WAIT_RESPONSE and event["name"] not in ["Hule", "ChiPengGang", "AnGangAddGang"]:
+                    pids = self.env.active_players
+                    if not pids:
+                         # This should not happen if phase is WAIT_RESPONSE, but safety first
+                         if self._verbose:
+                             print(f">> WARNING: WAIT_RESPONSE but active_players is empty! Force transition.")
+                         self.env.phase = Phase.WAIT_ACT # Emergency break
+                         break
+                    if self._verbose:
+                        print(f">> ENV WAIT_RESPONSE but LOG is {event['name']}. ISSUING PASS for {pids}")
+                    self.obs_dict = self.env.step({pid: Action(ActionType.PASS) for pid in pids})
 
                 match event["name"]:
                     case "NewRound":

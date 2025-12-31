@@ -392,7 +392,7 @@ class RiichiEnv:
                     double_riichi=self.double_riichi_declared[self.current_player],
                     ippatsu=self.ippatsu_eligible[self.current_player],
                     rinshan=self.is_rinshan_flag,
-                    haitei=(len(self.wall) == 14 and not self.is_rinshan_flag),
+                    haitei=(len(self.wall) <= 14 and not self.is_rinshan_flag),
                     tsumo_first_turn=is_first_turn,
                     player_wind=(self.current_player - self.oya + 4) % 4,
                     round_wind=self._custom_round_wind,
@@ -503,9 +503,6 @@ class RiichiEnv:
                     is_reach_declaration = True
 
                     # Deduct Score
-                    self.scores[self.current_player] -= 1000
-                    # Enable Ippatsu
-                    self.ippatsu_eligible[self.current_player] = True
                     # Deduct Score
                     self.scores[self.current_player] -= 1000
                     # Enable Ippatsu
@@ -862,14 +859,8 @@ class RiichiEnv:
                 # Reset Rinshan flag
                 self.is_rinshan_flag = False
 
-                return self._get_observations([])
-                # rewards logic...
-                # Note: Currently verification script checks 'end_game' type.
-                # step (WAIT_ACT -> Ryukyoku) logs 'end_game'.
-                # We should log 'end_game' here too.
-                self.mjai_log.append({"type": "end_kyoku"})
-                self.mjai_log.append({"type": "end_game"})
-
+                self.phase = Phase.WAIT_ACT
+                self.active_players = []
                 return self._get_observations([])
 
             # 2. Check Pon/Kan
@@ -1107,7 +1098,7 @@ class RiichiEnv:
                         ippatsu=self.ippatsu_eligible[pid],
                         player_wind=(pid - self.oya + 4) % 4,
                         round_wind=self._custom_round_wind,
-                        haitei=(len(self.wall) == 14 and not self.is_rinshan_flag),
+                        haitei=(len(self.wall) <= 14 and not self.is_rinshan_flag),
                         tsumo_first_turn=is_first_turn,
                         rinshan=self.is_rinshan_flag,
                     )
@@ -1149,7 +1140,7 @@ class RiichiEnv:
                     ippatsu=self.ippatsu_eligible[pid],
                     player_wind=(pid - self.oya + 4) % 4,
                     round_wind=self._custom_round_wind,
-                    haitei=(len(self.wall) == 14 and not self.is_rinshan_flag),
+                    haitei=(len(self.wall) <= 14 and not self.is_rinshan_flag),
                     tsumo_first_turn=is_first_turn,
                     rinshan=self.is_rinshan_flag,
                 )

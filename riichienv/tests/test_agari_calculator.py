@@ -37,8 +37,8 @@ def test_pinfu():
         win_tile=win_tile, dora_indicators=[], conditions=cond, ura_indicators=[]
     )
 
-    # Check Pinfu (ID 7)
-    assert 7 not in res.yaku
+    # Check Pinfu (ID 14)
+    assert 14 not in res.yaku
 
 
 def test_agari_calc_from_text():
