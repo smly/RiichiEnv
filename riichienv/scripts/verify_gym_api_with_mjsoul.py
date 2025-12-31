@@ -562,118 +562,68 @@ class MjsoulEnvVerifier:
             traceback.print_exc()
             return False
 
-    def _handle_chipenggang(self, event, player_id, obs):
+    def _handle_chipenggang(self, event: Any, player_id: int, obs: Any):
         if event["data"]["type"] == 1:
             # PON
             target_tile_list = [cvt.mpsz_to_tid(t) for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] != player_id]
             target_tile = target_tile_list[0]
-            
-            # Check if we already have a Pon of this tile to avoid duplicates
-            from riichienv._riichienv import MeldType
-            tid_base = target_tile // 4
-            existing_pon = False
-            for m in self.env.melds[player_id]:
-                if m.meld_type == MeldType.Peng:
-                    if m.tiles[0] // 4 == tid_base:
-                        existing_pon = True
-                        break
-            
-            if existing_pon:
-                logger.warning(f">> WARNING: Duplicate Pon detected for tile {target_tile}. Skipping.")
-            else:
-                # assert len([a for a in obs.legal_actions() if a.type == ActionType.PON]), "ActionType.PON not found"
-                consumed_mpsz_list = [t for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] == player_id]
-                consumed_tids = []
-                # Smart Scan
-                hand_copy = list(self.obs_dict[player_id].hand)
-                for mpsz in consumed_mpsz_list:
-                    found_tid = None
-                    for tid in hand_copy:
-                        if cvt.tid_to_mpsz(tid) == mpsz:
-                            found_tid = tid
-                            break
-                    
-                    if found_tid is not None:
-                        consumed_tids.append(found_tid)
-                        hand_copy.remove(found_tid) # Consume from local copy to handle duplicates
-                    else:
-                        # Not found -> Force Patch
-                        print(f">> WARNING: Missing tile {mpsz} for PON. Hand: {cvt.tid_to_mpsz_list(self.obs_dict[player_id].hand)}")
-                        print(f">> TRUST: Patching hand to include {mpsz} for PON.")
-                        # Inject
-                        new_tid = cvt.mpsz_to_tid(mpsz)
-                        # Remove garbage if possible to maintain count
-                        if self.env.hands[player_id]:
-                            removed = self.env.hands[player_id].pop(0) # Remove from front (low ID)?
-                            print(f">> REMOVED {cvt.tid_to_mpsz(removed)} from hand to make room.")
-                        self.env.hands[player_id].append(new_tid)
-                        self.env.hands[player_id].sort() # Keep sorted
-                        
-                        consumed_tids.append(new_tid)
-                        # Update local copy just in case
-                        hand_copy.append(new_tid) 
-                        
-                action = Action(
-                    ActionType.PON,
-                    tile=target_tile,
-                    consume_tiles=consumed_tids,
-                )
-                step_actions = {player_id: action}
-                for pid in self.obs_dict.keys():
-                    if pid != player_id:
-                         step_actions[pid] = Action(ActionType.PASS)
-                self.obs_dict = self.env.step(step_actions)
-                if self._verbose:
-                    print(">> OBS (AFTER PON)", self.obs_dict)
+
+            assert len([a for a in obs.legal_actions() if a.type == ActionType.PON]), "ActionType.PON not found"
+            action = [a for a in obs.legal_actions() if a.type == ActionType.PON and cvt.tid_to_mpsz(a.tile) == cvt.tid_to_mpsz(target_tile)][0]
+            step_actions = {player_id: action}
+            for pid in self.obs_dict.keys():
+                if pid != player_id:
+                    step_actions[pid] = Action(ActionType.PASS)
+            self.obs_dict = self.env.step(step_actions)
+            if self._verbose:
+                print(">> OBS (AFTER PON)", self.obs_dict)
 
         elif event["data"]["type"] == 0:
             # CHI
             chi_actions = [a for a in obs.legal_actions() if a.type == ActionType.CHI]
-            if not chi_actions:
-                print(f">> WARNING: CHI event received but not legal. Hand: {obs.hand}. Events: {obs.events}")
-            else:
-                consumed_mpsz_list = [t for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] == player_id]
-                target_tile_list = [cvt.mpsz_to_tid(t) for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] != player_id]
-                target_tile = target_tile_list[0]
-                
-                consumed_tids = []
-                # Smart Scan for CHI
-                hand_copy = list(self.obs_dict[player_id].hand)
-                for mpsz in consumed_mpsz_list:
-                    found_tid = None
-                    for tid in hand_copy:
-                        if cvt.tid_to_mpsz(tid) == mpsz:
-                            found_tid = tid
-                            break
-                    
-                    if found_tid is not None:
-                        consumed_tids.append(found_tid)
-                        hand_copy.remove(found_tid)
-                    else:
-                        # Not found -> Force Patch
-                        if self._verbose:
-                            print(f">> WARNING: Missing tile {mpsz} for CHI. Hand: {cvt.tid_to_mpsz_list(self.obs_dict[player_id].hand)}")
-                            print(f">> TRUST: Patching hand to include {mpsz} for CHI.")
-                        
-                        new_tid = cvt.mpsz_to_tid(mpsz)
-                        if self.env.hands[player_id]:
-                            removed = self.env.hands[player_id].pop(0)
-                            if self._verbose:
-                                print(f">> REMOVED {cvt.tid_to_mpsz(removed)} from hand.")
-                        self.env.hands[player_id].append(new_tid)
-                        self.env.hands[player_id].sort()
-                        consumed_tids.append(new_tid)
-                        hand_copy.append(new_tid)
-
-                action = Action(ActionType.CHI, tile=target_tile, consume_tiles=consumed_tids)
-                step_actions = {player_id: action}
-                for pid in self.obs_dict.keys():
-                    if pid != player_id:
-                        step_actions[pid] = Action(ActionType.PASS)
-                self.obs_dict = self.env.step(step_actions)
-                if self._verbose:
-                    print(">> OBS (AFTER CHI)", self.obs_dict)
+            assert len(chi_actions), "ActionType.CHI not found"
+            consumed_mpsz_list = [t for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] == player_id]
+            target_tile_list = [cvt.mpsz_to_tid(t) for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] != player_id]
+            target_tile = target_tile_list[0]
             
+            consumed_tids = []
+            # Smart Scan for CHI
+            hand_copy = list(self.obs_dict[player_id].hand)
+            for mpsz in consumed_mpsz_list:
+                found_tid = None
+                for tid in hand_copy:
+                    if cvt.tid_to_mpsz(tid) == mpsz:
+                        found_tid = tid
+                        break
+                
+                if found_tid is not None:
+                    consumed_tids.append(found_tid)
+                    hand_copy.remove(found_tid)
+                else:
+                    # Not found -> Force Patch
+                    if self._verbose:
+                        print(f">> WARNING: Missing tile {mpsz} for CHI. Hand: {cvt.tid_to_mpsz_list(self.obs_dict[player_id].hand)}")
+                        print(f">> TRUST: Patching hand to include {mpsz} for CHI.")
+                    
+                    new_tid = cvt.mpsz_to_tid(mpsz)
+                    if self.env.hands[player_id]:
+                        removed = self.env.hands[player_id].pop(0)
+                        if self._verbose:
+                            print(f">> REMOVED {cvt.tid_to_mpsz(removed)} from hand.")
+                    self.env.hands[player_id].append(new_tid)
+                    self.env.hands[player_id].sort()
+                    consumed_tids.append(new_tid)
+                    hand_copy.append(new_tid)
+
+            action = Action(ActionType.CHI, tile=target_tile, consume_tiles=consumed_tids)
+            step_actions = {player_id: action}
+            for pid in self.obs_dict.keys():
+                if pid != player_id:
+                    step_actions[pid] = Action(ActionType.PASS)
+            self.obs_dict = self.env.step(step_actions)
+            if self._verbose:
+                print(">> OBS (AFTER CHI)", self.obs_dict)
+
         elif event["data"]["type"] == 2:
             # DAIMINKAN (Open Kan)
             assert len([a for a in obs.legal_actions() if a.type == ActionType.DAIMINKAN]), "ActionType.DAIMINKAN not found"

@@ -183,6 +183,7 @@ class RiichiEnv:
         # Store Agari results for verification
         # Key: player_id, Value: Agari object from Rust
         self.agari_results = {}
+        self.pao: list[dict[int, int]] = [{} for _ in range(4)]  # pid -> {yaku_id: from_pid}
         self._verbose = False  # Default
 
         # Initialize tiles
@@ -871,7 +872,7 @@ class RiichiEnv:
                 action = valid_actions[claimer]
 
                 # Execute Meld
-                self._execute_claim(claimer, action)
+                self._execute_claim(claimer, action, from_pid=self.current_player)
                 self.is_rinshan_flag = False
 
                 # Any call breaks Ippatsu for everyone
@@ -910,7 +911,7 @@ class RiichiEnv:
                 claimer = chiers[0]
                 action = valid_actions[claimer]
 
-                self._execute_claim(claimer, action)
+                self._execute_claim(claimer, action, from_pid=self.current_player)
                 self.is_rinshan_flag = False
 
                 # Any call breaks Ippatsu for everyone
@@ -1258,7 +1259,7 @@ class RiichiEnv:
 
         return actions
 
-    def _execute_claim(self, pid: int, action: Action):
+    def _execute_claim(self, pid: int, action: Action, from_pid: int | None = None):
         """Executes a claim action (PON, CHI, KAN)"""
         # 1. Remove tiles from hand
         hand = self.hands[pid]
@@ -1334,6 +1335,31 @@ class RiichiEnv:
         # Check calling logic
         meld = Meld(m_type, tiles, opened)
         self.melds.setdefault(pid, []).append(meld)
+
+        # Pao (Responsibility Payment) Detection
+        # Check if this call establishes Daisangen or Daisuushii Pao
+        if from_pid is not None and action.type in [ActionType.PON, ActionType.DAIMINKAN]:
+            t_type = action.tile // 4
+            if t_type in [31, 32, 33]:  # Dragons (White, Green, Red)
+                # Count dragon triplets ALREADY in melds (including the one just added)
+                dragon_triplets = 0
+                for m in self.melds.get(pid, []):
+                    if m.meld_type in [MeldType.Peng, MeldType.Gang, MeldType.Addgang]:
+                        if m.tiles[0] // 4 in [31, 32, 33]:
+                            dragon_triplets += 1
+                if dragon_triplets == 3:
+                    # Establish Pao for Daisangen (ID 37)
+                    self.pao[pid][37] = from_pid
+            elif t_type in [27, 28, 29, 30]:  # Winds (E, S, W, N)
+                # Count wind triplets
+                wind_triplets = 0
+                for m in self.melds.get(pid, []):
+                    if m.meld_type in [MeldType.Peng, MeldType.Gang, MeldType.Addgang]:
+                        if m.tiles[0] // 4 in [27, 28, 29, 30]:
+                            wind_triplets += 1
+                if wind_triplets == 4:
+                    # Establish Pao for Daisuushii (ID 50)
+                    self.pao[pid][50] = from_pid
 
         # 3. Log MJAI
         mjai_type = "pon"
@@ -1433,44 +1459,69 @@ class RiichiEnv:
         """
         deltas = [0, 0, 0, 0]
 
+        # Check Pao (Responsibility Payment)
+        pao_pid = None
+        for y_id in [37, 50]:  # 37: Daisangen, 50: Daisuushii
+            if y_id in agari.yaku and y_id in self.pao[winner]:
+                pao_pid = self.pao[winner][y_id]
+                break
+
         # Base win points
         if is_tsumo:
             # Tsumo
-            # If Oya wins, `tsumo_agari_oya` is likely the payment per person.
-            # If Ko wins, `tsumo_agari_oya` is payment by Oya, `tsumo_agari_ko` is payment by Ko.
-            if winner == self.oya:  # Dealer
-                # Dealer (Oya) Tsumo
-                # Based on verification: tsumo_agari_ko holds the payment amount for Kids.
-                # tsumo_agari_oya is 0 because there is no Oya to pay.
-                payment_all = agari.tsumo_agari_ko
-                total_win = 0
+            if pao_pid is not None:
+                # Accountability Payment: Pao player pays all
+                if winner == self.oya:
+                    total_win = agari.tsumo_agari_ko * 3
+                else:
+                    total_win = agari.tsumo_agari_oya + agari.tsumo_agari_ko * 2
+                
                 for pid in range(4):
-                    if pid != winner:
-                        deltas[pid] = -payment_all
-                        total_win += payment_all
-                deltas[winner] = total_win
+                    if pid == winner:
+                        deltas[pid] = total_win
+                    elif pid == pao_pid:
+                        deltas[pid] = -total_win
+                    else:
+                        deltas[pid] = 0
             else:
-                # Child (Ko) Tsumo
-                payment_oya = agari.tsumo_agari_oya
-                payment_ko = agari.tsumo_agari_ko
-                total_win = 0
-                for pid in range(4):
-                    if pid != winner:
-                        if pid == 0:  # Oya
-                            deltas[pid] = -payment_oya
-                            total_win += payment_oya
-                        else:  # Ko
-                            deltas[pid] = -payment_ko
-                            total_win += payment_ko
-                deltas[winner] = total_win
+                # Normal Tsumo
+                if winner == self.oya:  # Dealer
+                    payment_all = agari.tsumo_agari_ko
+                    total_win = 0
+                    for pid in range(4):
+                        if pid != winner:
+                            deltas[pid] = -payment_all
+                            total_win += payment_all
+                    deltas[winner] = total_win
+                else:
+                    # Child (Ko) Tsumo
+                    payment_oya = agari.tsumo_agari_oya
+                    payment_ko = agari.tsumo_agari_ko
+                    total_win = 0
+                    for pid in range(4):
+                        if pid != winner:
+                            if pid == self.oya:
+                                deltas[pid] = -payment_oya
+                                total_win += payment_oya
+                            else:
+                                deltas[pid] = -payment_ko
+                                total_win += payment_ko
+                    deltas[winner] = total_win
 
         else:
             # Ron
-            # Loser pays full amount 'ron_agari'
             score = agari.ron_agari
-            if loser is not None:
-                deltas[loser] = -score
-            deltas[winner] = score
+            if pao_pid is not None and loser != pao_pid:
+                # Pao player and Discarder split the cost
+                half_score = score // 2
+                deltas[loser] = -half_score
+                deltas[pao_pid] = -half_score
+                deltas[winner] = score
+            else:
+                # Normal Ron
+                if loser is not None:
+                    deltas[loser] = -score
+                deltas[winner] = score
 
         # Add Riichi Sticks to winning total
         # Any riichi sticks currently on table go to winner
