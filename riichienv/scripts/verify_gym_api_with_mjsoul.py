@@ -190,69 +190,33 @@ class MjsoulEnvVerifier:
         assert self.obs_dict is not None
 
     def _discard_tile(self, event: Any) -> None:
-        if self._verbose:
-            print(">> OBS", self.obs_dict)
-            print("--")
-            print(">> EVENT", event)
-            print(f">> PHASE: {self.env.phase}")
-
         while self.env.phase != Phase.WAIT_ACT:
             if self._verbose:
-                print(f">> WAITING loop... obs keys: {list(self.obs_dict.keys())} Phase: {self.env.phase}")
+                logger.debug(f">> WAITING loop... obs keys: {list(self.obs_dict.keys())} Phase: {self.env.phase}")
+
             # Skip action
             self.obs_dict = self.env.step({skip_player_id: Action(ActionType.PASS) for skip_player_id in self.obs_dict.keys()})
 
         player_id = event["data"]["seat"]
         candidate_tiles = set([cvt.tid_to_mpsz(a.tile) for a in self.obs_dict[player_id].legal_actions() if a.type == ActionType.DISCARD])
         assert player_id == event["data"]["seat"]
-        if event["data"]["tile"] not in candidate_tiles:
-            if self._verbose:
-                logger.warning(f">> WARNING: FAILED DISCARD: tile {event['data']['tile']} not in candidate tiles. Log may be repeating history or wall desync.")
-                logger.warning(f"Hand: {cvt.tid_to_mpsz_list(self.obs_dict[player_id].hand)}")
-            
-            # Force Hand Patch
-            target_tid = cvt.mpsz_to_tid(event["data"]["tile"])
-            if self._verbose:
-                logger.warning(f">> TRUST: Patching hand to include {event['data']['tile']} for discard.")
-            
-            # Remove last tile (assumed drawn) to maintain count, if hand is full (14 or 11/8/5 etc + 1?)
-            # Just remove last tile to be safe on count.
-            if self.env.hands[player_id]:
-                removed = self.env.hands[player_id].pop()
-                if self._verbose:
-                    logger.warning(f">> REMOVED {cvt.tid_to_mpsz(removed)} from hand.")
-            
-            self.env.hands[player_id].append(target_tid)
-            
-            # Refresh observation legal actions?
-            # We can just manually construct action, self.env.step will just execute if tile is in hand.
-             
-        # Normal discard (or forced)
-        # Re-fetch legal actions or just construct specific action
-        # Riichi Step
+        assert event["data"]["tile"] in candidate_tiles, f"Tile {event['data']['tile']} not in candidate tiles. Log may be repeating history or wall desync."
+
+        # Riichi Step =====================
         is_liqi = event["data"].get("is_liqi", False)
-        if self._verbose:
-            logger.debug(f"DEBUG: Checking is_liqi. Value={is_liqi} Type={type(is_liqi)}")
-            
         if is_liqi:
             if self._verbose:
-                print(f">> TRUST: Executing RIICHI step for {player_id}")
-            # Helper to find Riichi action
+                logger.debug(f">> TRUST: Executing RIICHI step for {player_id}")
+
             riichi_actions = [a for a in self.obs_dict[player_id].legal_actions() if a.type == ActionType.RIICHI]
-            if riichi_actions:
-                self.obs_dict = self.env.step({player_id: riichi_actions[0]})
-            else:
-                if self._verbose:
-                    print(">> WARNING: Riichi flag true but no Riichi action? Forcing Riichi action.")
-                self.obs_dict = self.env.step({player_id: Action(ActionType.RIICHI)})
+            assert len(riichi_actions) > 0, "Riichi flag true but no Riichi action."
+            self.obs_dict = self.env.step({player_id: riichi_actions[0]})
 
         if player_id == 0 and len(self.obs_dict[player_id].hand) < 13:
             if self._verbose:
                 logger.debug(f"DEBUG: Player 0 Hand Size Mismatch! Size= {len(self.obs_dict[player_id].hand)}")
-                logger.debug(f"DEBUG: Player 0 Events: {self.obs_dict[player_id].events}")
 
-        # Discard Step
-        # Manually construct action to ensure we use the target tile
+        # Discard Step ====================
         target_mpsz = event["data"]["tile"]
         target_tid = cvt.mpsz_to_tid(target_mpsz)
         
