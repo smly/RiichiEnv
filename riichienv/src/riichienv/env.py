@@ -1411,7 +1411,20 @@ class RiichiEnv:
         matches = [t for t in hand if t // 4 == tile_type]
         if len(matches) < 2:
             return []
-        return [matches[:2]]
+
+        reds = [t for t in matches if t in [16, 52, 88]]
+        normals = [t for t in matches if t not in [16, 52, 88]]
+
+        options = []
+        # Case 1: Two normals
+        if len(normals) >= 2:
+            options.append([normals[0], normals[1]])
+        # Case 2: One normal, one red
+        if len(normals) >= 1 and len(reds) >= 1:
+            options.append(sorted([normals[0], reds[0]]))
+        # Note: len(reds) >= 2 is not possible in standard 4p 3-aka rules.
+
+        return options
 
     def _can_kan(self, hand: list[int], tile: int) -> list[list[int]]:
         """Daiminkan"""
@@ -1428,27 +1441,36 @@ class RiichiEnv:
             return []  # Honors check
 
         idx = t_type % 9
-        hand_types = sorted(list(set(t // 4 for t in hand)))
         options = []
 
-        # Left: T-2, T-1, T
+        def get_candidates(rank):
+            matches = [t for t in hand if t // 4 == rank]
+            if not matches:
+                return []
+            reds = [t for t in matches if t in [16, 52, 88]]
+            normals = [t for t in matches if t not in [16, 52, 88]]
+            res = []
+            if reds:
+                res.append(reds[0])
+            if normals:
+                res.append(normals[0])
+            return res
+
+        # Check for rank pairs (r1, r2)
+        pairs = []
         if idx >= 2:
-            if (t_type - 2) in hand_types and (t_type - 1) in hand_types:
-                c1 = next(t for t in hand if t // 4 == t_type - 2)
-                c2 = next(t for t in hand if t // 4 == t_type - 1)
-                options.append([c1, c2])
-        # Center: T-1, T, T+1
+            pairs.append((t_type - 2, t_type - 1))
         if idx >= 1 and idx <= 7:
-            if (t_type - 1) in hand_types and (t_type + 1) in hand_types:
-                c1 = next(t for t in hand if t // 4 == t_type - 1)
-                c2 = next(t for t in hand if t // 4 == t_type + 1)
-                options.append([c1, c2])
-        # Right: T, T+1, T+2
+            pairs.append((t_type - 1, t_type + 1))
         if idx <= 6:
-            if (t_type + 1) in hand_types and (t_type + 2) in hand_types:
-                c1 = next(t for t in hand if t // 4 == t_type + 1)
-                c2 = next(t for t in hand if t // 4 == t_type + 2)
-                options.append([c1, c2])
+            pairs.append((t_type + 1, t_type + 2))
+
+        for r1, r2 in pairs:
+            c1s = get_candidates(r1)
+            c2s = get_candidates(r2)
+            for c1 in c1s:
+                for c2 in c2s:
+                    options.append(sorted([c1, c2]))
         return options
 
     def _calculate_deltas(self, agari, winner, is_tsumo, loser=None):

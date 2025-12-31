@@ -563,13 +563,31 @@ class MjsoulEnvVerifier:
             return False
 
     def _handle_chipenggang(self, event: Any, player_id: int, obs: Any):
-        if event["data"]["type"] == 1:
-            # PON
-            target_tile_list = [cvt.mpsz_to_tid(t) for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] != player_id]
-            target_tile = target_tile_list[0]
+        data = event["data"]
+        call_tile = None
+        consume_tiles_mpsz = []
+        for i, t in enumerate(data["tiles"]):
+            if data["froms"][i] == player_id:
+                consume_tiles_mpsz.append(t)
+            else:
+                call_tile = t
+        consume_tiles_mpsz.sort()
 
-            assert len([a for a in obs.legal_actions() if a.type == ActionType.PON]), "ActionType.PON not found"
-            action = [a for a in obs.legal_actions() if a.type == ActionType.PON and cvt.tid_to_mpsz(a.tile) == cvt.tid_to_mpsz(target_tile)][0]
+        if data["type"] == 1:
+            # PON
+            pon_actions = [a for a in obs.legal_actions() if a.type == ActionType.PON]
+            assert pon_actions, "ActionType.PON not found"
+
+            target_action = None
+            for a in pon_actions:
+                if cvt.tid_to_mpsz(a.tile) == call_tile:
+                    a_consume_mpsz = sorted(cvt.tid_to_mpsz_list(a.consume_tiles))
+                    if a_consume_mpsz == consume_tiles_mpsz:
+                        target_action = a
+                        break
+
+            assert target_action is not None, f"No matching PON action for consumed {consume_tiles_mpsz}. Avail: {[cvt.tid_to_mpsz_list(a.consume_tiles) for a in pon_actions]}"
+            action = target_action
             step_actions = {player_id: action}
             for pid in self.obs_dict.keys():
                 if pid != player_id:
@@ -578,44 +596,21 @@ class MjsoulEnvVerifier:
             if self._verbose:
                 print(">> OBS (AFTER PON)", self.obs_dict)
 
-        elif event["data"]["type"] == 0:
+        elif data["type"] == 0:
             # CHI
             chi_actions = [a for a in obs.legal_actions() if a.type == ActionType.CHI]
-            assert len(chi_actions), "ActionType.CHI not found"
-            consumed_mpsz_list = [t for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] == player_id]
-            target_tile_list = [cvt.mpsz_to_tid(t) for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] != player_id]
-            target_tile = target_tile_list[0]
-            
-            consumed_tids = []
-            # Smart Scan for CHI
-            hand_copy = list(self.obs_dict[player_id].hand)
-            for mpsz in consumed_mpsz_list:
-                found_tid = None
-                for tid in hand_copy:
-                    if cvt.tid_to_mpsz(tid) == mpsz:
-                        found_tid = tid
-                        break
-                
-                if found_tid is not None:
-                    consumed_tids.append(found_tid)
-                    hand_copy.remove(found_tid)
-                else:
-                    # Not found -> Force Patch
-                    if self._verbose:
-                        print(f">> WARNING: Missing tile {mpsz} for CHI. Hand: {cvt.tid_to_mpsz_list(self.obs_dict[player_id].hand)}")
-                        print(f">> TRUST: Patching hand to include {mpsz} for CHI.")
-                    
-                    new_tid = cvt.mpsz_to_tid(mpsz)
-                    if self.env.hands[player_id]:
-                        removed = self.env.hands[player_id].pop(0)
-                        if self._verbose:
-                            print(f">> REMOVED {cvt.tid_to_mpsz(removed)} from hand.")
-                    self.env.hands[player_id].append(new_tid)
-                    self.env.hands[player_id].sort()
-                    consumed_tids.append(new_tid)
-                    hand_copy.append(new_tid)
+            assert chi_actions, "ActionType.CHI not found"
 
-            action = Action(ActionType.CHI, tile=target_tile, consume_tiles=consumed_tids)
+            target_action = None
+            for a in chi_actions:
+                if cvt.tid_to_mpsz(a.tile) == call_tile:
+                    a_consume_mpsz = sorted(cvt.tid_to_mpsz_list(a.consume_tiles))
+                    if a_consume_mpsz == consume_tiles_mpsz:
+                        target_action = a
+                        break
+
+            assert target_action is not None, f"No matching CHI action for consumed {consume_tiles_mpsz}. Avail: {[cvt.tid_to_mpsz_list(a.consume_tiles) for a in chi_actions]}"
+            action = target_action
             step_actions = {player_id: action}
             for pid in self.obs_dict.keys():
                 if pid != player_id:
@@ -624,45 +619,21 @@ class MjsoulEnvVerifier:
             if self._verbose:
                 print(">> OBS (AFTER CHI)", self.obs_dict)
 
-        elif event["data"]["type"] == 2:
+        elif data["type"] == 2:
             # DAIMINKAN (Open Kan)
-            assert len([a for a in obs.legal_actions() if a.type == ActionType.DAIMINKAN]), "ActionType.DAIMINKAN not found"
-             
-            consumed_mpsz_list = [t for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] == player_id]
-            target_tile_list = [cvt.mpsz_to_tid(t) for i, t in enumerate(event["data"]["tiles"]) if event["data"]["froms"][i] != player_id]
-            target_tile = target_tile_list[0]
+            kan_actions = [a for a in obs.legal_actions() if a.type == ActionType.DAIMINKAN]
+            assert kan_actions, "ActionType.DAIMINKAN not found"
 
-            consumed = []
-            # Smart Scan for DAIMINKAN
-            hand_copy = list(self.obs_dict[player_id].hand)
-            for mpsz in consumed_mpsz_list:
-                found_tid = None
-                for tid in hand_copy:
-                    if cvt.tid_to_mpsz(tid) == mpsz:
-                        found_tid = tid
+            target_action = None
+            for a in kan_actions:
+                if cvt.tid_to_mpsz(a.tile) == call_tile:
+                    a_consume_mpsz = sorted(cvt.tid_to_mpsz_list(a.consume_tiles))
+                    if a_consume_mpsz == consume_tiles_mpsz:
+                        target_action = a
                         break
-                
-                if found_tid is not None:
-                    consumed.append(found_tid)
-                    hand_copy.remove(found_tid)
-                else:
-                    # Not found -> Force Patch
-                    if self._verbose:
-                        print(f">> WARNING: Missing tile {mpsz} for DAIMINKAN. Hand: {cvt.tid_to_mpsz_list(self.obs_dict[player_id].hand)}")
-                        print(f">> TRUST: Patching hand to include {mpsz} for DAIMINKAN.")
-                    
-                    new_tid = cvt.mpsz_to_tid(mpsz)
-                    if self.env.hands[player_id]:
-                        removed = self.env.hands[player_id].pop(0)
-                        if self._verbose:
-                            print(f">> REMOVED {cvt.tid_to_mpsz(removed)} from hand.")
-                    self.env.hands[player_id].append(new_tid)
-                    self.env.hands[player_id].sort()
-                    consumed.append(new_tid)
-                    hand_copy.append(new_tid)
 
-            action = Action(ActionType.DAIMINKAN, tile=target_tile, consume_tiles=consumed)
-             
+            assert target_action is not None, f"No matching DAIMINKAN action for consumed {consume_tiles_mpsz}"
+            action = target_action
             step_actions = {player_id: action}
             for pid in self.obs_dict.keys():
                 if pid != player_id:
@@ -670,10 +641,11 @@ class MjsoulEnvVerifier:
             self.obs_dict = self.env.step(step_actions)
             if self._verbose:
                 print(">> OBS (AFTER DAIMINKAN)", self.obs_dict)
-        
+
         else:
             print(f">> WARNING: Unhandled ChiPengGang type {event['data']['type']}")
             pass
+
 
 def main(path: str, skip: int = 0, verbose: bool = False) -> None:
     game = ReplayGame.from_json(path)
