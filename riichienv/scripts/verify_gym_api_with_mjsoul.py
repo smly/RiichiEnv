@@ -95,6 +95,10 @@ stream_handler.setFormatter(LevelFormatter(formatters))
 logger.addHandler(stream_handler)
 logger.setLevel(logging.INFO)
 
+if os.environ.get("DEBUG") == "1":
+    logger.setLevel(logging.DEBUG)
+    stream_handler.setLevel(logging.DEBUG)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -224,28 +228,40 @@ class MjsoulEnvVerifier:
         self.obs_dict = self.env.step({player_id: actions[0]})
 
     def _liuju(self, event: Any) -> None:
-        # 流局
+        # 流局 (Midway Draw)
         # 1: 九種九牌, 2: 四風連打, 3: 四槓散了, 4: 四家立直
-        # TODO: verification する。いまのデータは event 内のデータが抜けているので検証できない
-        if self._verbose:
-            logger.warning("liuju event: {}".format(json.dumps(event)))
+        data = event["data"]
+        lj_type = data.get("type", 0)
+        seat = data.get("seat", 0)
+        tiles = data.get("tiles", [])
 
-        # 九種九牌のアクションが存在するか確認して、それを選択してステップを進める
-        # self.obs_dict = self.env._get_observations(self.env.active_players)
-        for pid, obs in self.obs_dict.items():
-            if self._verbose:
-                print(f">> legal_actions() {pid} {obs.legal_actions()}")
-                
-                # Check for KYUSHU_KYUHAI
-                kyushu_actions = [a for a in obs.legal_actions() if a.type == ActionType.KYUSHU_KYUHAI]
-                if kyushu_actions:
-                    if self._verbose:
-                        print(f">> Player {pid} has KYUSHU_KYUHAI")
-                    # Execute it
-                    self.obs_dict = self.env.step({pid: kyushu_actions[0]})
-                    if self._verbose:
-                        print(f">> Executed KYUSHU_KYUHAI. Done: {self.env.done()}")
-                    break
+        if self._verbose:
+            logger.info(f"LiuJu event: type={lj_type}, seat={seat}, tiles={tiles}")
+
+        if lj_type == 1:
+            # 九種九牌: 宣言席のプレイヤーがアクションを選択してステップを進める
+            obs = self.obs_dict[seat]
+            kyushu_actions = [a for a in obs.legal_actions() if a.type == ActionType.KYUSHU_KYUHAI]
+            assert kyushu_actions, f"No KYUSHU_KYUHAI action found for player {seat}"
+            
+            self.obs_dict = self.env.step({seat: kyushu_actions[0]})
+        else:
+            # 自動的に発生する流局（四風連打など）
+            # env 側ですでに is_done が True になっているはず
+            assert self.env.is_done, f"Env should be done for LiuJu type {lj_type}"
+
+    def _no_tile(self, event: Any) -> None:
+        # 荒牌平局 (Exhaustive Draw)
+        data = event["data"]
+        liujumanguan = data.get("liujumanguan", False)
+        players = data.get("players", [])
+        scores = data.get("scores", [])
+
+        if self._verbose:
+            logger.info(f"NoTile event: liujumanguan={liujumanguan}, players={players}, scores={scores}")
+
+        # env.is_done が True であることを確認
+        assert self.env.is_done, "Env should be done for NoTile (Exhaustive Draw)"
 
     def _hule(self, event: Any) -> None:
         is_zimo = any(h.get("zimo", False) for h in event["data"]["hules"])
@@ -391,6 +407,10 @@ class MjsoulEnvVerifier:
                     if calc.han != hule["count"] or calc.fu != hule["fu"]:
                         logger.debug(f">> HAN/FU MISMATCH: Mine {calc.han} Han {calc.fu} Fu, Expected {hule['count']} Han {hule['fu']} Fu")
                         logger.debug(f">> Calculated Yaku IDs: {calc.yaku}")
+                    if calc.han != hule["count"]:
+                        logger.debug(f">> HAN MISMATCH: Mine {calc.han}, Expected {hule['count']}")
+                        logger.debug(f">> Calculated Yaku IDs: {calc.yaku}")
+                        logger.debug(f">> Expected Yaku IDs: {[f['id'] for f in hule.get('fans', [])]}")
                     assert calc.han == hule["count"]
                     assert calc.fu == hule["fu"]
             except AssertionError as e:
@@ -426,7 +446,7 @@ class MjsoulEnvVerifier:
 
                 # If Env is waiting for responses (Ron/Pon/Chi) but the Log event is not one of those,
                 # it means all players PASSed. We must synchronize the Env.
-                while self.env.phase == Phase.WAIT_RESPONSE and event["name"] not in ["Hule", "ChiPengGang", "AnGangAddGang"]:
+                while not self.env.is_done and self.env.phase == Phase.WAIT_RESPONSE and event["name"] not in ["Hule", "ChiPengGang", "AnGangAddGang"]:
                     pids = self.env.active_players
                     assert pids, "Active players is empty while Env is in WAIT_RESPONSE"
                     self.obs_dict = self.env.step({pid: Action(ActionType.PASS) for pid in pids})
@@ -448,19 +468,18 @@ class MjsoulEnvVerifier:
                         assert self.env.done()
 
                     case "LiuJu":
+                        # 途中流局 | 1: 九種九牌, 2: 四風連打, 3: 四槓散了, 4: 四家立直
                         self._liuju(event)
-                        # TODO: 一局戦モードであれば終了となるべき
-                        # assert self.env.done()
+                        assert self.env.is_done, "Env should be done after LiuJu"
                         
                     case "NoTile":
-                        # NoTile usually implies Ryukyoku (Exhaustive Draw)
-                        # TODO: 一局戦モードであれば終了となるべき
-                        # assert self.env.done()
-                        pass
+                        # 荒牌平局
+                        self._no_tile(event)
+                        assert self.env.is_done, "Env should be done after NoTile"
 
                     case "AnGangAddGang":
                         # Ensure we are in WAIT_ACT for self-actions (Ankan/Kakan)
-                        while self.env.phase != Phase.WAIT_ACT:
+                        while not self.env.is_done and self.env.phase != Phase.WAIT_ACT:
                             # Skip action (Pass on claims)
                             self.obs_dict = self.env.step({skip_player_id: Action(ActionType.PASS) for skip_player_id in self.obs_dict.keys()})
 
@@ -550,6 +569,14 @@ class MjsoulEnvVerifier:
                     case _:
                         logger.error("UNHANDLED Event: {}".format(json.dumps(event)))
                         assert False, f"UNHANDLED Event: {event}"
+
+            # print("-" * 60)
+            # print(len(self.env.wall))
+            # print(self.env.scores)
+            # print(self.env.done())
+            # print(self.env.turn_count)
+            # print(self.env.agari_results)
+            assert self.env.is_done
 
             return True
 

@@ -48,7 +48,11 @@ pub enum Action {
         hules: Vec<HuleData>,
     },
     NoTile,
-    LiuJu,
+    LiuJu {
+        lj_type: u8,
+        seat: usize,
+        tiles: Vec<u8>,
+    },
     Other(String),
 }
 
@@ -131,7 +135,14 @@ pub enum RawAction {
     #[serde(rename = "NoTile")]
     NoTile {},
     #[serde(rename = "LiuJu")]
-    LiuJu {},
+    LiuJu {
+        #[serde(rename = "type", default)]
+        lj_type: u8,
+        #[serde(default)]
+        seat: usize,
+        #[serde(default)]
+        tiles: Vec<String>,
+    },
     #[serde(other)]
     Other,
 }
@@ -530,8 +541,17 @@ impl Kyoku {
                 Action::NoTile => {
                     a_event.set_item("name", "NoTile")?;
                 }
-                Action::LiuJu => {
+                Action::LiuJu {
+                    lj_type,
+                    seat,
+                    tiles,
+                } => {
                     a_event.set_item("name", "LiuJu")?;
+                    a_data.set_item("type", lj_type)?;
+                    a_data.set_item("seat", seat)?;
+                    let t_strs: Vec<String> =
+                        tiles.iter().map(|t| TileConverter::to_string(*t)).collect();
+                    a_data.set_item("tiles", t_strs)?;
                 }
                 Action::Other(_) => {
                     continue;
@@ -758,7 +778,18 @@ impl Kyoku {
                 dora_marker: TileConverter::parse_tile_136(&dora_marker),
             },
             RawAction::NoTile {} => Action::NoTile,
-            RawAction::LiuJu {} => Action::LiuJu,
+            RawAction::LiuJu {
+                lj_type,
+                seat,
+                tiles,
+            } => Action::LiuJu {
+                lj_type,
+                seat,
+                tiles: tiles
+                    .iter()
+                    .map(|v| TileConverter::parse_tile_136(v))
+                    .collect(),
+            },
             _ => Action::Other("Other".to_string()),
         }
     }

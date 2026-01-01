@@ -92,7 +92,7 @@ class TestKakan:
         for ev in env.mjai_log[-3:]:  # check last 3
             # RiichiEnv currently logs KAKAN as type="kan" with 1 consumed tile (the added tile).
             # ANKAN consumes 4, DAIMINKAN consumes 3.
-            if ev["type"] == "kan" and len(ev.get("consumed", [])) == 1:
+            if ev["type"] == "kakan" and len(ev.get("consumed", [])) == 1:
                 found_kakan = True
                 break
 
