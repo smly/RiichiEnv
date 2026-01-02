@@ -430,11 +430,6 @@ class MjsoulEnvVerifier:
         try:
             events = kyoku.events()
             for event in events:
-                if event["name"] in ["DealTile", "DiscardTile"] and "doras" in event["data"]:
-                    # Always treat Log as authoritative for the LIST of doras (including duplicates)
-                    log_doras = [cvt.mpsz_to_tid(d) for d in event["data"]["doras"]]
-                    # assert len(self.env.dora_indicators) == len(log_doras)
-
                 # If Env is waiting for responses (Ron/Pon/Chi) but the Log event is not one of those,
                 # it means all players PASSed. We must synchronize the Env.
                 while not self.env.is_done and self.env.phase == Phase.WAIT_RESPONSE and event["name"] not in ["Hule", "ChiPengGang", "AnGangAddGang"]:
