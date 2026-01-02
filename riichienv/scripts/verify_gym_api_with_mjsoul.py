@@ -525,7 +525,6 @@ class MjsoulEnvVerifier:
 
             # Smart Scan for Ankan
             # We need to find 4 tiles in hand that match the target tile type.
-            # If target is "1m", we need four 1m tiles (could be red?).
             base_type = target_mpsz.replace("0", "5").replace("r", "") # 0m -> 5m
             found_tids = []
             hand_copy = list(self.obs_dict[player_id].hand)

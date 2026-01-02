@@ -267,7 +267,7 @@ class RiichiEnv:
         """
         素点+順位点で持ち点計算
         """
-        preset_rules = {
+        preset_rules: dict[str, dict[str, Any]] = {
             "basic": {
                 "soten_weight": 1,
                 "soten_base": 25000,
@@ -285,13 +285,13 @@ class RiichiEnv:
             },
         }
 
-        rule = cast(dict[str, Any], preset_rules.get(preset_rule))
+        rule = preset_rules.get(preset_rule)
         if rule is None:
             raise ValueError(f"Unknown preset rule: {preset_rule}")
 
-        soten_weight = cast(int, rule["soten_weight"])
-        soten_base = cast(int, rule["soten_base"])
-        jun_weight = cast(list[int], rule["jun_weight"])
+        soten_weight: int = rule["soten_weight"]
+        soten_base: int = rule["soten_base"]
+        jun_weight: list[int] = rule["jun_weight"]
         ranks = self.ranks()
         return [
             int((self._scores[i] - soten_base) / 1000.0 * soten_weight + jun_weight[ranks[i] - 1]) for i in range(4)
