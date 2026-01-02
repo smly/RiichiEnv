@@ -2,7 +2,7 @@ import hashlib
 import random
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, cast
+from typing import Any
 
 from . import _riichienv  # type: ignore
 from ._riichienv import Meld, MeldType  # type: ignore
