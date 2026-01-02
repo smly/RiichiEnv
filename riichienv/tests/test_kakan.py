@@ -90,10 +90,10 @@ class TestKakan:
         # Check last few events for Kakan
         found_kakan = False
         for ev in env.mjai_log[-3:]:  # check last 3
-            # RiichiEnv currently logs KAKAN as type="kan" with 1 consumed tile (the added tile).
+            # RiichiEnv currently logs KAKAN as type="kakan" with 1 consumed tile (the added tile).
             # ANKAN consumes 4, DAIMINKAN consumes 3.
             if ev["type"] == "kakan" and len(ev.get("consumed", [])) == 1:
                 found_kakan = True
                 break
 
-        assert found_kakan, "KAKAN event should be logged (type='kan' with 1 consumed tile)"
+        assert found_kakan, "KAKAN event should be logged (type='kakan' with 1 consumed tile)"
