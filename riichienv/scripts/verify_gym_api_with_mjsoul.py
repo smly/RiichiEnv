@@ -329,12 +329,6 @@ class MjsoulEnvVerifier:
 
             # legal_actions() から取り出した hule に対応する action
             action = winning_actions[player_id]
-
-            # Ura Doras
-            ura_indicators = []
-            if "li_doras" in hule:
-                ura_indicators = [cvt.mpsz_to_tid(t) for t in hule["li_doras"]]
-
             winning_tile = action.tile
             # Use environment hand (13 tiles) for calculation, as obs.hand might be 14 for Tsumo
             hand_for_calc = self.env.hands[player_id]
