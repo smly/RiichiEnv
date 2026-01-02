@@ -406,7 +406,8 @@ class RiichiEnv:
                 if len({t // 4 for t in h14 if (t // 4) in {0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33}}) >= 9: actions.append(Action(ActionType.KYUSHU_KYUHAI))
             if self.riichi_declared[pid]:
                 if self.drawn_tile is not None:
-                    res = AgariCalculator(hand, self.melds.get(pid, [])).calc(self.drawn_tile, conditions=Conditions(tsumo=True, riichi=True, double_riichi=self.double_riichi_declared[pid], ippatsu=self.ippatsu_eligible[pid], player_wind=(pid - self.oya + 4)%4, round_wind=self._custom_round_wind, haitei=(len(self.wall) <= 14)))
+                    is_first = self.is_first_turn and len(self.discards[pid]) == 0
+                    res = AgariCalculator(hand, self.melds.get(pid, [])).calc(self.drawn_tile, conditions=Conditions(tsumo=True, riichi=True, double_riichi=self.double_riichi_declared[pid], ippatsu=self.ippatsu_eligible[pid], player_wind=(pid - self.oya + 4)%4, round_wind=self._custom_round_wind, haitei=(len(self.wall) <= 14), rinshan=self.is_rinshan_flag, tsumo_first_turn=is_first))
                     if res.agari: actions.append(Action(ActionType.TSUMO))
                     # Ankan during Riichi
                     t_type = self.drawn_tile // 4
@@ -418,7 +419,8 @@ class RiichiEnv:
                 return actions
             for t in h14: actions.append(Action(ActionType.DISCARD, tile=t))
             if self.drawn_tile is not None:
-                res = AgariCalculator(hand, self.melds.get(pid, [])).calc(self.drawn_tile, conditions=Conditions(tsumo=True, player_wind=(pid - self.oya+4)%4, round_wind=self._custom_round_wind, haitei=(len(self.wall) <= 14)))
+                is_first = self.is_first_turn and len(self.discards[pid]) == 0
+                res = AgariCalculator(hand, self.melds.get(pid, [])).calc(self.drawn_tile, conditions=Conditions(tsumo=True, riichi=self.riichi_declared[pid], double_riichi=self.double_riichi_declared[pid], ippatsu=self.ippatsu_eligible[pid], player_wind=(pid - self.oya+4)%4, round_wind=self._custom_round_wind, haitei=(len(self.wall) <= 14), rinshan=self.is_rinshan_flag, tsumo_first_turn=is_first))
                 if res.agari: actions.append(Action(ActionType.TSUMO))
             if all(not m.opened for m in self.melds.get(pid, [])) and self.scores[pid] >= 1000 and len(self.wall) >= 4:
                 if _riichienv.check_riichi_candidates(h14): actions.append(Action(ActionType.RIICHI))

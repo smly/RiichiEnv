@@ -243,12 +243,11 @@ class MjsoulEnvVerifier:
             obs = self.obs_dict[seat]
             kyushu_actions = [a for a in obs.legal_actions() if a.type == ActionType.KYUSHU_KYUHAI]
             assert kyushu_actions, f"No KYUSHU_KYUHAI action found for player {seat}"
-            
+
             self.obs_dict = self.env.step({seat: kyushu_actions[0]})
-        else:
-            # 自動的に発生する流局（四風連打など）
-            # env 側ですでに is_done が True になっているはず
-            assert self.env.is_done, f"Env should be done for LiuJu type {lj_type}"
+
+        # env 側ですでに is_done が True になっているはず
+        assert self.env.is_done, f"Env should be done for LiuJu type {lj_type}"
 
     def _no_tile(self, event: Any) -> None:
         # 荒牌平局 (Exhaustive Draw)
@@ -478,88 +477,7 @@ class MjsoulEnvVerifier:
                         assert self.env.is_done, "Env should be done after NoTile"
 
                     case "AnGangAddGang":
-                        # Ensure we are in WAIT_ACT for self-actions (Ankan/Kakan)
-                        while not self.env.is_done and self.env.phase != Phase.WAIT_ACT:
-                            # Skip action (Pass on claims)
-                            self.obs_dict = self.env.step({skip_player_id: Action(ActionType.PASS) for skip_player_id in self.obs_dict.keys()})
-
-                        player_id = event["data"]["seat"]
-                        assert player_id in self.env.active_players
-                        assert len(self.env.active_players) == 1
-
-                        obs = self.obs_dict[player_id]
-                        if event["data"]["type"] == 2:
-                            # KAKAN (Added Kan)
-                            kakan_actions = [a for a in obs.legal_actions() if a.type == ActionType.KAKAN]
-                            assert len(kakan_actions) > 0, "KAKAN action should be included in obs.legal_actions()"
-                            t = cvt.mpsz_to_tid(event["data"]["tiles"])
-                            t_base = t // 4
-
-                            target_action = None
-                            for a in kakan_actions:
-                                if a.tile // 4 == t_base:
-                                    target_action = a
-                                    break
-
-                            if target_action:
-                                action = target_action
-                            else:
-                                assert False, "KAKAN action should be included in obs.legal_actions()"
-
-                            self.obs_dict = self.env.step({player_id: action})
-
-                        elif event["data"]["type"] == 3:
-                            # ANKAN (Closed Kan)
-                            target_mpsz = event["data"]["tiles"]
-                            assert isinstance(target_mpsz, str), "ANKAN tiles should be a string"
-
-                            # Smart Scan for Ankan
-                            # We need to find 4 tiles in hand that match the target tile type.
-                            # If target is "1m", we need four 1m tiles (could be red?).
-                            base_type = target_mpsz.replace("0", "5").replace("r", "") # 0m -> 5m
-                            found_tids = []
-                            hand_copy = list(self.obs_dict[player_id].hand)
-                            for tid in hand_copy:
-                                t_mpsz = cvt.tid_to_mpsz(tid)
-                                t_base = t_mpsz.replace("0", "5").replace("r", "")
-                                if t_base == base_type:
-                                    found_tids.append(tid)
-
-                            consumed_tids = []
-                            if len(found_tids) >= 4:
-                                consumed_tids = found_tids[:4]
-                            else:
-                                if self._verbose:
-                                    print(f">> WARNING: Missing tiles for ANKAN of {target_mpsz}. Found {len(found_tids)}. Hand: {cvt.tid_to_mpsz_list(self.obs_dict[player_id].hand)}")
-                                    print(f">> TRUST: Patching hand to include 4x {target_mpsz} for ANKAN.")
-                                consumed_tids = list(found_tids)
-                                missing_count = 4 - len(found_tids)
-                                for _ in range(missing_count):
-                                    new_tid = cvt.mpsz_to_tid(target_mpsz) # Canonical
-                                    # Remove garbage
-                                    if self.env.hands[player_id]:
-                                        removed = self.env.hands[player_id].pop(0)
-                                        print(f">> REMOVED {cvt.tid_to_mpsz(removed)} from hand.")
-                                    self.env.hands[player_id].append(new_tid)
-                                    consumed_tids.append(new_tid)
-                                self.env.hands[player_id].sort()
-
-                            action = None
-                            actions = self.obs_dict[player_id].legal_actions()
-                            for a in actions:
-                                if a.type == ActionType.ANKAN and a.tile // 4 == cvt.mpsz_to_tid(target_mpsz) // 4:
-                                    action = a
-                                    break
-
-                            assert action is not None, "ANKAN action should be included in obs.legal_actions()"
-                            if self._verbose:
-                                print(f">> EXECUTING ANKAN Action: {action}")
-
-                            self.obs_dict = self.env.step({player_id: action})
-                            if self._verbose:
-                                print(">> OBS (AFTER ANKAN)", self.obs_dict)
-                        else:
-                            assert False, "UNHANDLED AnGangAddGang"
+                        self._angang_addgang(event)
 
                     case "ChiPengGang":
                         player_id = event["data"]["seat"]
@@ -570,14 +488,7 @@ class MjsoulEnvVerifier:
                         logger.error("UNHANDLED Event: {}".format(json.dumps(event)))
                         assert False, f"UNHANDLED Event: {event}"
 
-            # print("-" * 60)
-            # print(len(self.env.wall))
-            # print(self.env.scores)
-            # print(self.env.done())
-            # print(self.env.turn_count)
-            # print(self.env.agari_results)
             assert self.env.is_done
-
             return True
 
         except AssertionError as e:
@@ -589,7 +500,91 @@ class MjsoulEnvVerifier:
             traceback.print_exc()
             return False
 
-    def _handle_chipenggang(self, event: Any, player_id: int, obs: Any):
+    def _angang_addgang(self, event: Any) -> None:
+        # Ensure we are in WAIT_ACT for self-actions (Ankan/Kakan)
+        while not self.env.is_done and self.env.phase != Phase.WAIT_ACT:
+            # Skip action (Pass on claims)
+            self.obs_dict = self.env.step({skip_player_id: Action(ActionType.PASS) for skip_player_id in self.obs_dict.keys()})
+
+        player_id = event["data"]["seat"]
+        assert player_id in self.env.active_players
+        assert len(self.env.active_players) == 1
+
+        obs = self.obs_dict[player_id]
+        if event["data"]["type"] == 2:
+            # KAKAN (Added Kan)
+            kakan_actions = [a for a in obs.legal_actions() if a.type == ActionType.KAKAN]
+            assert len(kakan_actions) > 0, "KAKAN action should be included in obs.legal_actions()"
+            t = cvt.mpsz_to_tid(event["data"]["tiles"])
+            t_base = t // 4
+
+            target_action = None
+            for a in kakan_actions:
+                if a.tile // 4 == t_base:
+                    target_action = a
+                    break
+
+            if target_action:
+                action = target_action
+            else:
+                assert False, "KAKAN action should be included in obs.legal_actions()"
+
+            self.obs_dict = self.env.step({player_id: action})
+
+        elif event["data"]["type"] == 3:
+            # ANKAN (Closed Kan)
+            target_mpsz = event["data"]["tiles"]
+            assert isinstance(target_mpsz, str), "ANKAN tiles should be a string"
+
+            # Smart Scan for Ankan
+            # We need to find 4 tiles in hand that match the target tile type.
+            # If target is "1m", we need four 1m tiles (could be red?).
+            base_type = target_mpsz.replace("0", "5").replace("r", "") # 0m -> 5m
+            found_tids = []
+            hand_copy = list(self.obs_dict[player_id].hand)
+            for tid in hand_copy:
+                t_mpsz = cvt.tid_to_mpsz(tid)
+                t_base = t_mpsz.replace("0", "5").replace("r", "")
+                if t_base == base_type:
+                    found_tids.append(tid)
+
+            consumed_tids = []
+            if len(found_tids) >= 4:
+                consumed_tids = found_tids[:4]
+            else:
+                if self._verbose:
+                    print(f">> WARNING: Missing tiles for ANKAN of {target_mpsz}. Found {len(found_tids)}. Hand: {cvt.tid_to_mpsz_list(self.obs_dict[player_id].hand)}")
+                    print(f">> TRUST: Patching hand to include 4x {target_mpsz} for ANKAN.")
+                consumed_tids = list(found_tids)
+                missing_count = 4 - len(found_tids)
+                for _ in range(missing_count):
+                    new_tid = cvt.mpsz_to_tid(target_mpsz) # Canonical
+                    # Remove garbage
+                    if self.env.hands[player_id]:
+                        removed = self.env.hands[player_id].pop(0)
+                        print(f">> REMOVED {cvt.tid_to_mpsz(removed)} from hand.")
+                    self.env.hands[player_id].append(new_tid)
+                    consumed_tids.append(new_tid)
+                self.env.hands[player_id].sort()
+
+            action = None
+            actions = self.obs_dict[player_id].legal_actions()
+            for a in actions:
+                if a.type == ActionType.ANKAN and a.tile // 4 == cvt.mpsz_to_tid(target_mpsz) // 4:
+                    action = a
+                    break
+
+            assert action is not None, "ANKAN action should be included in obs.legal_actions()"
+            if self._verbose:
+                print(f">> EXECUTING ANKAN Action: {action}")
+
+            self.obs_dict = self.env.step({player_id: action})
+            if self._verbose:
+                print(">> OBS (AFTER ANKAN)", self.obs_dict)
+        else:
+            assert False, "UNHANDLED AnGangAddGang"
+
+    def _handle_chipenggang(self, event: Any, player_id: int, obs: Any) -> None:
         data = event["data"]
         call_tile = None
         consume_tiles_mpsz = []
