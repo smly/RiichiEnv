@@ -2,27 +2,28 @@ import pytest
 from riichienv.env import RiichiEnv
 import riichienv.convert as cvt
 
+
 def test_can_pon_aka():
     env = RiichiEnv()
-    
+
     # Rank 4 is 5m. IDs: 16(aka), 17, 18, 19
     aka_5m = 16
     n1_5m = 17
     n2_5m = 18
     n3_5m = 19
-    
+
     # Case 1: Two normals, no aka
     hand = [n1_5m, n2_5m, 0, 1, 2]
-    options = env._can_pon(hand, n3_5m) # Someone discards 5m
+    options = env._can_pon(hand, n3_5m)  # Someone discards 5m
     assert len(options) == 1
     assert sorted(options[0]) == sorted([n1_5m, n2_5m])
-    
+
     # Case 2: One normal, one aka
     hand = [aka_5m, n1_5m, 0, 1, 2]
     options = env._can_pon(hand, n2_5m)
     assert len(options) == 1
     assert sorted(options[0]) == sorted([aka_5m, n1_5m])
-    
+
     # Case 3: Two normals, one aka
     hand = [aka_5m, n1_5m, n2_5m, 0, 1]
     options = env._can_pon(hand, n3_5m)
@@ -33,34 +34,35 @@ def test_can_pon_aka():
     assert ["5m", "5m"] in mpsz_options
     assert ["0m", "5m"] in mpsz_options
 
+
 def test_can_chi_aka():
     env = RiichiEnv()
-    
+
     # 3m, 4m, 5m (aka)
     # 3m: rank 2 (ids 8-11)
     # 4m: rank 3 (ids 12-15)
     # 5m: rank 4 (ids 16(aka), 17-19)
     # 6m: rank 5 (ids 20-23)
-    
+
     t3m = 8
     t4m = 12
     aka_5m = 16
     n5m = 17
     t6m = 20
-    
+
     # Discard 4m, Hand has 3m and 5m.
     # If hand has only normal 5m
     hand = [t3m, n5m, 100, 101]
     options = env._can_chi(hand, t4m)
     assert len(options) == 1
     assert sorted(options[0]) == sorted([t3m, n5m])
-    
+
     # If hand has only aka 5m
     hand = [t3m, aka_5m, 100, 101]
     options = env._can_chi(hand, t4m)
     assert len(options) == 1
     assert sorted(options[0]) == sorted([t3m, aka_5m])
-    
+
     # If hand has both normal 5m and aka 5m
     hand = [t3m, n5m, aka_5m, 100]
     options = env._can_chi(hand, t4m)

@@ -38,7 +38,9 @@ class TestVerifierSmartScan:
         # Mock Observation
         obs_mock = MagicMock()
         obs_mock.hand = sorted(hand_tids)
-        obs_mock.legal_actions.return_value = [Action(ActionType.DAIMINKAN, tile=tid_1z_canonical, consume_tiles=[109, 110, 111])]
+        obs_mock.legal_actions.return_value = [
+            Action(ActionType.DAIMINKAN, tile=tid_1z_canonical, consume_tiles=[109, 110, 111])
+        ]
 
         verifier.obs_dict = {p0: obs_mock}
 

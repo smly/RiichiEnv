@@ -701,16 +701,16 @@ def scan(verbose: bool = False) -> None:
 
             # Verify score_deltas internal consistency
             for p in range(4):
-                assert start_scores[p] + verifier.env.score_deltas[p] == verifier.env.scores[p], \
-                    f"Score delta mismatch for player {p} in kyoku {i}: {start_scores[p]} + {verifier.env.score_deltas[p]} != {verifier.env.scores[p]}"
+                assert start_scores[p] + verifier.env.score_deltas[p] == verifier.env.scores()[p], \
+                    f"Score delta mismatch for player {p} in kyoku {i}: {start_scores[p]} + {verifier.env.score_deltas[p]} != {verifier.env.scores()[p]}"
 
             if i + 1 < len(kyokus):
                 expected_scores = kyokus[i+1].events()[0]["data"]["scores"]
-                if verifier.env.scores != expected_scores:
+                if verifier.env.scores() != expected_scores:
                     logger.error(f"Score mismatch at end of kyoku {i}:")
-                    logger.error(f"  Env: {verifier.env.scores}")
+                    logger.error(f"  Env: {verifier.env.scores()}")
                     logger.error(f"  Log: {expected_scores}")
-                    assert verifier.env.scores == expected_scores
+                    assert verifier.env.scores() == expected_scores
 
 
 if __name__ == "__main__":

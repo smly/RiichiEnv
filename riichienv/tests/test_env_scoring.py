@@ -83,8 +83,8 @@ class TestRiichiScoring:
         assert sum(deltas) == 0  # Zero sum if no riichi sticks
 
         # Check internal scores updated
-        assert env.scores[0] == 25000 + deltas[0]
-        assert env.scores[1] == 25000 + deltas[1]
+        assert env.scores()[0] == 25000 + deltas[0]
+        assert env.scores()[1] == 25000 + deltas[1]
 
     def test_tsumo_deltas(self):
         env = RiichiEnv(seed=42)
@@ -124,7 +124,7 @@ class TestRiichiScoring:
         assert deltas[3] < 0
         assert sum(deltas) == 0
 
-        assert env.scores[0] == 25000 + deltas[0]
+        assert env.scores()[0] == 25000 + deltas[0]
 
     def test_ura_markers(self):
         env = RiichiEnv(seed=42)

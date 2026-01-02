@@ -21,7 +21,7 @@ class TestGameModes:
         env.reset()
 
         # Check internal state
-        assert env.scores == custom_scores
+        assert env.scores() == custom_scores
         assert env.riichi_sticks == 1
         assert env.game_type == GameType.YON_IKKYOKU
 
