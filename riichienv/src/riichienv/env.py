@@ -253,13 +253,49 @@ class RiichiEnv:
     def scores(self) -> list[int]:
         return self._scores
 
-    def get_ranks(self) -> list[int]:
-        # スコアの降順、同点の場合は起家に近い（インデックスが小さい）順に順位を決定
+    def ranks(self) -> list[int]:
+        """
+        スコアの降順、同点の場合は起家に近い（インデックスが小さい）順に順位を決定
+        """
         sorted_indices = sorted(range(4), key=lambda i: (-self._scores[i], i))
         ranks = [0] * 4
         for rank, player_idx in enumerate(sorted_indices, 1):
             ranks[player_idx] = rank
         return ranks
+
+    def points(self, preset_rule: str = "basic") -> list[int]:
+        """
+        素点+順位点で持ち点計算
+        """
+        preset_rules = {
+            "basic": {
+                "soten_weight": 1,
+                "soten_base": 25000,
+                "jun_weight": [50, 10, -10, -50],
+            },
+            "ouza-tyoujyo": {
+                "soten_weight": 0,
+                "soten_base": 25000,
+                "jun_weight": [100, 40, -40, -100],
+            },
+            "ouza-normal": {
+                "soten_weight": 0,
+                "soten_base": 25000,
+                "jun_weight": [50, 20, -20, -50],
+            },
+        }
+
+        rule = preset_rules.get(preset_rule)
+        if rule is None:
+            raise ValueError(f"Unknown preset rule: {preset_rule}")
+
+        soten_weight = rule["soten_weight"]
+        soten_base = rule["soten_base"]
+        jun_weight = rule["jun_weight"]
+        ranks = self.ranks()
+        return [
+            int((self._scores[i] - soten_base) / 1000.0 * soten_weight + jun_weight[ranks[i] - 1]) for i in range(4)
+        ]
 
     def step(self, actions: dict[int, Action]) -> dict[int, Observation]:
         """Execute one step."""
