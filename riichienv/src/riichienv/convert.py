@@ -275,78 +275,15 @@ def paishan_to_wall(paishan_str: str) -> list[int]:
     for i in range(0, len(paishan_str), 2):
         chunk = paishan_str[i : i + 2]
         tid_base = mpsz_to_tid(chunk)
-
-        # Determine offset for uniqueness (0, 1, 2, 3)
-        # mpsz_to_tid returns the base canonical ID.
-        # We assume paishan lists tiles sequentially.
-        # If "1m" appears 4 times, they should map to canonical, canonical+1, etc.
-        # EXCEPT for Red 5s?
-        # mpsz_to_tid("0m") -> 16 (Red 5m).
-        # mpsz_to_tid("5m") -> 17 (Normal 5m start).
-        # If paishan has "0m", it maps to 16. Count 0 -> 16.
-        # If paishan has "5m" x 3, it maps to 17. Count 0->17, 1->18, 2->19.
-        # This assumes the canonical ID base accounts for Red/Non-Red distinction correctly.
-        # 5m (17) range is 17, 18, 19? Or 16, 17, 18, 19?
-        # Let's check mpsz_to_tid implementation.
-        # 5m -> 17?
-        # 5m Red is 16.
-        # Normal 5m starts at 17? Or 16?
-        # Typically 5m TIDs: 16, 17, 18, 19.
-        # If 16 is Red, then 17, 18, 19 are normal.
-        # mpsz_to_tid("5m"):
-        #   base_idx = 0. num=5.
-        #   return base_idx + (4*4) = 16? No.
-        #   offset = (num-1)*4 = 16. returns 0+16 = 16.
-        #   So "5m" returns 16?
-        #   Wait, line 90: base_idx = 36 * suit_idx.
-        #   line 103: return base_idx + (num - 1) * 4.
-        #   For 5m: 0 + (4)*4 = 16.
-        #   But Red 5 check at line 94: if num==0 return base_idx+16.
-        #   So "0m" -> 16. "5m" -> 16.
-        #   This is a collision if we use simple offsets!
-        #   But TIDs are unique 0-135.
-        #   5m (Red) is 16. 5m (Normal) are 17, 18, 19.
-        #   If `mpsz_to_tid("5m")` returns 17, good.
-        #   Let's check code.
-
         cnt = tid_count.get(tid_base, 0)
-
-        # Correction for 5s:
-        # If "0m" (Red) comes, it uses TID 16.
-        # If "5m" comes, it uses TID ?
-        # We need to ensure we don't produce duplicate TIDs.
-        # If base logic returns 16 for "5m", and we have "0m" (16) and "5m" (16),
-        # we need to shift "5m" to 17, 18, 19.
-
-        # Current mpsz_to_tid logic (inferred):
-        # returns base_idx + (num-1)*4. So "5m" -> 16.
-        # "0m" -> 16.
-        # So "5m" and "0m" collide at base 16.
-
-        # Assign a concrete tile ID from the base ID, ensuring consistency with
-        # `tid_to_mpsz`: 0m/0p/0s must map to the red IDs (16, 52, 88), and the
-        # corresponding 5m/5p/5s tiles must use the remaining non-red IDs.
         real_tid = tid_base
 
-        # Red Handling
         is_red_str = chunk.startswith("0")
         if is_red_str:
-            # tid_base is correct (e.g. 16 for 0m)
-            # Just use it.
             pass
         else:
-            # "5m" -> 16. Since we want non-red, we start at 17?
-            # Check collision with Red ID.
-            # 5m base is 16.
-            # If 16 is reserved for Red, normal start at 17.
             if tid_base in [16, 52, 88]:
-                real_tid += 1  # Start at 17, 53, 89
-
-        # Now apply offset for multiples
-        # We track count per real_tid base?
-        # No, for normals like "1m" (0): 0, 1, 2, 3.
-        # "5m" (17): 17, 18, 19.
-        # count for 17 should increment 17->18->19.
+                real_tid += 1
 
         cnt = tid_count.get(real_tid, 0)
         final_tid = real_tid + cnt
