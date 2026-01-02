@@ -406,3 +406,6 @@ class AgariCalculator:
             han=res.han,
             fu=res.fu,
         )
+
+    def is_tenpai(self) -> bool:
+        return self.calc_rust.is_tenpai()

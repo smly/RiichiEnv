@@ -141,7 +141,10 @@ class MjsoulEnvVerifier:
 
         self.using_paishan = True
         bakaze_idx = data.get("chang", 0)
-        self.env.reset(oya=data["ju"] % 4, wall=paishan_wall, bakaze=bakaze_idx)
+        scores = data.get("scores")
+        honba = data.get("ben", 0)
+        kyotaku = data.get("liqibang", 0)
+        self.env.reset(oya=data["ju"] % 4, wall=paishan_wall, bakaze=bakaze_idx, scores=scores, honba=honba, kyotaku=kyotaku)
         self.dora_indicators = self.env.dora_indicators[:]
 
         # 牌山から配牌を決定するロジックの一致を検証
@@ -159,8 +162,8 @@ class MjsoulEnvVerifier:
                 "type": "start_kyoku",
                 "bakaze": ["E", "S", "W", "N"][data.get("chang", 0)],
                 "kyoku": data["ju"] + 1,
-                "honba": 0,
-                "kyotaku": 0,
+                "honba": data.get("ben", 0),
+                "kyotaku": data.get("liqibang", 0),
                 "oya": data["ju"],
                 "dora_marker": cvt.mpsz_to_mjai(data["doras"][0]),
                 "tehais": [
@@ -678,19 +681,36 @@ def main(path: str, skip: int = 0, verbose: bool = False) -> None:
 
 
 def scan(verbose: bool = False) -> None:
-    verifier = MjsoulEnvVerifier(verbose=verbose)
     valid_kyoku = 0
     for path in sorted(Path("data/game_record_4p_jad_2025-12-14_out/").glob("251214*.json.gz")):
         logger.info(f"Verifying {path}")
+        verifier = MjsoulEnvVerifier(verbose=verbose)
         game = ReplayGame.from_json(str(path))
         kyokus = list(game.take_kyokus())
+
         for i, kyoku in enumerate(kyokus):
+            # Start of kyoku scores:
+            start_scores = kyoku.events()[0]["data"]["scores"]
+            
             if verifier.verify_kyoku(kyoku):
                 valid_kyoku += 1
             else:
                 logger.info(f"Valid kyoku: {valid_kyoku} kyokus")
                 logger.error(f"Invalid kyoku {path}/{i}")
                 sys.exit(1)
+
+            # Verify score_deltas internal consistency
+            for p in range(4):
+                assert start_scores[p] + verifier.env.score_deltas[p] == verifier.env.scores[p], \
+                    f"Score delta mismatch for player {p} in kyoku {i}: {start_scores[p]} + {verifier.env.score_deltas[p]} != {verifier.env.scores[p]}"
+
+            if i + 1 < len(kyokus):
+                expected_scores = kyokus[i+1].events()[0]["data"]["scores"]
+                if verifier.env.scores != expected_scores:
+                    logger.error(f"Score mismatch at end of kyoku {i}:")
+                    logger.error(f"  Env: {verifier.env.scores}")
+                    logger.error(f"  Log: {expected_scores}")
+                    assert verifier.env.scores == expected_scores
 
 
 if __name__ == "__main__":

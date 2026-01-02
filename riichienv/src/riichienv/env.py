@@ -106,6 +106,7 @@ class RiichiEnv:
         self.is_done: bool = False
         self._rewards: dict[int, float] = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
         self.scores: list[int] = [25000, 25000, 25000, 25000]
+        self.score_deltas: list[int] = [0, 0, 0, 0]
         self.riichi_sticks: int = 0
         self.riichi_declared: list[bool] = [False, False, False, False]
         self.riichi_stage: list[bool] = [False, False, False, False]
@@ -129,6 +130,8 @@ class RiichiEnv:
         self.double_riichi_declared: list[bool] = [False, False, False, False]
         self.is_rinshan_flag: bool = False
         self.is_first_turn: bool = True
+        self.riichi_pending_acceptance: int | None = None
+        self.nagashi_eligible: list[bool] = [True] * 4
 
         # Security
         self.wall_digest: str = ""
@@ -144,7 +147,7 @@ class RiichiEnv:
         self.agari_results = {}
         self.pao: list[dict[int, int]] = [{} for _ in range(4)]
 
-    def reset(self, oya: int = 0, wall: list[int] | None = None, bakaze: int | None = None) -> dict[int, Observation]:
+    def reset(self, oya: int = 0, wall: list[int] | None = None, bakaze: int | None = None, scores: list[int] | None = None, honba: int | None = None, kyotaku: int | None = None) -> dict[int, Observation]:
         self._rng = random.Random(self._seed)
 
         self.oya = oya
@@ -158,8 +161,11 @@ class RiichiEnv:
         self.double_riichi_declared = [False] * 4
         self.is_rinshan_flag = False
         self.is_first_turn = True
+        self.riichi_pending_acceptance = None
+        self.nagashi_eligible = [True] * 4
         self.agari_results = {}
         self.pao = [{} for _ in range(4)]
+        self.score_deltas = [0, 0, 0, 0]
 
         if wall is not None:
             self.wall = list(reversed(wall))
@@ -179,12 +185,16 @@ class RiichiEnv:
         self.melds = {0: [], 1: [], 2: [], 3: []}
         self._rewards = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
 
-        if self._custom_initial_scores:
+        if scores is not None:
+            self.scores = scores[:]
+        elif self._custom_initial_scores:
             self.scores = self._custom_initial_scores[:]
         else:
             self.scores = [25000, 25000, 25000, 25000]
 
-        self.riichi_sticks = self._custom_kyotaku
+        if honba is not None:
+            self._custom_honba = honba
+        self.riichi_sticks = kyotaku if kyotaku is not None else self._custom_kyotaku
         self.riichi_declared = [False, False, False, False]
         self.riichi_stage = [False, False, False, False]
         self.is_done = False
@@ -218,7 +228,7 @@ class RiichiEnv:
         tehais = [[_to_mjai_tile(t) for t in self.hands[pid]] for pid in range(4)]
         start_kyoku_event = {
             "type": "start_kyoku",
-            "bakaze": ["E", "S", "W"][self._custom_round_wind],
+            "bakaze": ["E", "S", "W"][self._custom_round_wind % 3], # Bakaze can be South or West too
             "kyoku": self.oya + 1,
             "honba": self._custom_honba,
             "kyotaku": self.riichi_sticks,
@@ -285,9 +295,14 @@ class RiichiEnv:
                 is_reach_declaration = False
                 if self.riichi_stage[self.current_player]:
                     self.riichi_stage[self.current_player], self.riichi_declared[self.current_player] = False, True
-                    is_reach_declaration = True; self.scores[self.current_player] -= 1000; self.ippatsu_eligible[self.current_player] = True
+                    is_reach_declaration = True; self.riichi_pending_acceptance = self.current_player; self.ippatsu_eligible[self.current_player] = True
                     if len(self.discards[self.current_player]) == 0 and not any(len(m) for m in self.melds.values()): self.double_riichi_declared[self.current_player] = True
                 elif self.riichi_declared[self.current_player]: self.ippatsu_eligible[self.current_player] = False
+                
+                # Nagashi Mangan check
+                if discard_tile_id // 4 not in [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33]:
+                    self.nagashi_eligible[self.current_player] = False
+                
                 tsumogiri = (self.drawn_tile == discard_tile_id)
                 if tsumogiri: self.drawn_tile = None
                 else:
@@ -295,7 +310,6 @@ class RiichiEnv:
                     self.hands[self.current_player].remove(discard_tile_id)
                 self.discards[self.current_player].append(discard_tile_id); self.hands[self.current_player].sort()
                 self.mjai_log.append({"type": "dahai", "actor": self.current_player, "tile": _to_mjai_tile(discard_tile_id), "tsumogiri": tsumogiri, "reach": is_reach_declaration})
-                if is_reach_declaration: self.mjai_log.append({"type": "reach_accepted", "actor": self.current_player, "score": self.scores[self.current_player], "deltas": [0,0,0,0]})
                 while self.pending_kan_dora_count > 0: self._reveal_kan_dora(); self.pending_kan_dora_count -= 1
                 self.last_discard = {"seat": self.current_player, "tile": discard_tile_id}
                 self.current_claims = {}
@@ -311,6 +325,7 @@ class RiichiEnv:
                     self.phase, self.active_players = Phase.WAIT_RESPONSE, sorted(list(self.current_claims.keys()))
                     return self._get_observations(self.active_players)
                 if self._check_midway_draws(): return self._get_observations([])
+                self._accept_riichi()
                 self.current_player = (self.current_player + 1) % 4
                 if len(self.wall) <= 14: self._trigger_ryukyoku("exhaustive_draw"); return self._get_observations([])
                 self.is_rinshan_flag, self.drawn_tile = False, self.wall.pop()
@@ -324,13 +339,16 @@ class RiichiEnv:
             valid_actions = {pid: act for pid, act in actions.items() if act.type != ActionType.PASS}
             ronners = [pid for pid, a in valid_actions.items() if a.type == ActionType.RON]
             if ronners:
+                if self.riichi_pending_acceptance == self.current_player:
+                    self.riichi_declared[self.current_player] = False
+                    self.riichi_pending_acceptance = None
                 sorted_ronners = sorted(ronners, key=lambda p: (p - self.current_player + 4) % 4)
                 tile = self.last_discard["tile"]
-                for winner in sorted_ronners:
+                for idx, winner in enumerate(sorted_ronners):
                     ura_in = self._get_ura_markers_tid() if (self.riichi_declared[winner] or self.double_riichi_declared[winner]) else []
                     res = AgariCalculator(self.hands[winner], self.melds.get(winner, [])).calc(tile, dora_indicators=self.dora_indicators, conditions=Conditions(tsumo=False, riichi=self.riichi_declared[winner], double_riichi=self.double_riichi_declared[winner], ippatsu=self.ippatsu_eligible[winner], player_wind=(winner - self.oya + 4)%4, round_wind=self._custom_round_wind, chankan=(self.pending_kan is not None), houtei=(len(self.wall) <= 14)), ura_indicators=ura_in)
                     self.agari_results[winner] = res
-                    deltas = self._calculate_deltas(res, winner, is_tsumo=False, loser=self.current_player)
+                    deltas = self._calculate_deltas(res, winner, is_tsumo=False, loser=self.current_player, include_bonus=(idx == 0))
                     ura_markers = []
                     if self.riichi_declared[winner] or self.double_riichi_declared[winner]:
                         ura_markers = self._get_ura_markers()
@@ -341,6 +359,8 @@ class RiichiEnv:
                 return self._get_observations([])
             ponners = [pid for pid, a in valid_actions.items() if a.type in [ActionType.PON, ActionType.DAIMINKAN]]
             if ponners:
+                self.nagashi_eligible[self.current_player] = False # Discard was called
+                self._accept_riichi()
                 claimer = ponners[0]; self._execute_claim(claimer, valid_actions[claimer], from_pid=self.current_player)
                 self.current_player, self.phase, self.active_players, self.drawn_tile, self.ippatsu_eligible, self.is_first_turn = claimer, Phase.WAIT_ACT, [claimer], None, [False]*4, False
                 if valid_actions[claimer].type == ActionType.DAIMINKAN:
@@ -352,6 +372,8 @@ class RiichiEnv:
                 return self._get_observations(self.active_players)
             chiers = [pid for pid, a in valid_actions.items() if a.type == ActionType.CHI]
             if chiers:
+                self.nagashi_eligible[self.current_player] = False # Discard was called
+                self._accept_riichi()
                 claimer = chiers[0]; self._execute_claim(claimer, valid_actions[claimer], from_pid=self.current_player)
                 self.current_player, self.phase, self.active_players, self.drawn_tile, self.ippatsu_eligible, self.is_first_turn = claimer, Phase.WAIT_ACT, [claimer], None, [False]*4, False
                 self.is_rinshan_flag = False
@@ -366,6 +388,7 @@ class RiichiEnv:
                 self.current_player, self.phase, self.active_players = claimer, Phase.WAIT_ACT, [claimer]
                 return self._get_observations(self.active_players)
             if self._check_midway_draws(): return self._get_observations([])
+            self._accept_riichi()
             self.current_player = (self.current_player + 1) % 4
             self.phase, self.active_players = Phase.WAIT_ACT, [self.current_player]
             if len(self.wall) <= 14: self._trigger_ryukyoku("exhaustive_draw"); return self._get_observations([])
@@ -504,26 +527,38 @@ class RiichiEnv:
                 for c2 in get_cand(r2): opts.append(sorted([c1, c2]))
         return opts
 
-    def _calculate_deltas(self, agari, winner, is_tsumo, loser=None):
+    def _calculate_deltas(self, agari, winner, is_tsumo, loser=None, include_bonus=True):
         deltas = [0,0,0,0]
+        h_val = self._custom_honba if include_bonus else 0
         pao_pid = next((self.pao[winner][y] for y in [37, 50] if y in agari.yaku and y in self.pao[winner]), None)
         if is_tsumo:
             if pao_pid is not None:
-                total = (agari.tsumo_agari_ko * 3) if winner == self.oya else (agari.tsumo_agari_oya + agari.tsumo_agari_ko * 2); deltas[winner], deltas[pao_pid] = total, -total
+                total = (agari.tsumo_agari_ko * 3) if winner == self.oya else (agari.tsumo_agari_oya + agari.tsumo_agari_ko * 2)
+                total += h_val * 300
+                deltas[winner], deltas[pao_pid] = total, -total
             else:
+                h = h_val * 100
                 if winner == self.oya:
                     p = agari.tsumo_agari_ko
-                    for i in range(4): deltas[i] = -p if i != winner else p*3
+                    for i in range(4): deltas[i] = -(p + h) if i != winner else (p + h) * 3
                 else:
                     po, pk = agari.tsumo_agari_oya, agari.tsumo_agari_ko
-                    for i in range(4): deltas[i] = (-po if i == self.oya else -pk) if i != winner else (po + pk*2)
+                    for i in range(4): deltas[i] = (-(po + h) if i == self.oya else -(pk + h)) if i != winner else (po + pk*2 + h*3)
         else:
-            s = agari.ron_agari
-            if pao_pid is not None and loser != pao_pid: deltas[loser], deltas[pao_pid], deltas[winner] = -s//2, -s//2, s
-            else: deltas[loser], deltas[winner] = -s, s
-        if self.riichi_sticks > 0: deltas[winner] += self.riichi_sticks*1000; self.riichi_sticks = 0
+            s_base = agari.ron_agari
+            s_total = s_base + h_val * 300
+            if pao_pid is not None and loser != pao_pid:
+                # Discarder pays half of base Yakuman.
+                # Pao player pays half of base Yakuman + all of Honba points.
+                deltas[loser] = - (s_base // 2)
+                deltas[pao_pid] = - (s_base // 2) - h_val * 300
+                deltas[winner] = s_total
+            else:
+                deltas[loser], deltas[winner] = -s_total, s_total
+        if include_bonus and self.riichi_sticks > 0: deltas[winner] += self.riichi_sticks*1000; self.riichi_sticks = 0
         for i in range(4):
             self.scores[i] += deltas[i]
+            self.score_deltas[i] += deltas[i]
             self._rewards[i] += deltas[i]
         return deltas
 
@@ -578,8 +613,55 @@ class RiichiEnv:
             self._trigger_ryukyoku("suurechi")
             return True
         return False
+    
+    def _accept_riichi(self):
+        if self.riichi_pending_acceptance is not None:
+            p = self.riichi_pending_acceptance
+            self.scores[p] -= 1000
+            self.score_deltas[p] -= 1000
+            self.riichi_sticks += 1
+            self.mjai_log.append({"type": "reach_accepted", "actor": p, "score": self.scores[p], "deltas": [0,0,0,0]})
+            self.riichi_pending_acceptance = None
 
     def _trigger_ryukyoku(self, reason: str):
+        self._accept_riichi()
+        if reason == "exhaustive_draw":
+            # Nagashi Mangan?
+            nagashi_winners = [i for i in range(4) if self.nagashi_eligible[i]]
+            if nagashi_winners:
+                for winner in nagashi_winners:
+                    is_oya = (winner == self.oya)
+                    deltas = [0, 0, 0, 0]
+                    if is_oya:
+                        for i in range(4): deltas[i] = -4000 if i != winner else 12000
+                    else:
+                        for i in range(4):
+                            if i == winner: deltas[i] = 8000
+                            elif i == self.oya: deltas[i] = -4000
+                            else: deltas[i] = -2000
+                    for i in range(4):
+                        self.scores[i] += deltas[i]
+                        self.score_deltas[i] += deltas[i]
+                        self._rewards[i] += deltas[i]
+                    # In case of multiple Nagashi? (very rare but possible in some rules, 
+                    # but MJSoul handles them. Let's just break for simplicity or handle all)
+                    # Actually, we should only have one Nagashi usually? No, multiple possible.
+                self.mjai_log.append({"type": "ryukyoku", "reason": "nagashimangan"}) # MJAI might use different reason or extra info
+            else:
+                tenpais = []
+                for i in range(4):
+                    calc = AgariCalculator(self.hands[i], self.melds.get(i, []))
+                    tenpais.append(calc.is_tenpai())
+                
+                num_tp = sum(tenpais)
+                if 0 < num_tp < 4:
+                    pk, pn = 3000 // num_tp, 3000 // (4 - num_tp)
+                    for i in range(4):
+                        delta = pk if tenpais[i] else -pn
+                        self.scores[i] += delta
+                        self.score_deltas[i] += delta
+                        self._rewards[i] += delta
+
         self.mjai_log.append({"type": "ryukyoku", "reason": reason})
         self.mjai_log.append({"type": "end_kyoku"})
         self.mjai_log.append({"type": "end_game"})

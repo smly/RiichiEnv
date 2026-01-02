@@ -158,6 +158,23 @@ impl AgariCalculator {
             fu: yaku_res.fu as u32,
         }
     }
+
+    pub fn is_tenpai(&self) -> bool {
+        let current_total: u8 = self.hand.counts.iter().sum::<u8>() + (self.melds.len() as u8 * 3);
+        if current_total != 13 {
+            return false;
+        }
+        for i in 0..crate::types::TILE_MAX {
+            let mut hand_14 = self.hand.clone();
+            if hand_14.counts[i] < 4 {
+                hand_14.add(i as u8);
+                if agari::is_agari(&hand_14) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 fn get_next_tile(tile: u8) -> u8 {
