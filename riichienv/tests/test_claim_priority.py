@@ -59,14 +59,14 @@ class TestClaimPriority:
 
         # Set turn to P0
         env.current_player = 0
-        env.phase = 0  # WAIT_ACT
+        env.phase = 0  # WaitAct
         env.active_players = [0]
         env.drawn_tile = 100  # Irrelevant
 
         # P0 Discards 57
         env.step({0: Action(ActionType.DISCARD, tile=57)})
 
-        # Now should be WAIT_RESPONSE
+        # Now should be WaitResponse
         assert env.phase == 1
 
         # Check active players.
@@ -108,10 +108,10 @@ class TestClaimPriority:
         # Expectation:
         # Pon wins.
         # Current player becomes P2 (Ponner).
-        # Phase becomes WAIT_ACT (P2 must discard).
+        # Phase becomes WaitAct (P2 must discard).
 
         assert env.current_player == 2
-        assert env.phase == 0  # WAIT_ACT
+        assert env.phase == 0  # WaitAct
         assert 2 in env.active_players
 
         # Check Log

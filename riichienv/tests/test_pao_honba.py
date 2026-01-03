@@ -30,7 +30,7 @@ class TestPaoHonba:
 
         # Pao transition: Seat 3 calls Pon from Seat 0
         env.current_player = 0
-        env.phase = Phase.WAIT_RESPONSE
+        env.phase = Phase.WaitResponse
         env.last_discard = {"seat": 0, "tile": 134}  # 3rd Red
         env.active_players = [3]
         env.current_claims = {3: [Action(ActionType.PON, tile=134, consume_tiles=[132, 133])]}
@@ -46,7 +46,7 @@ class TestPaoHonba:
 
         # Now Seat 2 discards winning tile (6 for 2m triplet)
         env.current_player = 2
-        env.phase = Phase.WAIT_RESPONSE
+        env.phase = Phase.WaitResponse
         env.last_discard = {"seat": 2, "tile": 6}
         env.active_players = [3]
         env.current_claims = {3: [Action(ActionType.RON, tile=6)]}

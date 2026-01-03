@@ -7,6 +7,9 @@ from ._riichienv import (  # type: ignore
 )
 
 
+WINDS = [Wind.East, Wind.South, Wind.West, Wind.North]
+
+
 @dataclass
 class Yaku:
     name: str
@@ -354,6 +357,15 @@ class AgariCalculator:
             dora_indicators = []
         if ura_indicators is None:
             ura_indicators = []
+        # Convert winds to Rust Wind enum if they are integers
+        p_wind = conditions.player_wind
+        if isinstance(p_wind, int):
+            p_wind = WINDS[p_wind % 4]
+
+        r_wind = conditions.round_wind
+        if isinstance(r_wind, int):
+            r_wind = WINDS[r_wind % 4]
+
         rust_conditions = rust_core.Conditions(
             tsumo=conditions.tsumo,
             riichi=conditions.riichi,
@@ -364,8 +376,8 @@ class AgariCalculator:
             rinshan=conditions.rinshan,
             chankan=conditions.chankan,
             tsumo_first_turn=conditions.tsumo_first_turn,
-            player_wind=int(conditions.player_wind),
-            round_wind=int(conditions.round_wind),
+            player_wind=p_wind,
+            round_wind=r_wind,
             kyoutaku=conditions.kyoutaku,
             tsumi=conditions.tsumi,
         )

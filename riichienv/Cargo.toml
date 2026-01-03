@@ -8,10 +8,13 @@ name = "_riichienv"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.23.3" }
+pyo3 = { version = "0.22.6" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 flate2 = "1.0"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
 
 [features]
 default = ["extension-module"]

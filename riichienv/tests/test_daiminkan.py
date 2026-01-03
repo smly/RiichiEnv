@@ -27,7 +27,7 @@ class TestDaiminkan:
 
         env.current_player = p0
         env.active_players = [p0]
-        env.phase = 0  # WAIT_ACT (though step handles transitions)
+        env.phase = 0  # WaitAct (though step handles transitions)
         # Ensure P0 has the tile to discard
         # Hand size must be 14 (13+1) for discard
         env.hands[p0] = sorted([discard_tile] + [i for i in range(13)])

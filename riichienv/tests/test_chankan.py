@@ -36,15 +36,15 @@ class TestChankan:
         env.melds[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]  # Red Dragon
 
         env.current_player = 0
-        env.phase = Phase.WAIT_ACT
+        env.phase = Phase.WaitAct
         env.active_players = [0]
 
         # Player 0 performs KAKAN
         kakan_action = Action(ActionType.KAKAN, tile=3, consume_tiles=[3])
         obs_dict = env.step({0: kakan_action})
 
-        # Env should transition to WAIT_RESPONSE for Player 1
-        assert env.phase == Phase.WAIT_RESPONSE, f"Expected WAIT_RESPONSE, got {env.phase}"
+        # Env should transition to WaitResponse for Player 1
+        assert env.phase == Phase.WaitResponse, f"Expected WaitResponse, got {env.phase}"
         assert 1 in env.active_players
         assert 1 in obs_dict
 
@@ -93,7 +93,7 @@ class TestChankan:
         env.melds[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]
 
         env.current_player = 0
-        env.phase = Phase.WAIT_ACT
+        env.phase = Phase.WaitAct
         env.active_players = [0]
 
         kakan_action = Action(ActionType.KAKAN, tile=3, consume_tiles=[3])
@@ -103,7 +103,7 @@ class TestChankan:
         env.step({1: Action(ActionType.PASS)})
 
         # Env should proceed with KAKAN execution and Rinshan Draw for Player 0
-        assert env.phase == Phase.WAIT_ACT
+        assert env.phase == Phase.WaitAct
         assert env.current_player == 0
         assert len(env.melds[0]) == 1
         assert env.melds[0][0].meld_type == MeldType.Addgang
@@ -130,15 +130,15 @@ class TestChankan:
         env.hands[1] = sorted(kokushi_tiles)  # 13 tiles, waiting for 1z (108-111)
 
         env.current_player = 0
-        env.phase = Phase.WAIT_ACT
+        env.phase = Phase.WaitAct
         env.active_players = [0]
 
         # Use tile 111 for Ankan
         ankan_action = Action(ActionType.ANKAN, tile=111, consume_tiles=[108, 109, 110, 111])
         obs_dict = env.step({0: ankan_action})
 
-        # Should transition to WAIT_RESPONSE for Player 1
-        assert env.phase == Phase.WAIT_RESPONSE
+        # Should transition to WaitResponse for Player 1
+        assert env.phase == Phase.WaitResponse
         assert 1 in env.active_players
 
         legal_actions = obs_dict[1].legal_actions()
@@ -169,14 +169,14 @@ class TestChankan:
         env.melds[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]
 
         env.current_player = 0
-        env.phase = Phase.WAIT_ACT
+        env.phase = Phase.WaitAct
         env.active_players = [0]
 
         ankan_action = Action(ActionType.ANKAN, tile=111, consume_tiles=[108, 109, 110, 111])
         env.step({0: ankan_action})
 
-        # Should NOT transition to WAIT_RESPONSE. Should immediately execute ANKAN.
-        assert env.phase == Phase.WAIT_ACT
+        # Should NOT transition to WaitResponse. Should immediately execute ANKAN.
+        assert env.phase == Phase.WaitAct
         assert env.current_player == 0
         assert len(env.melds[0]) == 1
         assert env.melds[0][0].meld_type == MeldType.Angang
@@ -194,7 +194,7 @@ class TestChankan:
         env.drawn_tile = 3
         env.active_players = [0]
         env.current_player = 0
-        env.phase = Phase.WAIT_ACT
+        env.phase = Phase.WaitAct
 
         obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
@@ -215,7 +215,7 @@ class TestChankan:
         env.drawn_tile = 3
         env.active_players = [0]
         env.current_player = 0
-        env.phase = Phase.WAIT_ACT
+        env.phase = Phase.WaitAct
         env.riichi_declared[0] = True
 
         obs = env.get_observations([0])[0]

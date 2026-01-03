@@ -1,5 +1,6 @@
 from riichienv.env import RiichiEnv
 from riichienv.game_mode import GameType
+from riichienv import Wind
 
 
 def test_tonpuu_transitions():
@@ -18,7 +19,7 @@ def test_tonpuu_transitions():
     env._trigger_ryukyoku("exhaustive_draw")
 
     assert env.oya == 1
-    assert env._custom_round_wind == 0  # Still East
+    assert env._custom_round_wind == int(Wind.East)  # Still East
     assert env.done() == False
 
 
@@ -26,7 +27,7 @@ def test_tonpuu_game_end():
     # Test game ends after East 4 because someone >= 30000
     env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
     # Start at East 4 (Oya = 3)
-    env.reset(oya=3, bakaze=0, scores=[40000, 20000, 20000, 20000])
+    env.reset(oya=3, bakaze=int(Wind.East), scores=[40000, 20000, 20000, 20000])
 
     for i in range(4):
         env.hands[i] = [0, 4, 8, 12, 36, 40, 44, 48, 72, 76, 80, 108, 112]
@@ -41,7 +42,7 @@ def test_tonpuu_game_end():
 def test_tonpuu_sudden_death():
     # Test South entrance if no one >= 30000 at East 4
     env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
-    env.reset(oya=3, bakaze=0, scores=[28000, 24000, 24000, 24000])
+    env.reset(oya=3, bakaze=int(Wind.East), scores=[28000, 24000, 24000, 24000])
 
     for i in range(4):
         env.hands[i] = [0, 4, 8, 12, 36, 40, 44, 48, 72, 76, 80, 108, 112]
@@ -51,13 +52,13 @@ def test_tonpuu_sudden_death():
     # No one reached 30000, should enter South 1
     assert env.done() == False
     assert env.oya == 0
-    assert env._custom_round_wind == 1  # South
+    assert env._custom_round_wind == int(Wind.South)  # South
 
 
 def test_tonpuu_v_goal():
     # Test game ends immediately if someone >= 30000 in South (extension)
     env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
-    env.reset(oya=0, bakaze=1, scores=[29000, 28000, 22000, 21000])
+    env.reset(oya=0, bakaze=int(Wind.South), scores=[29000, 28000, 22000, 21000])
 
     # Player 0 (Oya) wins and reaches 30000
     # or just any win during extension
@@ -71,9 +72,9 @@ def test_tonpuu_v_goal():
 def test_oya_agari_yame():
     # Oya top at East 4 ends game
     env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
-    env.reset(oya=3, bakaze=0, scores=[40000, 20000, 20000, 20000])  # Oya is 3, but Player 0 is top
+    env.reset(oya=3, bakaze=int(Wind.East), scores=[40000, 20000, 20000, 20000])  # Oya is 3, but Player 0 is top
     # Wait, Oya is 3. Let's make Oya 3 top.
-    env.reset(oya=3, bakaze=0, scores=[20000, 20000, 20000, 40000])
+    env.reset(oya=3, bakaze=int(Wind.East), scores=[20000, 20000, 20000, 40000])
 
     # Oya wins/renchans
     env._end_kyoku(is_renchan=True)
@@ -85,14 +86,14 @@ def test_oya_agari_yame():
 def test_hanchan_transitions():
     # East 4 -> South 1
     env = RiichiEnv(game_type=GameType.YON_HANCHAN)
-    env.reset(oya=3, bakaze=0, scores=[25000, 25000, 25000, 25000])
+    env.reset(oya=3, bakaze=int(Wind.East), scores=[25000, 25000, 25000, 25000])
 
     for i in range(4):
         env.hands[i] = [0, 4, 8, 12, 36, 40, 44, 48, 72, 76, 80, 108, 112]
     env._trigger_ryukyoku("exhaustive_draw")
 
     assert env.oya == 0
-    assert env._custom_round_wind == 1  # South entrance
+    assert env._custom_round_wind == int(Wind.South)  # South entrance
     assert env.done() == False
 
 
@@ -141,7 +142,7 @@ def test_kyotaku_carry_over():
     from riichienv.hand import AgariCalculator, Conditions
 
     res = AgariCalculator([0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 16], []).calc(
-        17, dora_indicators=[32], conditions=Conditions(tsumo=True, round_wind=0, player_wind=1)
+        17, dora_indicators=[32], conditions=Conditions(tsumo=True, round_wind=Wind.East, player_wind=Wind.South)
     )
 
     # Winner is player 2 (index 2)

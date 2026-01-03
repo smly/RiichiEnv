@@ -29,8 +29,8 @@ def test_pinfu():
     cond = rv.Conditions(
         tsumo=False,
         riichi=True,
-        player_wind=3,  # Doesn't strict matter for Pinfu unless Jikaze head
-        round_wind=0,
+        player_wind=rv.Wind.North,  # Doesn't strict matter for Pinfu unless Jikaze head
+        round_wind=rv.Wind.East,
     )
     res = rv.AgariCalculator(hand, melds).calc(
         win_tile=win_tile, dora_indicators=[], conditions=cond, ura_indicators=[]
@@ -54,7 +54,7 @@ def test_agari_calc_from_text():
     assert res.ron_agari == 3900
 
     # Ko (South)
-    res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.SOUTH))
+    res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.Wind.South))
     assert res.agari
     assert res.han == 2
     assert res.fu == 40
@@ -63,7 +63,7 @@ def test_agari_calc_from_text():
     assert res.ron_agari == 0
 
     # Oya (East)
-    res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.EAST))
+    res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.Wind.East))
     assert res.agari
     assert res.han == 3
     assert res.fu == 40
@@ -72,7 +72,7 @@ def test_agari_calc_from_text():
     assert res.ron_agari == 0
 
     # Ron (East)
-    res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=False, player_wind=rv.EAST))
+    res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=False, player_wind=rv.Wind.East))
     assert res.agari
     assert res.han == 2
     assert res.fu == 40
@@ -81,7 +81,7 @@ def test_agari_calc_from_text():
     assert res.ron_agari == 3900
 
     # Ko (West)
-    res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.WEST))
+    res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.Wind.West))
     assert res.agari
     assert res.han == 2
     assert res.fu == 40
@@ -90,7 +90,7 @@ def test_agari_calc_from_text():
     assert res.ron_agari == 0
 
     # Ko (North)
-    res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.NORTH))
+    res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.Wind.North))
     assert res.agari
     assert res.han == 2
     assert res.fu == 40

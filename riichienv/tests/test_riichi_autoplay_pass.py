@@ -28,8 +28,8 @@ def test_riichi_autoplay_after_pass():
     # Step 1: P3 discards 36.
     obs = env._perform_discard(36)
 
-    # Should be WAIT_RESPONSE for P1 (Pon)
-    assert env.phase == Phase.WAIT_RESPONSE
+    # Should be WaitResponse for P1 (Pon)
+    assert env.phase == Phase.WaitResponse
     assert 1 in obs
     assert ActionType.PON in [a.type for a in obs[1].legal_actions()]
 

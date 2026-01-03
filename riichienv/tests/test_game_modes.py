@@ -12,11 +12,12 @@ class TestGameModes:
         env = RiichiEnv(
             game_type=GameType.YON_IKKYOKU,
             round_wind=0,  # East,
-            initial_scores=custom_scores,
+        )
+        env.reset(
+            scores=custom_scores,
             kyotaku=1,
             honba=2,
         )
-        env.reset()
 
         # Check internal state
         assert env.scores() == custom_scores

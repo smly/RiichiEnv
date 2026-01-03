@@ -1,5 +1,5 @@
 import riichienv.convert as cvt
-from riichienv import AgariCalculator, RiichiEnv
+from riichienv import AgariCalculator, RiichiEnv, Wind
 from riichienv.action import Action, ActionType
 from riichienv.hand import Conditions
 
@@ -48,9 +48,9 @@ class TestRiichiScoring:
         # P1 needs to discard Haku (126)
         # P0 current player -> Discard something to pass turn?
         # Hack state: Set env.current_player = 1
-        # Set phase WAIT_ACT
+        # Set phase WaitAct
         env.current_player = 1
-        env.phase = 0  # WAIT_ACT
+        env.phase = 0  # WaitAct
         env.active_players = [1]
         env.hands[1].append(126)  # Give P1 the target tile
 
@@ -145,7 +145,32 @@ class TestRiichiScoring:
 
     def test_south_round_win(self):
         # Round wind = 1 (South)
-        env = RiichiEnv(seed=42, round_wind=1)
+        env = RiichiEnv(seed=42, round_wind=0)  # Rust new() expects Option<u8> or maybe int?
+        # Wait, Rust signature: new(..., round_wind=None). Default is 0.
+        # But `pyo3(signature = (..., round_wind=None))` expects strict typing if I changed it?
+        # Wind is u8. The python binding for new accepts u8?
+        # But `Conditions` uses `Wind`.
+        # `RiichiEnv` field `round_wind` is `u8` in `env.rs: new()`.
+        # BUT the field `round_wind` in struct `RiichiEnv`?
+        # Let's check `env.rs` definition of `RiichiEnv`.
+        # `pub round_wind: u8` line 125 in env.rs? No.
+        # Let's check struct definition.
+        # If `RiichiEnv` uses `u8`, then tests passing `1` is OK.
+        # But `test_south_round_win` failure said: `AssertionError: assert 'E' == 'S'`.
+        # That was logic error.
+        # Wait, `test_env_scoring.py` failed with `TypeError` in `test_south_round_win`?
+        # `FAILED tests/test_env_scoring.py::TestRiichiScoring::test_south_round_win - AssertionError: assert 'E' == 'S'`
+        # This means it ran fine but start kyoku event had wrong bakaze?
+        # `assert start_kyoku["bakaze"] == "S"` failed.
+        # This implies `RiichiEnv(..., round_wind=1)` worked?
+
+        # But `test_env_scoring.py` line 193:
+        # `cond = Conditions(tsumo=True, player_wind=0, round_wind=1)`
+        # This line likely failed if Conditions requires Wind.
+        # The log showed many failures.
+        # Let's assume Conditions needs Wind.
+
+        env = RiichiEnv(seed=42, round_wind=1)  # Keeping 1 for RiichiEnv constructor if it accepts int.
         env.reset()
 
         # Verify start_kyoku event has bakaze="S"
@@ -190,7 +215,7 @@ class TestRiichiScoring:
 
         # Manual check needs correct conditions
         # Player 0 (East), Round 1 (South)
-        cond = Conditions(tsumo=True, player_wind=0, round_wind=1)
+        cond = Conditions(tsumo=True, player_wind=Wind.East, round_wind=Wind.South)
 
         calc = AgariCalculator(env.hands[0], env.melds[0]).calc(env.drawn_tile, conditions=cond)
         # Sort yaku for comparison? AgariCalculator output order might vary?

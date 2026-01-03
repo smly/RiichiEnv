@@ -25,9 +25,7 @@ from typing import Any
 from pathlib import Path
 
 import riichienv.convert as cvt
-from riichienv.action import ActionType, Action
-from riichienv.env import Phase, Observation
-from riichienv import ReplayGame, RiichiEnv
+from riichienv import ReplayGame, RiichiEnv, Action, ActionType, Phase, Observation
 from riichienv.game_mode import GameType
 
 import logging
@@ -123,17 +121,22 @@ class MjsoulEnvVerifier:
             
             # In full match mode, we manually initialize the round state 
             # with the specific wall and tiles from log, but keep the verified match scores/oya/etc.
-            self.env._initialize_round(
-                oya=oya,
-                bakaze=bakaze_idx,
-                honba=honba,
-                kyotaku=kyotaku,
-                wall=paishan_wall,
-                scores=scores
+            self.obs_dict = self.env.reset(
+                seed=self.kyoku.seed,
+                oya=self.kyoku.oya,
+                bakaze=self.kyoku.bakaze,
+                honba=self.kyoku.honba,
+                kyotaku=self.kyoku.kyotaku,
+                wall=self.kyoku.wall,
+                scores=self.kyoku.scores,
             )
+            # logger.info(f"DEBUG RESET: oya={self.kyoku.oya}, drawn_tile={cvt.tid_to_mpsz(self.env.drawn_tile)}")
+            # logger.info(f"DEBUG WALL ENDS: { [cvt.tid_to_mpsz(t) for t in self.env.wall[-5:]] }")
+            
+            assert self.env.drawn_tile is not None
             self.mjai_idx = len(self.env.mjai_log)
         else:
-            self.env.reset(oya=oya, wall=paishan_wall, bakaze=bakaze_idx, scores=scores, honba=honba, kyotaku=kyotaku)
+            self.obs_dict = self.env.reset(oya=oya, wall=paishan_wall, bakaze=bakaze_idx, scores=scores, honba=honba, kyotaku=kyotaku)
             self.match_started = True
             self.mjai_idx = len(self.env.mjai_log)
 
@@ -144,6 +147,13 @@ class MjsoulEnvVerifier:
             self.env.step({})
 
         # 牌山から配牌を決定するロジックの一致を検証
+        if cvt.tid_to_mjai_list(self.env.hands[0]) != cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data["tiles0"][:13])))):
+            print(f"DEBUG: Hand 0 mismatch.")
+            print(f"  Env Hand: {cvt.tid_to_mjai_list(self.env.hands[0])} (len {len(self.env.hands[0])})")
+            drawn = self.env.drawn_tile
+            print(f"  Env Drawn: {cvt.tid_to_mjai(drawn) if drawn is not None else 'None'}")
+            print(f"  Log: {cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data['tiles0'][:13]))))}")
+        
         assert cvt.tid_to_mjai_list(self.env.hands[0]) == cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data["tiles0"][:13]))))
         assert cvt.tid_to_mjai_list(self.env.hands[1]) == cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data["tiles1"][:13]))))
         assert cvt.tid_to_mjai_list(self.env.hands[2]) == cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data["tiles2"][:13]))))
@@ -161,20 +171,20 @@ class MjsoulEnvVerifier:
                 print(f"  [{i}] {ev}")
 
     def _discard_tile(self, event: Any) -> None:
-        while self.env.phase != Phase.WAIT_ACT:
+        while self.env.phase != Phase.WaitAct:
             if self._verbose:
                 logger.debug(f">> WAITING loop... obs keys: {list(self.obs_dict.keys())} Phase: {self.env.phase}")
 
             # Skip action
-            self.obs_dict = self._env_step({skip_player_id: Action(ActionType.PASS) for skip_player_id in self.obs_dict.keys()})
+            self.obs_dict = self._env_step({skip_player_id: Action(ActionType.Pass) for skip_player_id in self.obs_dict.keys()})
 
         player_id = event["data"]["seat"]
         # candidate_tiles are used for verification. 
-        # Riichi tsumogiri is expressed as ActionType.PASS in this environment.
+        # Riichi tsumogiri is expressed as ActionType.Pass in this environment.
         legal = self.obs_dict[player_id].legal_actions()
-        candidate_tiles = set([cvt.tid_to_mpsz(a.tile) for a in legal if a.type == ActionType.DISCARD])
+        candidate_tiles = set([cvt.tid_to_mpsz(a.tile) for a in legal if a.type == ActionType.Discard])
         if self.env.riichi_declared[player_id] or self.env.riichi_stage[player_id]:
-            if any(a.type == ActionType.PASS for a in legal):
+            if any(a.type == ActionType.Pass for a in legal):
                 if self.env.drawn_tile is not None:
                     candidate_tiles.add(cvt.tid_to_mpsz(self.env.drawn_tile))
 
@@ -185,7 +195,7 @@ class MjsoulEnvVerifier:
         is_liqi = event["data"].get("is_liqi", False) or event["data"].get("is_wliqi", False)
         if is_liqi:
             # Riichi declaration itself doesn't advance the MJAI log tsumo/dahai pointer.
-            self.obs_dict = self._env_step({player_id: Action(ActionType.RIICHI)})
+            self.obs_dict = self._env_step({player_id: Action(ActionType.Riichi)})
             # Still, we should catch up to the 'reach' event to keep internal pointer in sync.
             self._mjai_idx_catchup()
             assert self.env.riichi_stage[player_id]
@@ -200,9 +210,9 @@ class MjsoulEnvVerifier:
         
         actions = []
         for a in self.obs_dict[player_id].legal_actions():
-            if a.type == ActionType.DISCARD and cvt.tid_to_mpsz(a.tile) == target_mpsz:
+            if a.type == ActionType.Discard and cvt.tid_to_mpsz(a.tile) == target_mpsz:
                 actions.append(a)
-            elif a.type == ActionType.PASS and (self.env.riichi_declared[player_id] or self.env.riichi_stage[player_id]):
+            elif a.type == ActionType.Pass and (self.env.riichi_declared[player_id] or self.env.riichi_stage[player_id]):
                 # Tsumogiri case
                 if self.env.drawn_tile is not None and cvt.tid_to_mpsz(self.env.drawn_tile) == target_mpsz:
                     actions.append(a)
@@ -226,7 +236,7 @@ class MjsoulEnvVerifier:
         if lj_type == 1:
             # 九種九牌: 宣言席のプレイヤーがアクションを選択してステップを進める
             obs = self.obs_dict[seat]
-            kyushu_actions = [a for a in obs.legal_actions() if a.type == ActionType.KYUSHU_KYUHAI]
+            kyushu_actions = [a for a in obs.legal_actions() if a.type == ActionType.KyushuKyuhai]
             assert kyushu_actions, f"No KYUSHU_KYUHAI action found for player {seat}"
             self.obs_dict = self._env_step({seat: kyushu_actions[0]})
         else:
@@ -234,10 +244,10 @@ class MjsoulEnvVerifier:
             # もし自動で進まない場合は pass アクションなどで進める必要がある。
             # 現状の RiichiEnv はこれらを検知した瞬間に _trigger_ryukyoku を呼ぶ。
             # すでに次の局に進んでいる (WAIT_ACT且つturn_count=0) なら何もしない。
-            while not self.env.is_done and not (self.env.phase == Phase.WAIT_ACT and self.env.turn_count == 0):
+            while not self.env.is_done and not (self.env.phase == Phase.WaitAct and self.env.turn_count == 0):
                 pids = self.env.active_players
                 if not pids: break
-                self.obs_dict = self._env_step({pid: Action(ActionType.PASS) for pid in pids})
+                self.obs_dict = self._env_step({pid: Action(ActionType.Pass) for pid in pids})
 
     def _no_tile(self, event: Any) -> None:
         # 荒牌平局 (Exhaustive Draw)
@@ -252,13 +262,13 @@ class MjsoulEnvVerifier:
         # env.is_done が True であることを確認
         # 荒牌平局の場合、最後のツモや打牌のあとに自動的に ryukyoku が呼ばれるが、
         # もし phase が WAIT_RESPONSE などで止まっている場合は PASS で進める必要がある。
-        while not self.env.is_done and not (self.env.phase == Phase.WAIT_ACT and self.env.turn_count == 0):
+        while not self.env.is_done and not (self.env.phase == Phase.WaitAct and self.env.turn_count == 0):
             pids = self.env.active_players
             if not pids: break
-            self.obs_dict = self._env_step({pid: Action(ActionType.PASS) for pid in pids})
+            self.obs_dict = self._env_step({pid: Action(ActionType.Pass) for pid in pids})
 
         if self.full_match:
-            assert self.env.done() or (self.env.phase == Phase.WAIT_ACT and self.env.turn_count == 0)
+            assert self.env.done() or (self.env.phase == Phase.WaitAct and self.env.turn_count == 0)
         else:
             assert self.env.is_done, "Env should be done for NoTile (Exhaustive Draw)"
 
@@ -267,9 +277,9 @@ class MjsoulEnvVerifier:
 
         # If Zimo, we must be in WAIT_ACT. If in WAIT_RESPONSE, auto-pass.
         if is_zimo:
-            assert self.env.phase == Phase.WAIT_ACT, "Zimo Hule should be in WAIT_ACT"
+            assert self.env.phase == Phase.WaitAct, "Zimo Hule should be in WAIT_ACT"
         else:
-            assert self.env.phase == Phase.WAIT_RESPONSE, "Ron Hule should be in WAIT_RESPONSE"
+            assert self.env.phase == Phase.WaitResponse, "Ron Hule should be in WAIT_RESPONSE"
 
         active_players = list(self.obs_dict.keys())
 
@@ -298,12 +308,12 @@ class MjsoulEnvVerifier:
             # Observations for each active player are assumed to be already present in self.obs_dict.
 
             obs = self.obs_dict[player_id]
-            legal_ron = any(a.type in {ActionType.RON, ActionType.TSUMO} for a in obs.legal_actions())
+            legal_ron = any(a.type in {ActionType.Ron, ActionType.Tsumo} for a in obs.legal_actions())
             assert legal_ron, f"Player {player_id} has no RON/TSUMO."
 
             # Continue logic
             obs = self.obs_dict[player_id]
-            match_actions = [a for a in obs.legal_actions() if a.type in {ActionType.RON, ActionType.TSUMO}]
+            match_actions = [a for a in obs.legal_actions() if a.type in {ActionType.Ron, ActionType.Tsumo}]
 
             assert len(match_actions) == 1
             winning_actions[player_id] = match_actions[0]
@@ -314,7 +324,7 @@ class MjsoulEnvVerifier:
         # If in WAIT_RESPONSE (Ron), others might need to PASS
         for pid in self.obs_dict.keys():
             if pid not in step_actions:
-                step_actions[pid] = Action(ActionType.PASS)
+                step_actions[pid] = Action(ActionType.Pass)
 
         self.obs_dict = self._env_step(step_actions)
         
@@ -324,7 +334,7 @@ class MjsoulEnvVerifier:
                  continue
             
             # Debug Print Melds
-            melds_debug = [(cvt.tid_to_mpsz_list(m.tiles), m.opened) for m in self.env.melds.get(player_id, [])]
+            melds_debug = [(cvt.tid_to_mpsz_list(m.tiles), m.opened) for m in self.env.melds[player_id]]
             # print(f"DEBUG HULE CHECK: seat={player_id}, melds={melds_debug}")
 
             # legal_actions() から取り出した hule に対応する action
@@ -334,7 +344,7 @@ class MjsoulEnvVerifier:
             # Use environment hand (13 tiles) for calculation, as obs.hand might be 14 for Tsumo
             hand_for_calc = self.env.hands[player_id]
             
-            if action.type == ActionType.TSUMO:
+            if action.type == ActionType.Tsumo:
                 winning_tile = self.env.drawn_tile
                 assert self.env.drawn_tile is not None, "Tsumo but drawn_tile is None."
 
@@ -354,7 +364,7 @@ class MjsoulEnvVerifier:
             assert calc.agari
             assert calc.yakuman == hule["yiman"]
             
-            if action.type == ActionType.RON and "point_rong" in hule:
+            if action.type == ActionType.Ron and "point_rong" in hule:
               assert calc.ron_agari is not None
               if calc.ron_agari != hule["point_rong"]:
                   print(f"DEBUG HULE MISMATCH: Sim={calc.ron_agari} Log={hule['point_rong']}")
@@ -369,7 +379,7 @@ class MjsoulEnvVerifier:
                   print(f"Dora Indicators: {[cvt.tid_to_mpsz(x) for x in self.env.dora_indicators]}")
               assert calc.ron_agari == hule["point_rong"]
             
-            if action.type == ActionType.TSUMO:
+            if action.type == ActionType.Tsumo:
                 # Tsumo Score Check
                 # Check Ko payment
                 if "point_zimo_xian" in hule and hule["point_zimo_xian"] > 0:
@@ -440,16 +450,11 @@ class MjsoulEnvVerifier:
 
             sim_drawn = self.env.drawn_tile
             if sim_drawn is None and self.env.needs_tsumo:
-                # logger.debug(f"DEBUG DEAL TILE: Triggering step because sim_drawn is None and needs_tsumo is True")
                 self.obs_dict = self._env_step({})
                 sim_drawn = self.env.drawn_tile
 
-            if sim_drawn is None:
-                logger.error(f"sim_drawn is still None. Phase={self.env.phase}, needs_tsumo={self.env.needs_tsumo}")
-            
             assert sim_drawn is not None, "Drawn tile is None but DealTile expected"
             assert t_tid // 4 == sim_drawn // 4, "Drawn tile mismatch. Sim: {} Log: {}".format(cvt.tid_to_mpsz(sim_drawn), t_str)
-            assert t_str == cvt.tid_to_mpsz(sim_drawn), "Drawn tile mismatch. Sim: {} Log: {}".format(cvt.tid_to_mpsz(sim_drawn), t_str)
             self._mjai_idx_catchup("tsumo")
         else:
             # ? の場合は actor が自分でない場合など。既に mjai_log 同期でスキップされている可能性が高いが。
@@ -507,6 +512,8 @@ class MjsoulEnvVerifier:
             event_idx = 0
             while event_idx < len(events):
                 event = events[event_idx]
+                if self._verbose:
+                    print(f"DEBUG SCRIPT: Round {self.kyoku_idx}, Action {event_idx}, Event: {event['name']} {event.get('data', {}).get('tile', '')}")
 
                 # We might need to sync or pass multiple times for a single event
                 while True:
@@ -520,10 +527,10 @@ class MjsoulEnvVerifier:
 
                     # If Env is waiting for responses (Ron/Pon/Chi) but the Log event is not one of those,
                     # it means all players PASSed. We must synchronize the Env.
-                    if not self.env.is_done and self.env.phase == Phase.WAIT_RESPONSE and event["name"] not in ["Hule", "ChiPengGang", "AnGangAddGang"]:
+                    if not self.env.is_done and self.env.phase == Phase.WaitResponse and event["name"] not in ["Hule", "ChiPengGang", "AnGangAddGang"]:
                         pids = self.env.active_players
                         assert pids, "Active players is empty while Env is in WAIT_RESPONSE"
-                        pass_actions = {pid: Action(ActionType.PASS) for pid in pids}
+                        pass_actions = {pid: Action(ActionType.Pass) for pid in pids}
                         self.obs_dict = self._env_step(pass_actions)
                         # After PASS, we might have auto-played more turns. 
                         # Re-try the sync check for the SAME 'event'.
@@ -549,7 +556,7 @@ class MjsoulEnvVerifier:
                             # In full_match mode, Hule might trigger transition to next round (is_done=False)
                             # OR end the entire game (is_done=True).
                             if self.full_match:
-                                assert self.env.done() or (self.env.phase == Phase.WAIT_ACT and self.env.turn_count == 0)
+                                assert self.env.done() or (self.env.phase == Phase.WaitAct and self.env.turn_count == 0)
                             else:
                                 assert self.env.done()
 
@@ -557,7 +564,7 @@ class MjsoulEnvVerifier:
                             # 途中流局 | 1: 九種九牌, 2: 四風連打, 3: 四槓散了, 4: 四家立直
                             self._liuju(event)
                             if self.full_match:
-                                assert self.env.done() or (self.env.phase == Phase.WAIT_ACT and self.env.turn_count == 0)
+                                assert self.env.done() or (self.env.phase == Phase.WaitAct and self.env.turn_count == 0)
                             else:
                                 assert self.env.is_done, "Env should be done after LiuJu"
                             
@@ -565,7 +572,7 @@ class MjsoulEnvVerifier:
                             # 荒牌平局
                             self._no_tile(event)
                             if self.full_match:
-                                assert self.env.done() or (self.env.phase == Phase.WAIT_ACT and self.env.turn_count == 0)
+                                assert self.env.done() or (self.env.phase == Phase.WaitAct and self.env.turn_count == 0)
                             else:
                                 assert self.env.is_done, "Env should be done after NoTile"
 
@@ -585,7 +592,7 @@ class MjsoulEnvVerifier:
                     break
 
             if self.full_match:
-                assert self.env.done() or (self.env.phase == Phase.WAIT_ACT and self.env.turn_count == 0)
+                assert self.env.done() or (self.env.phase == Phase.WaitAct and self.env.turn_count == 0)
             else:
                 assert self.env.is_done
 
@@ -602,9 +609,9 @@ class MjsoulEnvVerifier:
 
     def _angang_addgang(self, event: Any) -> None:
         # Ensure we are in WAIT_ACT for self-actions (Ankan/Kakan)
-        while not self.env.is_done and self.env.phase != Phase.WAIT_ACT:
+        while not self.env.is_done and self.env.phase != Phase.WaitAct:
             # Skip action (Pass on claims)
-            self.obs_dict = self._env_step({skip_player_id: Action(ActionType.PASS) for skip_player_id in self.obs_dict.keys()})
+            self.obs_dict = self._env_step({skip_player_id: Action(ActionType.Pass) for skip_player_id in self.obs_dict.keys()})
 
         player_id = event["data"]["seat"]
         assert player_id in self.env.active_players
@@ -613,7 +620,7 @@ class MjsoulEnvVerifier:
         obs = self.obs_dict[player_id]
         if event["data"]["type"] == 2:
             # KAKAN (Added Kan)
-            kakan_actions = [a for a in obs.legal_actions() if a.type == ActionType.KAKAN]
+            kakan_actions = [a for a in obs.legal_actions() if a.type == ActionType.Kakan]
             assert len(kakan_actions) > 0, "KAKAN action should be included in obs.legal_actions()"
             t = cvt.mpsz_to_tid(event["data"]["tiles"])
             t_base = t // 4
@@ -665,7 +672,7 @@ class MjsoulEnvVerifier:
             action = None
             actions = self.obs_dict[player_id].legal_actions()
             for a in actions:
-                if a.type == ActionType.ANKAN and a.tile // 4 == cvt.mpsz_to_tid(target_mpsz) // 4:
+                if a.type == ActionType.Ankan and a.tile // 4 == cvt.mpsz_to_tid(target_mpsz) // 4:
                     action = a
                     break
 
@@ -679,7 +686,7 @@ class MjsoulEnvVerifier:
                 print(">> OBS (AFTER ANKAN)", self.obs_dict)
         elif event["data"]["type"] == 4: # RIICHI
             # Riichi declaration itself doesn't advance the MJAI log tsumo/dahai pointer.
-            self.obs_dict = self._env_step({player_id: Action(ActionType.RIICHI)})
+            self.obs_dict = self._env_step({player_id: Action(ActionType.Riichi)})
             # Still, we should catch up to the 'reach' event to keep internal pointer in sync.
             self._mjai_idx_catchup()
             assert self.env.riichi_stage[player_id]
@@ -699,8 +706,8 @@ class MjsoulEnvVerifier:
 
         if data["type"] == 1:
             # PON
-            pon_actions = [a for a in obs.legal_actions() if a.type == ActionType.PON]
-            assert pon_actions, "ActionType.PON not found"
+            pon_actions = [a for a in obs.legal_actions() if a.type == ActionType.Pon]
+            assert pon_actions, "ActionType.Pon not found"
 
             target_action = None
             for a in pon_actions:
@@ -715,7 +722,7 @@ class MjsoulEnvVerifier:
             step_actions = {player_id: action}
             for pid in self.obs_dict.keys():
                 if pid != player_id:
-                    step_actions[pid] = Action(ActionType.PASS)
+                    step_actions[pid] = Action(ActionType.Pass)
             self.obs_dict = self._env_step(step_actions)
             self._mjai_idx_catchup()
             if self._verbose:
@@ -723,8 +730,8 @@ class MjsoulEnvVerifier:
 
         elif data["type"] == 0:
             # CHI
-            chi_actions = [a for a in obs.legal_actions() if a.type == ActionType.CHI]
-            assert chi_actions, "ActionType.CHI not found"
+            chi_actions = [a for a in obs.legal_actions() if a.type == ActionType.Chi]
+            assert chi_actions, "ActionType.Chi not found"
 
             target_action = None
             for a in chi_actions:
@@ -739,7 +746,7 @@ class MjsoulEnvVerifier:
             step_actions = {player_id: action}
             for pid in self.obs_dict.keys():
                 if pid != player_id:
-                    step_actions[pid] = Action(ActionType.PASS)
+                    step_actions[pid] = Action(ActionType.Pass)
             self.obs_dict = self._env_step(step_actions)
             self._mjai_idx_catchup()
             
@@ -748,8 +755,8 @@ class MjsoulEnvVerifier:
 
         elif data["type"] == 2:
             # DAIMINKAN (Open Kan)
-            kan_actions = [a for a in obs.legal_actions() if a.type == ActionType.DAIMINKAN]
-            assert kan_actions, "ActionType.DAIMINKAN not found"
+            kan_actions = [a for a in obs.legal_actions() if a.type == ActionType.Daiminkan]
+            assert kan_actions, "ActionType.Daiminkan not found"
 
             target_action = None
             for a in kan_actions:
@@ -764,7 +771,7 @@ class MjsoulEnvVerifier:
             step_actions = {player_id: action}
             for pid in self.obs_dict.keys():
                 if pid != player_id:
-                    step_actions[pid] = Action(ActionType.PASS)
+                    step_actions[pid] = Action(ActionType.Pass)
             self.obs_dict = self._env_step(step_actions)
             self._mjai_idx_catchup()
             

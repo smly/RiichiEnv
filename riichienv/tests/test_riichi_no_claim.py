@@ -34,11 +34,11 @@ def test_riichi_no_claim():
 
     # Check legal actions for P0
     # If P0 is active:
-    # - If WAIT_RESPONSE: Only RON allowed.
-    # - If WAIT_ACT: Means claim was skipped. Success.
+    # - If WaitResponse: Only RON allowed.
+    # - If WaitAct: Means claim was skipped. Success.
 
     if 0 in obs:
-        if env.phase == Phase.WAIT_RESPONSE:
+        if env.phase == Phase.WaitResponse:
             actions = obs[0].legal_actions()
             types = [a.type for a in actions]
             assert ActionType.PON not in types
@@ -47,7 +47,7 @@ def test_riichi_no_claim():
             # Must strictly contain only RON and PASS (pass on ron)
             for t in types:
                 assert t in [ActionType.RON, ActionType.PASS]
-        elif env.phase == Phase.WAIT_ACT:
+        elif env.phase == Phase.WaitAct:
             # Success: Turned into P0's turn implies PON/CHI opportunity was skipped
             assert env.current_player == 0
 
@@ -58,11 +58,11 @@ def test_riichi_no_claim():
     obs = env._perform_discard(11)
 
     if 0 in obs:
-        if env.phase == Phase.WAIT_RESPONSE:
+        if env.phase == Phase.WaitResponse:
             actions = obs[0].legal_actions()
             types = [a.type for a in actions]
             assert ActionType.CHI not in types
-        elif env.phase == Phase.WAIT_ACT:
+        elif env.phase == Phase.WaitAct:
             assert env.current_player == 0
 
 
@@ -77,8 +77,8 @@ def test_pon_available_without_riichi():
 
     obs = env._perform_discard(2)
 
-    # Should get WAIT_RESPONSE with PON
-    assert env.phase == Phase.WAIT_RESPONSE
+    # Should get WaitResponse with PON
+    assert env.phase == Phase.WaitResponse
     assert 0 in obs
     types = [a.type for a in obs[0].legal_actions()]
     assert ActionType.PON in types

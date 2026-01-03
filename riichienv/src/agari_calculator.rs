@@ -1,6 +1,7 @@
+#![allow(clippy::useless_conversion)]
 use crate::agari;
 use crate::score;
-use crate::types::{Agari, Conditions, Hand, Meld, MeldType};
+use crate::types::{Agari, Conditions, Hand, Meld, MeldType, Wind};
 use crate::yaku;
 use pyo3::prelude::*;
 
@@ -14,6 +15,11 @@ pub struct AgariCalculator {
 
 #[pymethods]
 impl AgariCalculator {
+    #[staticmethod]
+    pub fn hand_from_text(text: &str) -> PyResult<Self> {
+        let (tiles, melds) = crate::parser::parse_hand(text)?;
+        Ok(Self::new(tiles, melds))
+    }
     #[new]
     #[pyo3(signature = (tiles_136, melds=vec![]))]
     pub fn new(tiles_136: Vec<u8>, mut melds: Vec<Meld>) -> Self {
@@ -66,13 +72,16 @@ impl AgariCalculator {
         }
     }
 
+    #[pyo3(signature = (win_tile, dora_indicators=vec![], ura_indicators=vec![], conditions=None))]
     pub fn calc(
         &self,
-        win_tile_136: u8,
+        win_tile: u8, // Renamed from win_tile_136
         dora_indicators: Vec<u8>,
         ura_indicators: Vec<u8>,
-        conditions: Conditions,
+        conditions: Option<Conditions>,
     ) -> Agari {
+        let win_tile_136 = win_tile;
+        let conditions = conditions.unwrap_or_default();
         let win_tile_34 = win_tile_136 / 4;
 
         // Clone and add win tile to create 14-tile hands for check
@@ -136,15 +145,15 @@ impl AgariCalculator {
             dora_count,
             aka_dora,
             ura_dora_count,
-            bakaze: 27 + conditions.round_wind,
-            jikaze: 27 + conditions.player_wind,
+            bakaze: 27 + conditions.round_wind as u8,
+            jikaze: 27 + conditions.player_wind as u8,
             is_menzen: self.melds.iter().all(|m| !m.opened),
         };
 
         let _divisions = agari::find_divisions(&hand_14);
         let yaku_res = yaku::calculate_yaku(&hand_14, &self.melds, &ctx, win_tile_34);
 
-        let is_oya = conditions.player_wind == 0;
+        let is_oya = conditions.player_wind == Wind::East;
         let score_res = score::calculate_score(yaku_res.han, yaku_res.fu, is_oya, conditions.tsumo);
 
         Agari {

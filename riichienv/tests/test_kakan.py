@@ -29,10 +29,10 @@ class TestKakan:
 
         env.active_players = [player_id]
         env.current_player = player_id
-        env.phase = 0  # Phase.WAIT_ACT
+        env.phase = 0  # Phase.WaitAct
 
         # Force drawn tile to be something unrelated, or just ensure hand has correct count.
-        # If it's WAIT_ACT, usually we just drew a tile.
+        # If it's WaitAct, usually we just drew a tile.
         # Let's verify _get_legal_actions logic.
         # It usually expects 14 tiles total (hand + drawn) or 13 + drawn.
         # env.hands[0] is 10. + 1 drawn? That's 11. + 3 melded = 14.
@@ -76,7 +76,7 @@ class TestKakan:
         # After Kakan, we have 4 in meld. Total tiles 14.
         # We need to draw a Replacement Tile (Rinshan).
         # RiichiEnv usually handles Rinshan logic in step?
-        # Or does it just set phase to WAIT_ACT again and draw?
+        # Or does it just set phase to WaitAct again and draw?
         # Let's check env.py logic for KAKAN execution flow if needed,
         # but for this test we primarily care about the successful execution of the action.
 

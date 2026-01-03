@@ -4,17 +4,24 @@ from ._riichienv import (  # type: ignore
     Kyoku,
     Meld,
     MeldType,
+    Observation,
+    Phase,
+    MeldType,
+    Observation,
+    Phase,
     ReplayGame,
+    # RiichiEnv,  # Imported from .env below
+    Action,
+    ActionType,
     Score,
     Wind,
     calculate_score,
     parse_hand,
     parse_tile,
 )
-from .action import Action, ActionType
-from .env import Phase, RiichiEnv
-from .game_mode import GameType
+from .env import RiichiEnv
 from .hand import Agari, AgariCalculator, Conditions
+from .game_mode import GameType
 
 EAST = Wind.East
 SOUTH = Wind.South

@@ -162,10 +162,10 @@ class TestRiichiEnv:
         # P0 discards 1m (ID 0)
         env.step({0: Action(ActionType.DISCARD, tile=0)})
 
-        # Should be in WAIT_RESPONSE
+        # Should be in WaitResponse
         # Note: If logic not implemented, this might fail or skip
         # Logic check: 'pon_potential' needs to be implemented.
-        assert env.phase == 1  # Phase.WAIT_RESPONSE, currently checks Ron.
+        assert env.phase == 1  # Phase.WaitResponse, currently checks Ron.
         # This assertion expects Pon support.
 
         assert 1 in env.active_players
@@ -181,9 +181,9 @@ class TestRiichiEnv:
         action = Action(ActionType.PON, tile=0, consume_tiles=[1, 2])
         env.step({1: action})
 
-        # P1 should now be current player (WAIT_ACT)
+        # P1 should now be current player (WaitAct)
         assert env.current_player == 1
-        assert env.phase == 0  # Phase.WAIT_ACT
+        assert env.phase == 0  # Phase.WaitAct
 
         # Check MJAI log
         last_ev = env.mjai_log[-1]
@@ -215,7 +215,7 @@ class TestRiichiEnv:
         # P0 Discards 3m
         env.step({0: Action(ActionType.DISCARD, tile=tile_3m)})
 
-        # Should be in WAIT_RESPONSE
+        # Should be in WaitResponse
         # P1 is next player (0->1 is Chi valid)
         assert env.phase == 1
         assert 1 in env.active_players

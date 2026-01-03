@@ -7,6 +7,7 @@ mod tests;
 mod types;
 mod yaku;
 
+mod env;
 mod parser;
 mod replay;
 
@@ -60,6 +61,14 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<replay::KyokuIterator>()?;
     m.add_class::<replay::AgariContext>()?;
     m.add_class::<replay::AgariContextIterator>()?;
+
+    // Env classes
+    m.add_class::<env::ActionType>()?;
+    m.add_class::<env::Phase>()?;
+    m.add_class::<env::Action>()?;
+    m.add_class::<env::Observation>()?;
+    m.add_class::<env::RiichiEnv>()?;
+
     m.add_function(wrap_pyfunction!(score::calculate_score, m)?)?;
     m.add_function(wrap_pyfunction!(parser::parse_hand, m)?)?;
     m.add_function(wrap_pyfunction!(parser::parse_tile, m)?)?;

@@ -16,7 +16,7 @@ class ActionType(IntEnum):
     PASS = 7  # Pass on claim
     ANKAN = 8  # Closed Kan
     KAKAN = 9  # Add Kan (Chankan)
-    KYUSHU_KYUHAI = 10  # Nine Terminal Abortive Draw
+    KyushuKyuhai = 10  # Nine Terminal Abortive Draw
 
 
 @dataclass
@@ -77,7 +77,7 @@ class Action:
             data = {"type": "hora"}
         elif self.type == ActionType.RON:
             data = {"type": "hora"}
-        elif self.type == ActionType.KYUSHU_KYUHAI:
+        elif self.type == ActionType.KyushuKyuhai:
             data = {"type": "ryukyoku"}
         elif self.type == ActionType.PASS:
             data = {"type": "none"}

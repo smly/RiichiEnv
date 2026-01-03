@@ -6,11 +6,14 @@ from enum import IntEnum
 from typing import Any
 
 from . import _riichienv  # type: ignore
-from ._riichienv import Meld, MeldType  # type: ignore
+from ._riichienv import Meld, MeldType, Wind  # type: ignore
 from .action import Action, ActionType
 from .game_mode import GameType
 from .hand import AgariCalculator, Conditions
 from .rules import get_rule
+
+# Wind lookup
+WINDS = [Wind.East, Wind.South, Wind.West, Wind.North]
 
 
 @dataclass
@@ -98,8 +101,8 @@ def _to_mjai_tile(tile_136: int) -> str:
 
 
 class Phase(IntEnum):
-    WAIT_ACT = 0  # Current player's turn (Discard/Tsumo/Kan/Riichi)
-    WAIT_RESPONSE = 1  # Other players' turn to claim (Ron/Pon/Chi)
+    WaitAct = 0  # Current player's turn (Discard/Tsumo/Kan/Riichi)
+    WaitResponse = 1  # Other players' turn to claim (Ron/Pon/Chi)
 
 
 class RiichiEnv:
@@ -147,7 +150,7 @@ class RiichiEnv:
         self.needs_tsumo: bool = False
 
         # Phases
-        self.phase: Phase = Phase.WAIT_ACT
+        self.phase: Phase = Phase.WaitAct
         self.active_players: list[int] = [0]
         self.last_discard: dict[str, Any] | None = None
 
@@ -250,7 +253,7 @@ class RiichiEnv:
         self.riichi_stage = [False, False, False, False]
         self.turn_count = 0
         self.current_player = self.oya
-        self.phase = Phase.WAIT_ACT
+        self.phase = Phase.WaitAct
         self.active_players = []  # Wait for tsumo in first step
         self.needs_tsumo = True
         self.current_claims = {}
@@ -450,20 +453,20 @@ class RiichiEnv:
                     )
 
         if not self.current_claims:
-            # Transition to next player's WAIT_ACT and set needs_tsumo flag.
+            # Transition to next player's WaitAct and set needs_tsumo flag.
             self._accept_riichi()
             self.current_player = (self.current_player + 1) % 4
             self.missed_agari_doujun[self.current_player] = False
             self.needs_tsumo = True
             self.is_rinshan_flag = False
-            self.phase = Phase.WAIT_ACT
+            self.phase = Phase.WaitAct
             self.active_players = []
 
             if self.mjai_mode:
                 return self.get_observations([])
             return self.step({})
 
-        self.phase = Phase.WAIT_RESPONSE
+        self.phase = Phase.WaitResponse
         self.active_players = [
             pid for pid, actions in self.current_claims.items() if any(a.type != ActionType.PASS for a in actions)
         ]
@@ -513,7 +516,7 @@ class RiichiEnv:
                     return self.get_observations([self.current_player])
                 continue
 
-            if self.phase == Phase.WAIT_ACT and self.current_player not in actions:
+            if self.phase == Phase.WaitAct and self.current_player not in actions:
                 if not self.mjai_mode and self.riichi_declared[self.current_player]:
                     # Auto-play for Riichi player if no special action (Tsumo/Kan) is provided or available.
                     legal = self._get_legal_actions(self.current_player)
@@ -528,7 +531,7 @@ class RiichiEnv:
                 else:
                     raise ValueError(f"Actions required from {self.active_players}, but got {list(actions.keys())}")
 
-            if self.phase == Phase.WAIT_ACT:
+            if self.phase == Phase.WaitAct:
                 action = actions[self.current_player]
                 if action.type == ActionType.RIICHI:
                     if self._scores[self.current_player] < 1000:
@@ -559,8 +562,8 @@ class RiichiEnv:
                             ippatsu=self.ippatsu_eligible[self.current_player],
                             rinshan=self.is_rinshan_flag,
                             haitei=(len(self.wall) <= 14 and not self.is_rinshan_flag),
-                            player_wind=(self.current_player - self.oya + 4) % 4,
-                            round_wind=self._custom_round_wind,
+                            player_wind=WINDS[(self.current_player - self.oya + 4) % 4],
+                            round_wind=WINDS[self._custom_round_wind % 4],
                             tsumo_first_turn=is_first,
                         ),
                         ura_indicators=ura_in,
@@ -586,7 +589,7 @@ class RiichiEnv:
                     if self.done():
                         return self.get_observations([])
                     return self.get_observations(self.active_players)
-                elif action.type == ActionType.KYUSHU_KYUHAI:
+                elif action.type == ActionType.KyushuKyuhai:
                     self._trigger_ryukyoku("kyushu_kyuhai")
                     if self.done():
                         return self.get_observations([])
@@ -623,7 +626,7 @@ class RiichiEnv:
 
                     # Pause for Chankan
                     self.phase, self.active_players, self.pending_kan = (
-                        Phase.WAIT_RESPONSE,
+                        Phase.WaitResponse,
                         ronners,
                         action,  # Store action to resume later
                     )
@@ -646,9 +649,9 @@ class RiichiEnv:
                     actions = {}
                     continue
                 else:
-                    raise ValueError(f"Action {action.type} not allowed in Phase.WAIT_ACT")
+                    raise ValueError(f"Action {action.type} not allowed in Phase.WaitAct")
 
-            elif self.phase == Phase.WAIT_RESPONSE:
+            elif self.phase == Phase.WaitResponse:
                 # Set missed agari flags for those who passed Ron
                 for pid, act in actions.items():
                     claims = self.current_claims.get(pid, [])
@@ -684,8 +687,8 @@ class RiichiEnv:
                                 riichi=self.riichi_declared[winner],
                                 double_riichi=self.double_riichi_declared[winner],
                                 ippatsu=self.ippatsu_eligible[winner],
-                                player_wind=(winner - self.oya + 4) % 4,
-                                round_wind=self._custom_round_wind,
+                                player_wind=WINDS[(winner - self.oya + 4) % 4],
+                                round_wind=WINDS[self._custom_round_wind % 4],
                                 chankan=(self.pending_kan is not None),
                                 houtei=(len(self.wall) <= 14),
                             ),
@@ -726,12 +729,12 @@ class RiichiEnv:
                         self.drawn_tile,
                         self.ippatsu_eligible,
                         self.is_first_turn,
-                    ) = claimer, Phase.WAIT_ACT, [claimer], None, [False] * 4, False
+                    ) = claimer, Phase.WaitAct, [claimer], None, [False] * 4, False
                     if valid_actions[claimer].type == ActionType.DAIMINKAN:
                         self.is_rinshan_flag = True
                         self.drawn_tile = None
                         self.needs_tsumo = True
-                        self.phase, self.active_players = Phase.WAIT_ACT, []  # Wait for tsumo
+                        self.phase, self.active_players = Phase.WaitAct, []  # Wait for tsumo
                         if self.mjai_mode:
                             return self.get_observations([])
                         actions = {}
@@ -753,7 +756,7 @@ class RiichiEnv:
                         self.drawn_tile,
                         self.ippatsu_eligible,
                         self.is_first_turn,
-                    ) = claimer, Phase.WAIT_ACT, [claimer], None, [False] * 4, False
+                    ) = claimer, Phase.WaitAct, [claimer], None, [False] * 4, False
                     self.is_rinshan_flag = False
                     return self.get_observations(self.active_players)
 
@@ -763,7 +766,7 @@ class RiichiEnv:
                         self.is_rinshan_flag = True
                         self.ippatsu_eligible = [False] * 4
                         self.needs_tsumo = True
-                        self.phase, self.active_players = Phase.WAIT_ACT, []
+                        self.phase, self.active_players = Phase.WaitAct, []
                         self.pending_kan = None
                         if self.mjai_mode:
                             return self.get_observations([])
@@ -779,7 +782,7 @@ class RiichiEnv:
                 self._accept_riichi()
                 self.current_player = (self.current_player + 1) % 4
                 self.missed_agari_doujun[self.current_player] = False
-                self.phase, self.active_players = Phase.WAIT_ACT, []
+                self.phase, self.active_players = Phase.WaitAct, []
                 self.drawn_tile = None
                 self.is_rinshan_flag = False
                 self.needs_tsumo = True
@@ -816,7 +819,7 @@ class RiichiEnv:
         actions = []
         hand = self.hands[pid][:]
         h14 = hand + ([self.drawn_tile] if self.drawn_tile is not None else [])
-        if self.phase == Phase.WAIT_ACT:
+        if self.phase == Phase.WaitAct:
             if pid != self.current_player or self.needs_tsumo:
                 return []
             if self.riichi_stage[pid]:
@@ -828,7 +831,7 @@ class RiichiEnv:
             any_call = any(e["type"] in ["chi", "pon", "daiminkan", "kakan", "ankan"] for e in current_kyoku_log)
             if not has_discarded and not any_call:
                 if len({t // 4 for t in h14 if (t // 4) in {0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33}}) >= 9:
-                    actions.append(Action(ActionType.KYUSHU_KYUHAI))
+                    actions.append(Action(ActionType.KyushuKyuhai))
             if self.riichi_declared[pid]:
                 if self.drawn_tile is not None:
                     is_first = self.is_first_turn and len(self.discards[pid]) == 0
@@ -839,8 +842,8 @@ class RiichiEnv:
                             riichi=True,
                             double_riichi=self.double_riichi_declared[pid],
                             ippatsu=self.ippatsu_eligible[pid],
-                            player_wind=(pid - self.oya + 4) % 4,
-                            round_wind=self._custom_round_wind,
+                            player_wind=WINDS[(pid - self.oya + 4) % 4],
+                            round_wind=WINDS[self._custom_round_wind % 4],
                             haitei=(len(self.wall) <= 14),
                             rinshan=self.is_rinshan_flag,
                             tsumo_first_turn=is_first,
@@ -867,8 +870,8 @@ class RiichiEnv:
                         riichi=self.riichi_declared[pid],
                         double_riichi=self.double_riichi_declared[pid],
                         ippatsu=self.ippatsu_eligible[pid],
-                        player_wind=(pid - self.oya + 4) % 4,
-                        round_wind=self._custom_round_wind,
+                        player_wind=WINDS[(pid - self.oya + 4) % 4],
+                        round_wind=WINDS[self._custom_round_wind % 4],
                         haitei=(len(self.wall) <= 14),
                         rinshan=self.is_rinshan_flag,
                         tsumo_first_turn=is_first,
@@ -1142,8 +1145,8 @@ class RiichiEnv:
                     tsumo=False,
                     riichi=self.riichi_declared[pid],
                     double_riichi=self.double_riichi_declared[pid],
-                    player_wind=(pid - self.oya + 4) % 4,
-                    round_wind=self._custom_round_wind,
+                    player_wind=WINDS[(pid - self.oya + 4) % 4],
+                    round_wind=WINDS[self._custom_round_wind % 4],
                 ),
             )
             if res.agari:
@@ -1184,8 +1187,8 @@ class RiichiEnv:
                     riichi=self.riichi_declared[p],
                     double_riichi=self.double_riichi_declared[p],
                     ippatsu=self.ippatsu_eligible[p],
-                    player_wind=(p - self.oya + 4) % 4,
-                    round_wind=self._custom_round_wind,
+                    player_wind=WINDS[(p - self.oya + 4) % 4],
+                    round_wind=WINDS[self._custom_round_wind % 4],
                     houtei=(len(self.wall) <= 14),
                     chankan=is_chankan,
                 ),

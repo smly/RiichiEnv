@@ -1,3 +1,4 @@
+#![allow(clippy::useless_conversion)]
 use crate::types::{Meld, MeldType};
 use pyo3::prelude::*;
 use std::iter::Peekable;
@@ -425,5 +426,40 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> PyResult<Mel
         let opened = mtype != MeldType::Angang;
 
         Ok(Meld::new(mtype, tiles_136, opened))
+    }
+}
+
+pub fn tid_to_mjai(tid: u8) -> String {
+    // Check Red 5s
+    if tid == 16 {
+        return "5mr".to_string();
+    }
+    if tid == 52 {
+        return "5pr".to_string();
+    }
+    if tid == 88 {
+        return "5sr".to_string();
+    }
+
+    let kind = tid / 36;
+    if kind < 3 {
+        let suit_char = match kind {
+            0 => "m",
+            1 => "p",
+            2 => "s",
+            _ => unreachable!(),
+        };
+        let offset = tid % 36;
+        let num = offset / 4 + 1;
+        format!("{}{}", num, suit_char)
+    } else {
+        let offset = tid - 108;
+        let num = offset / 4 + 1;
+        let honors = ["E", "S", "W", "N", "P", "F", "C"];
+        if (1..=7).contains(&num) {
+            honors[num as usize - 1].to_string()
+        } else {
+            format!("{}z", num)
+        }
     }
 }

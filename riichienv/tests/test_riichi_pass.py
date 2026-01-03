@@ -10,7 +10,7 @@ def test_riichi_pass_action():
     pid = 0
     env.riichi_declared[pid] = True
     env.current_player = pid
-    env.phase = Phase.WAIT_ACT
+    env.phase = Phase.WaitAct
 
     # Give a drawn tile
     env.drawn_tile = 10  # Some tile ID

@@ -22,7 +22,7 @@ class TestPao:
 
         # P1 discards 3rd Red Dragon (134)
         env.current_player = 1
-        env.phase = Phase.WAIT_RESPONSE
+        env.phase = Phase.WaitResponse
         env.last_discard = {"seat": 1, "tile": 134}
         env.active_players = [0]
         env.current_claims = {0: [Action(ActionType.PON, tile=134, consume_tiles=[132, 133])]}
@@ -35,7 +35,7 @@ class TestPao:
 
         # P0 draws completing tile for 2m pair (6 is 2m)
         env.current_player = 0
-        env.phase = Phase.WAIT_ACT
+        env.phase = Phase.WaitAct
         env.active_players = [0]
         env.drawn_tile = 6
 
@@ -73,7 +73,7 @@ class TestPao:
         ]
 
         env.current_player = 1
-        env.phase = Phase.WAIT_RESPONSE
+        env.phase = Phase.WaitResponse
         env.last_discard = {"seat": 1, "tile": 134}
         env.active_players = [0]
         env.current_claims = {0: [Action(ActionType.PON, tile=134, consume_tiles=[132, 133])]}
@@ -84,7 +84,7 @@ class TestPao:
 
         # P2 discards winning tile (6 for 2m triplet)
         env.current_player = 2
-        env.phase = Phase.WAIT_RESPONSE
+        env.phase = Phase.WaitResponse
         env.last_discard = {"seat": 2, "tile": 6}
         env.active_players = [0]
         env.current_claims = {0: [Action(ActionType.RON, tile=6)]}

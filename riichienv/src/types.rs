@@ -72,12 +72,25 @@ pub enum MeldType {
 /// Wind values are used in scoring calculations and yaku determination,
 /// particularly for yakuhai (wind honor tiles) and determining dealer bonuses.
 #[pyclass(eq, eq_int)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Wind {
+    #[default]
     East = 0,
     South = 1,
     West = 2,
     North = 3,
+}
+
+impl From<u8> for Wind {
+    fn from(val: u8) -> Self {
+        match val % 4 {
+            0 => Wind::East,
+            1 => Wind::South,
+            2 => Wind::West,
+            3 => Wind::North,
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[pyclass]
@@ -104,7 +117,7 @@ impl Meld {
 }
 
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Conditions {
     #[pyo3(get, set)]
     pub tsumo: bool,
@@ -121,9 +134,9 @@ pub struct Conditions {
     #[pyo3(get, set)]
     pub rinshan: bool,
     #[pyo3(get, set)]
-    pub player_wind: u8,
+    pub player_wind: Wind,
     #[pyo3(get, set)]
-    pub round_wind: u8,
+    pub round_wind: Wind,
     #[pyo3(get, set)]
     pub chankan: bool,
     #[pyo3(get, set)]
@@ -138,7 +151,7 @@ pub struct Conditions {
 impl Conditions {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (tsumo=false, riichi=false, double_riichi=false, ippatsu=false, haitei=false, houtei=false, rinshan=false, chankan=false, tsumo_first_turn=false, player_wind=0, round_wind=0, kyoutaku=0, tsumi=0))]
+    #[pyo3(signature = (tsumo=false, riichi=false, double_riichi=false, ippatsu=false, haitei=false, houtei=false, rinshan=false, chankan=false, tsumo_first_turn=false, player_wind=Wind::East, round_wind=Wind::East, kyoutaku=0, tsumi=0))]
     pub fn new(
         tsumo: bool,
         riichi: bool,
@@ -149,8 +162,8 @@ impl Conditions {
         rinshan: bool,
         chankan: bool,
         tsumo_first_turn: bool,
-        player_wind: u8,
-        round_wind: u8,
+        player_wind: Wind,
+        round_wind: Wind,
         kyoutaku: u32,
         tsumi: u32,
     ) -> Self {
