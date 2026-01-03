@@ -1,12 +1,10 @@
-import pytest
-
 from riichienv import GameType, RiichiEnv
 
 
 class TestGameModes:
-    def test_unsupported_game_type(self):
-        with pytest.raises(NotImplementedError):
-            RiichiEnv(game_type=GameType.YON_HANCHAN)
+    def test_tonpusen_support(self):
+        # Should not raise NotImplementedError anymore
+        RiichiEnv(game_type=GameType.YON_TONPUSEN)
 
     def test_initialization_params(self):
         # East Round, 30000 start, 1 kyotaku, 2 honba

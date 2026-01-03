@@ -43,7 +43,7 @@ class TestDaiminkan:
         env.step({p0: Action(ActionType.DISCARD, tile=discard_tile)})
 
         # P1 Should have legal action DAIMINKAN
-        obs = env._get_observations([p1])[p1]
+        obs = env.get_observations([p1])[p1]
         legal_actions = obs.legal_actions()
         kakan_actions = [a for a in legal_actions if a.type == ActionType.DAIMINKAN]
 
@@ -70,6 +70,6 @@ class TestDaiminkan:
         last_event = env.mjai_log[-1]
         assert last_event["type"] == "tsumo"
         assert last_event["actor"] == p1
-        assert last_event["tile"] == cvt.tid_to_mjai(env.drawn_tile)
+        assert last_event["pai"] == cvt.tid_to_mjai(env.drawn_tile)
 
         print(">> Verified Daiminkan triggered Rinshan draw:", env.drawn_tile)

@@ -1,4 +1,5 @@
 import hashlib
+import json
 import random
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -9,6 +10,7 @@ from ._riichienv import Meld, MeldType  # type: ignore
 from .action import Action, ActionType
 from .game_mode import GameType
 from .hand import AgariCalculator, Conditions
+from .rules import get_rule
 
 
 @dataclass
@@ -39,6 +41,35 @@ class Observation:
         Returns only the new events since the last observation.
         """
         return self.events[self.prev_events_size :]
+
+    def select_action_from_mjai(self, mjai_action: str) -> Action | None:
+        """
+        Select a legal action corresponding to the given MJAI action string.
+        Returns matched Action or None.
+        """
+        try:
+            target_json = json.loads(mjai_action)
+        except json.JSONDecodeError:
+            return None
+
+        if target_json.get("type") == "none":
+            for action in self._legal_actions:
+                if action.type == ActionType.PASS:
+                    return action
+
+        for action in self._legal_actions:
+            if action.type == ActionType.PASS and target_json.get("type") == "dahai":
+                if target_json.get("tsumogiri") is True:
+                    return action
+
+            if action.type == ActionType.KAKAN and target_json.get("type") == "kakan":
+                if target_json.get("pai") == _to_mjai_tile(action.tile):
+                    return action
+
+            act_json = json.loads(action.to_mjai())
+            if all(target_json.get(k) == v for k, v in act_json.items()):
+                return action
+        return None
 
 
 def _to_mjai_tile(tile_136: int) -> str:
@@ -80,9 +111,10 @@ class RiichiEnv:
         initial_scores: list[int] | None = None,
         kyotaku: int = 0,
         honba: int = 0,
+        mjai_mode: bool = False,
     ):
-        if game_type != GameType.YON_IKKYOKU:
-            raise NotImplementedError(f"GameType {game_type} is not yet supported.")
+        self.rule = get_rule(game_type)
+        self.mjai_mode = mjai_mode
 
         self._seed = seed
         self._rng = random.Random(seed)
@@ -101,11 +133,18 @@ class RiichiEnv:
         self.current_player: int = 0
         self.turn_count: int = 0
         self.is_done: bool = False
+        self.needs_tsumo: bool = False
         self._scores: list[int] = [25000, 25000, 25000, 25000]
         self.score_deltas: list[int] = [0, 0, 0, 0]
         self.riichi_sticks: int = 0
         self.riichi_declared: list[bool] = [False, False, False, False]
         self.riichi_stage: list[bool] = [False, False, False, False]
+        self.double_riichi_declared: list[bool] = [False, False, False, False]
+        self.agari_results: dict[int, Any] = {}
+        self.last_agari_results: dict[int, Any] = {}
+        self.round_end_scores: list[int] | None = None
+        self.needs_initialize_round: bool = False
+        self.needs_tsumo: bool = False
 
         # Phases
         self.phase: Phase = Phase.WAIT_ACT
@@ -119,15 +158,17 @@ class RiichiEnv:
         self.oya: int = 0
         self.kyoku_idx: int = 1
         self.dora_indicators: list[int] = []
+        self.rinshan_draw_count: int = 0
         self.pending_kan_dora_count: int = 0
 
-        # Yaku tracking
-        self.ippatsu_eligible: list[bool] = [False, False, False, False]
-        self.double_riichi_declared: list[bool] = [False, False, False, False]
+        self.kyoku_log_start_idx: int = 0
         self.is_rinshan_flag: bool = False
         self.is_first_turn: bool = True
+        self.missed_agari_riichi: list[bool] = [False, False, False, False]
+        self.missed_agari_doujun: list[bool] = [False, False, False, False]
         self.riichi_pending_acceptance: int | None = None
         self.nagashi_eligible: list[bool] = [True] * 4
+        self.drawn_tile: int | None = None
 
         # Security
         self.wall_digest: str = ""
@@ -137,39 +178,52 @@ class RiichiEnv:
         self.mjai_log: list[dict[str, Any]] = []
         self._player_event_counts: list[int] = [0, 0, 0, 0]
 
-        # Current logic state
-        self.drawn_tile: int | None = None
-        self._verbose: bool = False
-        self.agari_results = {}
+        self.kyoku_idx = 0
+        self.honba = 0
+        self.riichi_sticks = 0
+        self.score_deltas = [0, 0, 0, 0]
+        self.mjai_log = []
+        self.kyoku_log_start_idx = 0
         self.pao: list[dict[int, int]] = [{} for _ in range(4)]
 
-    def reset(
+    def _initialize_round(
         self,
-        oya: int = 0,
+        oya: int,
+        bakaze: int,
+        honba: int,
+        kyotaku: int,
         wall: list[int] | None = None,
-        bakaze: int | None = None,
         scores: list[int] | None = None,
-        honba: int | None = None,
-        kyotaku: int | None = None,
-    ) -> dict[int, Observation]:
-        self._rng = random.Random(self._seed)
-
+    ):
         self.oya = oya
+        self._custom_round_wind = bakaze
+        self._custom_honba = honba
+        self.riichi_sticks = kyotaku
+        self.is_done = False
+
         self.kyoku_idx = oya + 1
-        if bakaze is not None:
-            self._custom_round_wind = bakaze
         self.dora_indicators = []
         self.pending_kan_dora_count = 0
 
         self.ippatsu_eligible = [False] * 4
         self.double_riichi_declared = [False] * 4
         self.is_rinshan_flag = False
+        self.rinshan_draw_count = 0
         self.is_first_turn = True
+        self.missed_agari_riichi = [False] * 4
+        self.missed_agari_doujun = [False] * 4
         self.riichi_pending_acceptance = None
         self.nagashi_eligible = [True] * 4
+        if self.agari_results:
+            self.last_agari_results = self.agari_results
         self.agari_results = {}
         self.pao = [{} for _ in range(4)]
         self.score_deltas = [0, 0, 0, 0]
+        self.kyoku_log_start_idx = len(self.mjai_log)
+        self.riichi_declared = [False] * 4
+        self.riichi_stage = [False] * 4
+        self.turn_count = 0
+        self.pending_kan = None
 
         if wall is not None:
             self.wall = list(reversed(wall))
@@ -188,35 +242,23 @@ class RiichiEnv:
         self.discards = {0: [], 1: [], 2: [], 3: []}
         self.melds = {0: [], 1: [], 2: [], 3: []}
 
-        # Internal backing store for player scores. External callers should use the
-        # public scores accessor (e.g. scores()) instead of touching _scores directly.
-        # Within this class, mutating _scores directly is intentional.
         if scores is not None:
             self._scores = scores[:]
-        elif self._custom_initial_scores:
-            self._scores = self._custom_initial_scores[:]
-        else:
-            self._scores = [25000, 25000, 25000, 25000]
+        # Note: If scores is None, we keep current self._scores (useful for multi-round)
 
-        if honba is not None:
-            self._custom_honba = honba
-        self.riichi_sticks = kyotaku if kyotaku is not None else self._custom_kyotaku
         self.riichi_declared = [False, False, False, False]
         self.riichi_stage = [False, False, False, False]
-        self.is_done = False
         self.turn_count = 0
         self.current_player = self.oya
         self.phase = Phase.WAIT_ACT
-        self.active_players = [self.oya]
+        self.active_players = []  # Wait for tsumo in first step
+        self.needs_tsumo = True
         self.current_claims = {}
         self.pending_kan = None
         self.last_discard = None
-
         self.mjai_log = []
-        self._player_event_counts = [0, 0, 0, 0]
-        self.mjai_log.append(
-            {"type": "start_game", "names": ["Player0", "Player1", "Player2", "Player3"], "id": "local_game_0"}
-        )
+
+        # self.mjai_log should be handled by the caller or specialized method
 
         for _ in range(3):
             for pid in range(4):
@@ -227,25 +269,66 @@ class RiichiEnv:
             pid_ = (pid + self.oya) % 4
             self.hands[pid_].append(self.wall.pop())
 
-        self.drawn_tile = self.wall.pop()
         for pid in range(4):
             self.hands[pid].sort()
+
+        self.drawn_tile = None
+        self.needs_tsumo = True
 
         tehais = [[_to_mjai_tile(t) for t in self.hands[pid]] for pid in range(4)]
         start_kyoku_event = {
             "type": "start_kyoku",
-            "bakaze": ["E", "S", "W"][self._custom_round_wind % 3],  # Bakaze can be South or West too
+            "bakaze": ["E", "S", "W", "N"][self._custom_round_wind % 4],
             "kyoku": self.oya + 1,
             "honba": self._custom_honba,
             "kyotaku": self.riichi_sticks,
             "oya": self.oya,
             "dora_marker": _to_mjai_tile(self.dora_indicators[0]),
             "tehais": tehais,
+            "scores": self._scores,
         }
         self.mjai_log.append(start_kyoku_event)
-        self.mjai_log.append({"type": "tsumo", "actor": self.oya, "tile": _to_mjai_tile(self.drawn_tile)})
+        self.score_deltas = [0, 0, 0, 0]
 
-        return self._get_observations(self.active_players)
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        oya: int | None = None,
+        bakaze: int | None = None,
+        honba: int | None = None,
+        kyotaku: int | None = None,
+        wall: list[int] | None = None,
+        scores: list[int] | None = None,
+    ) -> dict[int, Observation]:
+        self._rng = random.Random(self._seed)
+
+        self.is_done = False
+        self.mjai_log = []
+        self._player_event_counts = [0, 0, 0, 0]
+        self.hands = {0: [], 1: [], 2: [], 3: []}
+        self.discards = {0: [], 1: [], 2: [], 3: []}
+        self.melds = {0: [], 1: [], 2: [], 3: []}
+        self.mjai_log.append({"type": "start_game", "names": ["Player0", "Player1", "Player2", "Player3"], "id": 0})
+        self._initialize_round(
+            oya=oya if oya is not None else 0,
+            bakaze=bakaze if bakaze is not None else self._custom_round_wind,
+            honba=honba if honba is not None else self._custom_honba,
+            kyotaku=kyotaku if kyotaku is not None else self._custom_kyotaku,
+            wall=wall,
+            scores=scores
+            if scores is not None
+            else (self._custom_initial_scores[:] if self._custom_initial_scores else [25000, 25000, 25000, 25000]),
+        )
+        self.needs_initialize_round = False
+        self.needs_tsumo = True
+        self.active_players = []
+
+        if self.mjai_mode:
+            return self.get_observations(self.active_players)
+
+        # Auto-advance to the first actionable state (Oya's draw)
+        return self.step({})
 
     def done(self) -> bool:
         return self.is_done
@@ -297,305 +380,413 @@ class RiichiEnv:
             int((self._scores[i] - soten_base) / 1000.0 * soten_weight + jun_weight[ranks[i] - 1]) for i in range(4)
         ]
 
+    def _perform_discard(self, discard_tile_id: int) -> dict[int, Observation]:
+        is_reach_declaration = False
+        if self.riichi_stage[self.current_player]:
+            self.riichi_stage[self.current_player], self.riichi_declared[self.current_player] = False, True
+            is_reach_declaration = True
+            self.riichi_pending_acceptance = self.current_player
+            self.ippatsu_eligible[self.current_player] = True
+            if len(self.discards[self.current_player]) == 0 and not any(len(m) for m in self.melds.values()):
+                self.double_riichi_declared[self.current_player] = True
+        elif self.riichi_declared[self.current_player]:
+            self.ippatsu_eligible[self.current_player] = False
+
+        # Nagashi Mangan check
+        if discard_tile_id // 4 not in [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33]:
+            self.nagashi_eligible[self.current_player] = False
+
+        tsumogiri = self.drawn_tile == discard_tile_id
+        if tsumogiri:
+            self.drawn_tile = None
+        else:
+            if self.drawn_tile is not None:
+                self.hands[self.current_player].append(self.drawn_tile)
+                self.drawn_tile = None
+            self.hands[self.current_player].remove(discard_tile_id)
+        self.discards[self.current_player].append(discard_tile_id)
+        self.hands[self.current_player].sort()
+        # Check for pending Kan Dora reveal (Min-kan/Kakan: reveal after discard)
+        # Move BEFORE dahai to ensure dahai is the last event in the batch for bots.
+        while self.pending_kan_dora_count > 0:
+            self._reveal_kan_dora(post_rinshan=False)
+            self.pending_kan_dora_count -= 1
+
+        self.mjai_log.append(
+            {
+                "type": "dahai",
+                "actor": self.current_player,
+                "pai": _to_mjai_tile(discard_tile_id),
+                "tsumogiri": tsumogiri,
+                "reach": is_reach_declaration,
+            }
+        )
+        self.last_discard = {"seat": self.current_player, "tile": discard_tile_id}
+
+        self.current_claims = {}
+        ronners = self._get_ron_potential(discard_tile_id, is_chankan=False)
+        for pid in ronners:
+            self.current_claims.setdefault(pid, []).append(Action(ActionType.RON, tile=discard_tile_id))
+        for pid in range(4):
+            if pid == self.current_player:
+                continue
+            if self.riichi_declared[pid]:
+                continue
+            for opt in self._can_pon(self.hands[pid], discard_tile_id):
+                self.current_claims.setdefault(pid, []).append(
+                    Action(ActionType.PON, tile=discard_tile_id, consume_tiles=opt)
+                )
+            for opt in self._can_kan(self.hands[pid], discard_tile_id):
+                self.current_claims.setdefault(pid, []).append(
+                    Action(ActionType.DAIMINKAN, tile=discard_tile_id, consume_tiles=opt)
+                )
+        next_p = (self.current_player + 1) % 4
+        if not self.riichi_declared[next_p]:
+            for opt in self._can_chi(self.hands[next_p], discard_tile_id):
+                self.current_claims.setdefault(next_p, []).append(
+                    Action(ActionType.CHI, tile=discard_tile_id, consume_tiles=opt)
+                )
+
+        if not self.current_claims:
+            # Transition to next player's WAIT_ACT and set needs_tsumo flag.
+            self._accept_riichi()
+            self.current_player = (self.current_player + 1) % 4
+            self.missed_agari_doujun[self.current_player] = False
+            self.needs_tsumo = True
+            self.is_rinshan_flag = False
+            self.phase = Phase.WAIT_ACT
+            self.active_players = []
+
+            if self.mjai_mode:
+                return self.get_observations([])
+            return self.step({})
+
+        self.phase = Phase.WAIT_RESPONSE
+        self.active_players = list(self.current_claims.keys())
+        return self.get_observations(self.active_players)
+
     def step(self, actions: dict[int, Action]) -> dict[int, Observation]:
         """Execute one step."""
+        if self.agari_results:
+            self.last_agari_results = self.agari_results
         self.agari_results = {}
-        if self.is_done:
-            return self._get_observations([])
-        if set(actions.keys()) != set(self.active_players):
-            raise ValueError(f"Actions required from {self.active_players}, but got {list(actions.keys())}")
 
-        if self.phase == Phase.WAIT_ACT:
-            action = actions[self.current_player]
-            if action.type == ActionType.RIICHI:
-                if self._scores[self.current_player] < 1000:
-                    raise ValueError("Not enough points for Riichi")
-                self.riichi_stage[self.current_player] = True
-                self.mjai_log.append({"type": "reach", "actor": self.current_player})
-                return self._get_observations(self.active_players)
-            elif action.type == ActionType.TSUMO:
-                assert self.drawn_tile is not None
-                ura_in = (
-                    self._get_ura_markers_tid()
-                    if (self.riichi_declared[self.current_player] or self.double_riichi_declared[self.current_player])
-                    else []
-                )
-                is_first = self.is_first_turn and len(self.discards[self.current_player]) == 0
-                res = AgariCalculator(self.hands[self.current_player], self.melds.get(self.current_player, [])).calc(
-                    self.drawn_tile,
-                    dora_indicators=self.dora_indicators,
-                    conditions=Conditions(
-                        tsumo=True,
-                        riichi=self.riichi_declared[self.current_player],
-                        double_riichi=self.double_riichi_declared[self.current_player],
-                        ippatsu=self.ippatsu_eligible[self.current_player],
-                        rinshan=self.is_rinshan_flag,
-                        haitei=(len(self.wall) <= 14 and not self.is_rinshan_flag),
-                        player_wind=(self.current_player - self.oya + 4) % 4,
-                        round_wind=self._custom_round_wind,
-                        tsumo_first_turn=is_first,
-                    ),
-                    ura_indicators=ura_in,
-                )
-                self.agari_results[self.current_player] = res
-                self.is_done = True
-                deltas = self._calculate_deltas(res, self.current_player, is_tsumo=True)
-                ura_markers = []
-                if self.riichi_declared[self.current_player] or self.double_riichi_declared[self.current_player]:
-                    ura_markers = self._get_ura_markers()
-                self.mjai_log.append(
-                    {
-                        "type": "hora",
-                        "actor": self.current_player,
-                        "target": self.current_player,
-                        "tsumo": True,
-                        "pai": _to_mjai_tile(self.drawn_tile),
-                        "deltas": deltas,
-                        "ura_markers": ura_markers,
-                    }
-                )
-                self.mjai_log.append({"type": "end_kyoku"})
-                self.mjai_log.append({"type": "end_game"})
-                return self._get_observations([])
-            elif action.type == ActionType.KYUSHU_KYUHAI:
-                self._trigger_ryukyoku("kyushu_kyuhai")
-                return self._get_observations([])
-            elif action.type in [ActionType.ANKAN, ActionType.KAKAN]:
-                is_chankan = action.type == ActionType.KAKAN
-                assert action.tile is not None
-                ronners = self._get_ron_potential(action.tile, is_chankan=is_chankan, is_ankan=(not is_chankan))
-                if ronners:
-                    self.phase, self.active_players, self.pending_kan = (
-                        Phase.WAIT_RESPONSE,
-                        ronners,
-                        (self.current_player, action),
-                    )
-                    self.last_discard = {"seat": self.current_player, "tile": action.tile}
-                    self.current_claims = {pid: [Action(ActionType.RON, tile=action.tile)] for pid in ronners}
-                    return self._get_observations(self.active_players)
-                if self.drawn_tile is not None:
-                    self.hands[self.current_player].append(self.drawn_tile)
-                    self.drawn_tile = None
-                self._execute_claim(self.current_player, action)
-                self.ippatsu_eligible = [False] * 4
-                self.is_first_turn = False
+        while not self.is_done:
+            if self.needs_tsumo:
+                # Handle leading tsumo draw in a separate step to ensure it's terminal
+                if not self.is_rinshan_flag and self._check_midway_draws():
+                    if self.done():
+                        return self.get_observations([])
+                    if self.mjai_mode:
+                        return self.get_observations(self.active_players)
+                    continue
+
                 if len(self.wall) <= 14:
                     self._trigger_ryukyoku("exhaustive_draw")
-                    return self._get_observations([])
-                self.is_rinshan_flag = True
-                self.drawn_tile = self.wall.pop(0)
-                self.mjai_log.append(
-                    {"type": "tsumo", "actor": self.current_player, "tile": _to_mjai_tile(self.drawn_tile)}
-                )
-                self.active_players = [self.current_player]
-                return self._get_observations(self.active_players)
-            elif action.type == ActionType.DISCARD:
-                assert action.tile is not None
-                discard_tile_id = action.tile
-                is_reach_declaration = False
-                if self.riichi_stage[self.current_player]:
-                    self.riichi_stage[self.current_player], self.riichi_declared[self.current_player] = False, True
-                    is_reach_declaration = True
-                    self.riichi_pending_acceptance = self.current_player
-                    self.ippatsu_eligible[self.current_player] = True
-                    if len(self.discards[self.current_player]) == 0 and not any(len(m) for m in self.melds.values()):
-                        self.double_riichi_declared[self.current_player] = True
-                elif self.riichi_declared[self.current_player]:
-                    self.ippatsu_eligible[self.current_player] = False
+                    if self.done():
+                        return self.get_observations([])
+                    if self.mjai_mode:
+                        return self.get_observations(self.active_players)
+                    continue
 
-                # Nagashi Mangan check
-                if discard_tile_id // 4 not in [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33]:
-                    self.nagashi_eligible[self.current_player] = False
-
-                tsumogiri = self.drawn_tile == discard_tile_id
-                if tsumogiri:
-                    self.drawn_tile = None
+                if self.is_rinshan_flag:
+                    self.drawn_tile = self.wall.pop(0)
+                    self.rinshan_draw_count += 1
                 else:
-                    if self.drawn_tile is not None:
-                        self.hands[self.current_player].append(self.drawn_tile)
-                        self.drawn_tile = None
-                    self.hands[self.current_player].remove(discard_tile_id)
-                self.discards[self.current_player].append(discard_tile_id)
-                self.hands[self.current_player].sort()
-                self.mjai_log.append(
-                    {
-                        "type": "dahai",
-                        "actor": self.current_player,
-                        "tile": _to_mjai_tile(discard_tile_id),
-                        "tsumogiri": tsumogiri,
-                        "reach": is_reach_declaration,
-                    }
-                )
-                while self.pending_kan_dora_count > 0:
-                    self._reveal_kan_dora()
-                    self.pending_kan_dora_count -= 1
-                self.last_discard = {"seat": self.current_player, "tile": discard_tile_id}
-                self.current_claims = {}
-                ronners = self._get_ron_potential(discard_tile_id, is_chankan=False)
-                for pid in ronners:
-                    self.current_claims.setdefault(pid, []).append(Action(ActionType.RON, tile=discard_tile_id))
-                for pid in range(4):
-                    if pid == self.current_player:
-                        continue
-                    for opt in self._can_pon(self.hands[pid], discard_tile_id):
-                        self.current_claims.setdefault(pid, []).append(
-                            Action(ActionType.PON, tile=discard_tile_id, consume_tiles=opt)
-                        )
-                    for opt in self._can_kan(self.hands[pid], discard_tile_id):
-                        self.current_claims.setdefault(pid, []).append(
-                            Action(ActionType.DAIMINKAN, tile=discard_tile_id, consume_tiles=opt)
-                        )
-                next_p = (self.current_player + 1) % 4
-                for opt in self._can_chi(self.hands[next_p], discard_tile_id):
-                    self.current_claims.setdefault(next_p, []).append(
-                        Action(ActionType.CHI, tile=discard_tile_id, consume_tiles=opt)
-                    )
-                if self.current_claims:
-                    self.phase, self.active_players = Phase.WAIT_RESPONSE, sorted(list(self.current_claims.keys()))
-                    return self._get_observations(self.active_players)
-                if self._check_midway_draws():
-                    return self._get_observations([])
-                self._accept_riichi()
-                self.current_player = (self.current_player + 1) % 4
-                if len(self.wall) <= 14:
-                    self._trigger_ryukyoku("exhaustive_draw")
-                    return self._get_observations([])
-                self.is_rinshan_flag, self.drawn_tile = False, self.wall.pop()
-                self.mjai_log.append(
-                    {"type": "tsumo", "actor": self.current_player, "tile": _to_mjai_tile(self.drawn_tile)}
-                )
-                self.phase, self.active_players = Phase.WAIT_ACT, [self.current_player]
-                return self._get_observations(self.active_players)
-            else:
-                raise ValueError(f"Action {action.type} not allowed in Phase.WAIT_ACT")
+                    self.drawn_tile = self.wall.pop()
 
-        elif self.phase == Phase.WAIT_RESPONSE:
-            valid_actions = {pid: act for pid, act in actions.items() if act.type != ActionType.PASS}
-            ronners = [pid for pid, a in valid_actions.items() if a.type == ActionType.RON]
-            if ronners:
-                if self.riichi_pending_acceptance == self.current_player:
-                    self.riichi_declared[self.current_player] = False
-                    self.riichi_pending_acceptance = None
-                sorted_ronners = sorted(ronners, key=lambda p: (p - self.current_player + 4) % 4)
-                assert self.last_discard is not None
-                tile = self.last_discard["tile"]
-                for idx, winner in enumerate(sorted_ronners):
+                self.mjai_log.append(
+                    {"type": "tsumo", "actor": self.current_player, "pai": _to_mjai_tile(self.drawn_tile)}
+                )
+                self.needs_tsumo = False
+                self.missed_agari_doujun[self.current_player] = False
+                self.active_players = [self.current_player]
+                # Return now if we need the player's reaction.
+                # In mjai_mode, we always return after tsumo.
+                # In non-mjai_mode, we return if the player is NOT in riichi (so they can act).
+                # If they ARE in riichi, we continue to the auto-play check below.
+                if self.mjai_mode or not self.riichi_declared[self.current_player]:
+                    return self.get_observations([self.current_player])
+                continue
+
+            if self.phase == Phase.WAIT_ACT and self.current_player not in actions:
+                if not self.mjai_mode and self.riichi_declared[self.current_player]:
+                    # Auto-play for Riichi player if no special action (Tsumo/Kan) is provided or available.
+                    legal = self._get_legal_actions(self.current_player)
+                    if not any(a.type in [ActionType.TSUMO, ActionType.ANKAN, ActionType.KAKAN] for a in legal):
+                        actions[self.current_player] = Action(ActionType.PASS)
+
+            if set(actions.keys()) != set(self.active_players):
+                # If mjai_mode is False, we allow partial or empty actions by returning current observations.
+                # This maintains backward compatibility for tests that expect to inspect state at sync points.
+                if not self.mjai_mode:
+                    return self.get_observations(self.active_players)
+                else:
+                    raise ValueError(f"Actions required from {self.active_players}, but got {list(actions.keys())}")
+
+            if self.phase == Phase.WAIT_ACT:
+                action = actions[self.current_player]
+                if action.type == ActionType.RIICHI:
+                    if self._scores[self.current_player] < 1000:
+                        raise ValueError("Not enough points for Riichi")
+                    self.riichi_stage[self.current_player] = True
+                    self.mjai_log.append({"type": "reach", "actor": self.current_player})
+                    return self.get_observations(self.active_players)
+                elif action.type == ActionType.TSUMO:
+                    assert self.drawn_tile is not None
                     ura_in = (
                         self._get_ura_markers_tid()
-                        if (self.riichi_declared[winner] or self.double_riichi_declared[winner])
+                        if (
+                            self.riichi_declared[self.current_player]
+                            or self.double_riichi_declared[self.current_player]
+                        )
                         else []
                     )
-                    res = AgariCalculator(self.hands[winner], self.melds.get(winner, [])).calc(
-                        tile,
+                    is_first = self.is_first_turn and len(self.discards[self.current_player]) == 0
+                    res = AgariCalculator(
+                        self.hands[self.current_player], self.melds.get(self.current_player, [])
+                    ).calc(
+                        self.drawn_tile,
                         dora_indicators=self.dora_indicators,
                         conditions=Conditions(
-                            tsumo=False,
-                            riichi=self.riichi_declared[winner],
-                            double_riichi=self.double_riichi_declared[winner],
-                            ippatsu=self.ippatsu_eligible[winner],
-                            player_wind=(winner - self.oya + 4) % 4,
+                            tsumo=True,
+                            riichi=self.riichi_declared[self.current_player],
+                            double_riichi=self.double_riichi_declared[self.current_player],
+                            ippatsu=self.ippatsu_eligible[self.current_player],
+                            rinshan=self.is_rinshan_flag,
+                            haitei=(len(self.wall) <= 14 and not self.is_rinshan_flag),
+                            player_wind=(self.current_player - self.oya + 4) % 4,
                             round_wind=self._custom_round_wind,
-                            chankan=(self.pending_kan is not None),
-                            houtei=(len(self.wall) <= 14),
+                            tsumo_first_turn=is_first,
                         ),
                         ura_indicators=ura_in,
                     )
-                    self.agari_results[winner] = res
-                    deltas = self._calculate_deltas(
-                        res, winner, is_tsumo=False, loser=self.current_player, include_bonus=(idx == 0)
-                    )
+                    self.agari_results[self.current_player] = res
+                    self.is_done = True
+                    deltas = self._calculate_deltas(res, self.current_player, is_tsumo=True)
                     ura_markers = []
-                    if self.riichi_declared[winner] or self.double_riichi_declared[winner]:
+                    if self.riichi_declared[self.current_player] or self.double_riichi_declared[self.current_player]:
                         ura_markers = self._get_ura_markers()
                     self.mjai_log.append(
                         {
                             "type": "hora",
-                            "actor": winner,
+                            "actor": self.current_player,
                             "target": self.current_player,
-                            "tile": _to_mjai_tile(tile),
+                            "tsumo": True,
+                            "pai": _to_mjai_tile(self.drawn_tile),
                             "deltas": deltas,
                             "ura_markers": ura_markers,
                         }
                     )
-                self.mjai_log.append({"type": "end_kyoku"})
-                self.mjai_log.append({"type": "end_game"})
-                self.is_done = True
-                return self._get_observations([])
-            ponners = [pid for pid, a in valid_actions.items() if a.type in [ActionType.PON, ActionType.DAIMINKAN]]
-            if ponners:
-                self.nagashi_eligible[self.current_player] = False  # Discard was called
-                self._accept_riichi()
-                claimer = ponners[0]
-                self._execute_claim(claimer, valid_actions[claimer], from_pid=self.current_player)
-                (
-                    self.current_player,
-                    self.phase,
-                    self.active_players,
-                    self.drawn_tile,
-                    self.ippatsu_eligible,
-                    self.is_first_turn,
-                ) = claimer, Phase.WAIT_ACT, [claimer], None, [False] * 4, False
-                if valid_actions[claimer].type == ActionType.DAIMINKAN:
-                    if len(self.wall) <= 14:
-                        self._trigger_ryukyoku("exhaustive_draw")
-                        return self._get_observations([])
-                    self.is_rinshan_flag, self.drawn_tile = True, self.wall.pop(0)
-                    self.mjai_log.append(
-                        {"type": "tsumo", "actor": self.current_player, "tile": _to_mjai_tile(self.drawn_tile)}
+                    self._end_kyoku(is_renchan=(self.current_player == self.oya), is_draw=False)
+                    if self.done():
+                        return self.get_observations([])
+                    return self.get_observations(self.active_players)
+                elif action.type == ActionType.KYUSHU_KYUHAI:
+                    self._trigger_ryukyoku("kyushu_kyuhai")
+                    if self.done():
+                        return self.get_observations([])
+                    return self.get_observations(self.active_players)
+                elif action.type in [ActionType.ANKAN, ActionType.KAKAN]:
+                    is_chankan = action.type == ActionType.KAKAN
+                    assert action.tile is not None
+
+                    # Execute immediately so event is visible
+                    if self.drawn_tile is not None:
+                        # Append drawn tile to hand before execution so it can be consumed
+                        self.hands[self.current_player].append(self.drawn_tile)
+                        self.drawn_tile = None
+
+                    self._execute_claim(self.current_player, action)
+                    self.is_first_turn = False
+
+                    # Check for Robbing Kan
+                    ronners = self._get_ron_potential(action.tile, is_chankan=is_chankan, is_ankan=(not is_chankan))
+
+                    if not ronners:
+                        # No Ron, proceed to Rinshan directly
+                        self.is_rinshan_flag = True
+                        self.ippatsu_eligible = [False] * 4
+                        self.needs_tsumo = True
+                        if not self.mjai_mode:
+                            return self.step({})
+                        # In mjai_mode, we must return to let agent see the ANKAN/KAKAN event
+                        # before they receive the Rinshan Tsumo?
+                        # No, Tsumo is the next event. The ANKAN event is already in the log.
+                        # If we return [], user gets info update.
+                        # Then next step processes Tsumo.
+                        return self.get_observations([])
+
+                    # Pause for Chankan
+                    self.phase, self.active_players, self.pending_kan = (
+                        Phase.WAIT_RESPONSE,
+                        ronners,
+                        action,  # Store action to resume later
                     )
+                    self.last_discard = {"seat": self.current_player, "tile": action.tile}
+                    self.current_claims = {pid: [Action(ActionType.RON, tile=action.tile)] for pid in ronners}
+                    return self.get_observations(self.active_players)
+                elif action.type == ActionType.PASS:
+                    assert self.riichi_declared[self.current_player]
+                    assert self.drawn_tile is not None
+                    obs = self._perform_discard(self.drawn_tile)
+                    if self.mjai_mode or self.active_players:
+                        return obs
+                    actions = {}
+                    continue
+                elif action.type == ActionType.DISCARD:
+                    assert action.tile is not None
+                    obs = self._perform_discard(action.tile)
+                    if self.mjai_mode or self.active_players:
+                        return obs
+                    actions = {}
+                    continue
                 else:
+                    raise ValueError(f"Action {action.type} not allowed in Phase.WAIT_ACT")
+
+            elif self.phase == Phase.WAIT_RESPONSE:
+                # Set missed agari flags for those who passed Ron
+                for pid, act in actions.items():
+                    claims = self.current_claims.get(pid, [])
+                    has_ron_option = any(c.type == ActionType.RON for c in claims)
+                    chosen_ron = act.type == ActionType.RON
+
+                    if has_ron_option and not chosen_ron:
+                        if self.riichi_declared[pid]:
+                            self.missed_agari_riichi[pid] = True
+                        else:
+                            self.missed_agari_doujun[pid] = True
+
+                valid_actions = {pid: act for pid, act in actions.items() if act.type != ActionType.PASS}
+                ronners = [pid for pid, a in valid_actions.items() if a.type == ActionType.RON]
+                if ronners:
+                    if self.riichi_pending_acceptance == self.current_player:
+                        self.riichi_declared[self.current_player] = False
+                        self.riichi_pending_acceptance = None
+                    sorted_ronners = sorted(ronners, key=lambda p: (p - self.current_player + 4) % 4)
+                    assert self.last_discard is not None
+                    tile = self.last_discard["tile"]
+                    for idx, winner in enumerate(sorted_ronners):
+                        ura_in = (
+                            self._get_ura_markers_tid()
+                            if (self.riichi_declared[winner] or self.double_riichi_declared[winner])
+                            else []
+                        )
+                        res = AgariCalculator(self.hands[winner], self.melds.get(winner, [])).calc(
+                            tile,
+                            dora_indicators=self.dora_indicators,
+                            conditions=Conditions(
+                                tsumo=False,
+                                riichi=self.riichi_declared[winner],
+                                double_riichi=self.double_riichi_declared[winner],
+                                ippatsu=self.ippatsu_eligible[winner],
+                                player_wind=(winner - self.oya + 4) % 4,
+                                round_wind=self._custom_round_wind,
+                                chankan=(self.pending_kan is not None),
+                                houtei=(len(self.wall) <= 14),
+                            ),
+                            ura_indicators=ura_in,
+                        )
+                        self.agari_results[winner] = res
+                        deltas = self._calculate_deltas(
+                            res, winner, is_tsumo=False, loser=self.current_player, include_bonus=(idx == 0)
+                        )
+                        ura_markers = []
+                        if self.riichi_declared[winner] or self.double_riichi_declared[winner]:
+                            ura_markers = self._get_ura_markers()
+                        self.mjai_log.append(
+                            {
+                                "type": "hora",
+                                "actor": winner,
+                                "target": self.current_player,
+                                "pai": _to_mjai_tile(tile),
+                                "deltas": deltas,
+                                "ura_markers": ura_markers,
+                            }
+                        )
+                    self._end_kyoku(is_renchan=(self.oya in ronners), is_draw=False)
+                    if self.done():
+                        return self.get_observations([])
+                    return self.get_observations(self.active_players)
+
+                ponners = [pid for pid, a in valid_actions.items() if a.type in [ActionType.PON, ActionType.DAIMINKAN]]
+                if ponners:
+                    self.nagashi_eligible[self.current_player] = False  # Discard was called
+                    self._accept_riichi()
+                    claimer = ponners[0]
+                    self._execute_claim(claimer, valid_actions[claimer], from_pid=self.current_player)
+                    (
+                        self.current_player,
+                        self.phase,
+                        self.active_players,
+                        self.drawn_tile,
+                        self.ippatsu_eligible,
+                        self.is_first_turn,
+                    ) = claimer, Phase.WAIT_ACT, [claimer], None, [False] * 4, False
+                    if valid_actions[claimer].type == ActionType.DAIMINKAN:
+                        self.is_rinshan_flag = True
+                        self.drawn_tile = None
+                        self.needs_tsumo = True
+                        self.phase, self.active_players = Phase.WAIT_ACT, []  # Wait for tsumo
+                        if self.mjai_mode:
+                            return self.get_observations([])
+                        actions = {}
+                        continue
+                    else:
+                        self.is_rinshan_flag = False
+                    return self.get_observations(self.active_players)
+
+                chiers = [pid for pid, a in valid_actions.items() if a.type == ActionType.CHI]
+                if chiers:
+                    self.nagashi_eligible[self.current_player] = False  # Discard was called
+                    self._accept_riichi()
+                    claimer = chiers[0]
+                    self._execute_claim(claimer, valid_actions[claimer], from_pid=self.current_player)
+                    (
+                        self.current_player,
+                        self.phase,
+                        self.active_players,
+                        self.drawn_tile,
+                        self.ippatsu_eligible,
+                        self.is_first_turn,
+                    ) = claimer, Phase.WAIT_ACT, [claimer], None, [False] * 4, False
                     self.is_rinshan_flag = False
-                return self._get_observations(self.active_players)
-            chiers = [pid for pid, a in valid_actions.items() if a.type == ActionType.CHI]
-            if chiers:
-                self.nagashi_eligible[self.current_player] = False  # Discard was called
+                    return self.get_observations(self.active_players)
+
+                if self.pending_kan:
+                    # Resuming from Chankan interruption (all passed)
+                    if self.pending_kan.type == ActionType.KAKAN:
+                        self.is_rinshan_flag = True
+                        self.ippatsu_eligible = [False] * 4
+                        self.needs_tsumo = True
+                        self.phase, self.active_players = Phase.WAIT_ACT, []
+                        self.pending_kan = None
+                        if self.mjai_mode:
+                            return self.get_observations([])
+                        return self.step({})
+
+                if self._check_midway_draws():
+                    if self.done():
+                        return self.get_observations([])
+                    if self.mjai_mode:
+                        return self.get_observations(self.active_players)
+                    return self.step({})
+
                 self._accept_riichi()
-                claimer = chiers[0]
-                self._execute_claim(claimer, valid_actions[claimer], from_pid=self.current_player)
-                (
-                    self.current_player,
-                    self.phase,
-                    self.active_players,
-                    self.drawn_tile,
-                    self.ippatsu_eligible,
-                    self.is_first_turn,
-                ) = claimer, Phase.WAIT_ACT, [claimer], None, [False] * 4, False
+                self.current_player = (self.current_player + 1) % 4
+                self.missed_agari_doujun[self.current_player] = False
+                self.phase, self.active_players = Phase.WAIT_ACT, []
+                self.drawn_tile = None
                 self.is_rinshan_flag = False
-                return self._get_observations(self.active_players)
-            if self.pending_kan:
-                claimer, act = self.pending_kan
-                self.pending_kan = None
-                if self.drawn_tile is not None:
-                    self.hands[claimer].append(self.drawn_tile)
-                    self.drawn_tile = None
-                self._execute_claim(claimer, act)
-                self.ippatsu_eligible = [False] * 4
-                self.is_first_turn = False
-                if len(self.wall) <= 14:
-                    self._trigger_ryukyoku("exhaustive_draw")
-                    return self._get_observations([])
-                self.is_rinshan_flag, self.drawn_tile = True, self.wall.pop(0)
-                self.mjai_log.append({"type": "tsumo", "actor": claimer, "tile": _to_mjai_tile(self.drawn_tile)})
-                self.current_player, self.phase, self.active_players = claimer, Phase.WAIT_ACT, [claimer]
-                return self._get_observations(self.active_players)
-            if self._check_midway_draws():
-                return self._get_observations([])
-            self._accept_riichi()
-            self.current_player = (self.current_player + 1) % 4
-            self.phase, self.active_players = Phase.WAIT_ACT, [self.current_player]
-            if len(self.wall) <= 14:
-                self._trigger_ryukyoku("exhaustive_draw")
-                return self._get_observations([])
-            self.is_rinshan_flag, self.drawn_tile = False, self.wall.pop()
-            self.mjai_log.append(
-                {"type": "tsumo", "actor": self.current_player, "tile": _to_mjai_tile(self.drawn_tile)}
-            )
-            return self._get_observations(self.active_players)
+                self.needs_tsumo = True
+                if self.mjai_mode:
+                    return self.get_observations([])
+                return self.step({})
 
-        # This part should only be reached if no actions matched above
-        raise ValueError(f"Unhandled phase or action combination. Phase: {self.phase}, Actions: {actions}")
+            # This part should only be reached if no actions matched above or loop skipped
+            raise ValueError(f"Unhandled phase or action combination. Phase: {self.phase}, Actions: {actions}")
 
-    def _get_observations(self, player_ids: list[int]) -> dict[int, Observation]:
+    def get_observations(self, player_ids: list[int]) -> dict[int, Observation]:
         obs_dict = {}
         for pid in player_ids:
             hand = self.hands[pid][:]
@@ -604,10 +795,12 @@ class RiichiEnv:
             filtered_events = []
             for ev in self.mjai_log:
                 ev_copy = ev.copy()
-                if ev["type"] == "start_kyoku":
+                if ev["type"] == "start_game":
+                    ev_copy["id"] = pid
+                elif ev["type"] == "start_kyoku":
                     ev_copy["tehais"] = [t if i == pid else ["?"] * len(t) for i, t in enumerate(ev["tehais"])]
                 elif ev["type"] == "tsumo" and ev["actor"] != pid:
-                    ev_copy["tile"] = "?"
+                    ev_copy["pai"] = "?"
                 filtered_events.append(ev_copy)
             obs_dict[pid] = Observation(
                 pid, hand, filtered_events, self._player_event_counts[pid], self._get_legal_actions(pid)
@@ -620,14 +813,15 @@ class RiichiEnv:
         hand = self.hands[pid][:]
         h14 = hand + ([self.drawn_tile] if self.drawn_tile is not None else [])
         if self.phase == Phase.WAIT_ACT:
-            if pid != self.current_player:
+            if pid != self.current_player or self.needs_tsumo:
                 return []
             if self.riichi_stage[pid]:
                 for t in _riichienv.check_riichi_candidates(h14):
                     actions.append(Action(ActionType.DISCARD, tile=t))
                 return actions
-            has_discarded = any(e.get("actor") == pid and e["type"] in ["dahai", "reach"] for e in self.mjai_log)
-            any_call = any(e["type"] in ["chi", "pon", "daiminkan", "kakan", "ankan"] for e in self.mjai_log)
+            current_kyoku_log = self.mjai_log[self.kyoku_log_start_idx :]
+            has_discarded = any(e.get("actor") == pid and e["type"] in ["dahai", "reach"] for e in current_kyoku_log)
+            any_call = any(e["type"] in ["chi", "pon", "daiminkan", "kakan", "ankan"] for e in current_kyoku_log)
             if not has_discarded and not any_call:
                 if len({t // 4 for t in h14 if (t // 4) in {0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33}}) >= 9:
                     actions.append(Action(ActionType.KYUSHU_KYUHAI))
@@ -648,7 +842,7 @@ class RiichiEnv:
                             tsumo_first_turn=is_first,
                         ),
                     )
-                    if res.agari:
+                    if res.agari and (res.yakuman or (res.han >= 1 and any(y not in [31, 32, 33] for y in res.yaku))):
                         actions.append(Action(ActionType.TSUMO))
                     # Ankan during Riichi
                     t_type = self.drawn_tile // 4
@@ -656,7 +850,7 @@ class RiichiEnv:
                         tids = sorted([t for t in h14 if t // 4 == t_type])
                         actions.append(Action(ActionType.ANKAN, tile=self.drawn_tile, consume_tiles=tids))
 
-                    actions.append(Action(ActionType.DISCARD, tile=self.drawn_tile))
+                    actions.append(Action(ActionType.PASS))
                 return actions
             for t in h14:
                 actions.append(Action(ActionType.DISCARD, tile=t))
@@ -676,7 +870,7 @@ class RiichiEnv:
                         tsumo_first_turn=is_first,
                     ),
                 )
-                if res.agari:
+                if res.agari and (res.yakuman or (res.han >= 1 and any(y not in [31, 32, 33] for y in res.yaku))):
                     actions.append(Action(ActionType.TSUMO))
             if all(not m.opened for m in self.melds.get(pid, [])) and self._scores[pid] >= 1000 and len(self.wall) >= 4:
                 if _riichienv.check_riichi_candidates(h14):
@@ -685,7 +879,7 @@ class RiichiEnv:
                 for m in self.melds.get(pid, []):
                     if m.meld_type == MeldType.Peng and any(t // 4 == m.tiles[0] // 4 for t in h14):
                         t = [t for t in h14 if t // 4 == m.tiles[0] // 4][0]
-                        actions.append(Action(ActionType.KAKAN, tile=t, consume_tiles=[t]))
+                        actions.append(Action(ActionType.KAKAN, tile=t, consume_tiles=m.tiles))
                 counts = {}
                 for t in h14:
                     counts[t // 4] = counts.get(t // 4, 0) + 1
@@ -701,8 +895,11 @@ class RiichiEnv:
 
     def _execute_claim(self, pid: int, action: Action, from_pid: int | None = None):
         hand = self.hands[pid]
-        for t in action.consume_tiles:
-            hand.remove(t)
+        if action.type == ActionType.KAKAN:
+            hand.remove(action.tile)
+        else:
+            for t in action.consume_tiles:
+                hand.remove(t)
         m_type, opened = MeldType.Peng, True
         if action.type == ActionType.CHI:
             m_type = MeldType.Chi
@@ -726,12 +923,40 @@ class RiichiEnv:
                     {
                         "type": "kakan",
                         "actor": pid,
-                        "tile": _to_mjai_tile(action.tile),
-                        "consumed": [_to_mjai_tile(action.tile)],
+                        "pai": _to_mjai_tile(action.tile),
+                        "consumed": [_to_mjai_tile(tt) for tt in old.tiles],
                     }
                 )
                 self.pending_kan_dora_count += 1
                 return
+
+            # Fallback: If KAKAN but no Pon found, check if hand has 4 tiles (ANKAN treated as KAKAN in log?)
+            # Count tiles in hand matching action.tile
+            # action.consume_tiles might differ if coming from MJAI.
+            # MJAI Kakan usually implies add. But if we fail, we check local hand.
+            match_in_hand = [t for t in self.hands[pid] if t // 4 == action.tile // 4]
+            # Hand usually has 1 (drawn) + 3 (in hand). Or if pre-removed, check 3.
+            # In KAKAN logic start (Line 891), we removed action.tile.
+            # So hand should have 3 remaining if it's meant to be ANKAN.
+            if len(match_in_hand) >= 3:
+                # Treat as ANKAN
+                # Remove the 3 tiles
+                for t in match_in_hand[:3]:
+                    self.hands[pid].remove(t)
+                tiles = sorted(match_in_hand[:3] + [action.tile])
+                m_type, opened = MeldType.Angang, False
+                self._reveal_kan_dora(False)
+                self.mjai_log.append(
+                    {
+                        "type": "ankan",  # Correct log to Ankan
+                        "actor": pid,
+                        "pai": _to_mjai_tile(action.tile),
+                        "consumed": [_to_mjai_tile(t) for t in match_in_hand[:3]],
+                    }
+                )
+                self.melds[pid].append(Meld(m_type, tiles, opened))
+                return
+
         if action.type == ActionType.ANKAN:
             tiles = sorted(action.consume_tiles)
         else:
@@ -750,18 +975,19 @@ class RiichiEnv:
             ActionType.ANKAN: "ankan",
         }
         assert action.tile is not None
+        if action.type == ActionType.ANKAN:
+            self._reveal_kan_dora(False)
+
         self.mjai_log.append(
             {
                 "type": mj_types[action.type],
                 "actor": pid,
                 "target": from_pid if from_pid is not None else -1,
-                "tile": _to_mjai_tile(action.tile),
+                "pai": _to_mjai_tile(action.tile),
                 "consumed": [_to_mjai_tile(t) for t in action.consume_tiles],
             }
         )
-        if action.type == ActionType.ANKAN:
-            self._reveal_kan_dora(False)
-        elif action.type == ActionType.DAIMINKAN:
+        if action.type == ActionType.DAIMINKAN:
             self.pending_kan_dora_count += 1
 
     def _can_pon(self, hand: list[int], tile: int) -> list[list[int]]:
@@ -861,9 +1087,21 @@ class RiichiEnv:
 
     def _reveal_kan_dora(self, post_rinshan: bool = True):
         count = len(self.dora_indicators)
-        idx = 5 + count - self.pending_kan_dora_count
         if count >= 5:
             return
+        # Original indices in reversed wall: 4, 6, 8, 10, 12
+        # Adjust for items popped from front (Rinshan)
+        # Using simplified logic: 1 Kan = 1 Rinshan (pop(0)).
+        # Net shift relative to current wall[0] is just +1 per Kan.
+        # Original Kan Dora locations are 4, 6, 8...
+        # At Kan K (0-based count of PAST kans):
+        # We want the K-th Kan Dora (Total Dora count = K+1).
+        # It was at 4 + 2*(K+1). Wait.
+        # Initial Dora (K=-1?? No). D0 is at 4.
+        # D1 is at 6.
+        # If we have count=1 existing dora. We reveal D1.
+        # Formula: 4 + count * 2 - self.rinshan_draw_count
+        idx = 4 + count * 2 - self.rinshan_draw_count
         if 0 <= idx < len(self.wall):
             t = self.wall[idx]
             self.dora_indicators.append(t)
@@ -884,10 +1122,55 @@ class RiichiEnv:
 
         return res
 
+    def _get_waits(self, pid: int) -> set[int]:
+        hand = self.hands[pid]
+        melds = self.melds.get(pid, [])
+        calc_base = AgariCalculator(hand, melds)
+        if not calc_base.is_tenpai():
+            return set()
+
+        waits = set()
+        for t_type in range(34):
+            res = calc_base.calc(
+                t_type * 4,
+                dora_indicators=self.dora_indicators,
+                conditions=Conditions(
+                    tsumo=False,
+                    riichi=self.riichi_declared[pid],
+                    double_riichi=self.double_riichi_declared[pid],
+                    player_wind=(pid - self.oya + 4) % 4,
+                    round_wind=self._custom_round_wind,
+                ),
+            )
+            if res.agari:
+                waits.add(t_type)
+        return waits
+
+    def _is_furiten(self, pid: int) -> bool:
+        if self.missed_agari_riichi[pid]:
+            # print(f"DEBUG: Player {pid} is Furiten (missed agari riichi)")
+            return True
+        if self.missed_agari_doujun[pid]:
+            # print(f"DEBUG: Player {pid} is Furiten (missed agari doujun)")
+            return True
+
+        waits = self._get_waits(pid)
+        if not waits:
+            return False
+
+        discard_types = {t // 4 for t in self.discards[pid]}
+        for w in waits:
+            if w in discard_types:
+                # print(f"DEBUG: Player {pid} is Furiten (wait {w} in discards)")
+                return True
+        return False
+
     def _get_ron_potential(self, tile: int, is_chankan: bool, is_ankan: bool = False) -> list[int]:
         res = []
         for p in range(4):
             if p == self.current_player:
+                continue
+            if self._is_furiten(p):
                 continue
             calc = AgariCalculator(self.hands[p], self.melds.get(p, [])).calc(
                 tile,
@@ -904,6 +1187,11 @@ class RiichiEnv:
                 ),
             )
             if calc.agari:
+                # Enforce 1-han minimum and at least one non-dora yaku
+                if not calc.yakuman:
+                    non_dora_yaku = [y for y in calc.yaku if y not in [31, 32, 33]]
+                    if calc.han < 1 or not non_dora_yaku:
+                        continue
                 if is_ankan and not (calc.han >= 13 and any(y in [42, 49] for y in calc.yaku)):
                     continue
                 res.append(p)
@@ -946,14 +1234,18 @@ class RiichiEnv:
             self._scores[p] -= 1000
             self.score_deltas[p] -= 1000
             self.riichi_sticks += 1
-            self.mjai_log.append(
-                {"type": "reach_accepted", "actor": p, "score": self._scores[p], "deltas": [0, 0, 0, 0]}
-            )
+            self.mjai_log.append({"type": "reach_accepted", "actor": p, "deltas": [0, 0, 0, 0]})
+            self.mjai_log[-1]["deltas"][p] -= 1000
             self.riichi_pending_acceptance = None
 
     def _trigger_ryukyoku(self, reason: str):
         self._accept_riichi()
+        tenpais = [False] * 4
         if reason == "exhaustive_draw":
+            for i in range(4):
+                calc = AgariCalculator(self.hands[i], self.melds.get(i, []))
+                tenpais[i] = calc.is_tenpai()
+
             # Nagashi Mangan?
             nagashi_winners = [i for i in range(4) if self.nagashi_eligible[i]]
             if nagashi_winners:
@@ -974,18 +1266,8 @@ class RiichiEnv:
                     for i in range(4):
                         self._scores[i] += deltas[i]
                         self.score_deltas[i] += deltas[i]
-                    # In case of multiple Nagashi? (very rare but possible in some rules,
-                    # but MJSoul handles them. Let's just break for simplicity or handle all)
-                    # Actually, we should only have one Nagashi usually? No, multiple possible.
-                self.mjai_log.append(
-                    {"type": "ryukyoku", "reason": "nagashimangan"}
-                )  # MJAI might use different reason or extra info
+                self.mjai_log.append({"type": "ryukyoku", "reason": "nagashimangan"})
             else:
-                tenpais = []
-                for i in range(4):
-                    calc = AgariCalculator(self.hands[i], self.melds.get(i, []))
-                    tenpais.append(calc.is_tenpai())
-
                 num_tp = sum(tenpais)
                 if 0 < num_tp < 4:
                     pk, pn = 3000 // num_tp, 3000 // (4 - num_tp)
@@ -995,6 +1277,25 @@ class RiichiEnv:
                         self.score_deltas[i] += delta
 
         self.mjai_log.append({"type": "ryukyoku", "reason": reason})
+
+        is_renchan = False
+        if reason == "exhaustive_draw":
+            is_renchan = tenpais[self.oya]
+            # In case of Nagashi Mangan, some rules renchan if Oya has it.
+            # But here we follow standard tenpai-renchan.
+        elif reason in ["kyushu_kyuhai", "suurechi", "suukansansen", "sufuurenta"]:
+            is_renchan = True
+
+        self._end_kyoku(is_renchan=is_renchan, is_draw=True, is_midway_draw=(reason != "exhaustive_draw"))
+
+    def _end_kyoku(self, is_renchan: bool, is_draw: bool = False, is_midway_draw: bool = False):
+        """End the current kyoku and prepare for the next one."""
+        self.round_end_scores = self._scores[:]
         self.mjai_log.append({"type": "end_kyoku"})
-        self.mjai_log.append({"type": "end_game"})
-        self.is_done = True
+        if self.rule.is_game_over(self, is_renchan, is_draw=is_draw, is_midway_draw=is_midway_draw):
+            self.mjai_log.append({"type": "end_game"})
+            self.is_done = True
+            return
+
+        params = self.rule.get_next_kyoku_params(self, is_renchan, was_draw=is_draw)
+        self._initialize_round(**params)

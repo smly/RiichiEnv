@@ -70,7 +70,7 @@ class TestRiichiEnv:
         initial_events = p0_obs.new_events()
         assert len(initial_events) == 3
         # Check masking
-        assert initial_events[2]["tile"] != "?"  # tsumo for self is visible
+        assert initial_events[2]["pai"] != "?"  # tsumo for self is visible
 
         # NOTE: P1 is not actionable, so not in obs_dict.
         # We cannot check P1's new_events() from obs_dict directly unless we cheat.
@@ -169,7 +169,7 @@ class TestRiichiEnv:
         assert 1 in env.active_players
 
         # P1 Legal actions Check
-        obs = env._get_observations([1])[1]
+        obs = env.get_observations([1])[1]
         legals = obs.legal_actions()
         pon_actions = [a for a in legals if a.type == ActionType.PON]
         assert len(pon_actions) > 0
@@ -219,7 +219,7 @@ class TestRiichiEnv:
         assert 1 in env.active_players
 
         # P1 Checks Legal
-        obs = env._get_observations([1])[1]
+        obs = env.get_observations([1])[1]
         legals = obs.legal_actions()
         chi_actions = [a for a in legals if a.type == ActionType.CHI]
         assert len(chi_actions) > 0
@@ -262,7 +262,7 @@ class TestRiichiEnv:
         assert 1 in env.active_players
 
         # P1 Legal Ron
-        obs = env._get_observations([1])[1]
+        obs = env.get_observations([1])[1]
         ron = [a for a in obs.legal_actions() if a.type == ActionType.RON]
         assert len(ron) > 0
 

@@ -43,7 +43,7 @@ class TestKakan:
         env.drawn_tile = 13  # 11th tile. Total 11 + 3 = 14. Correct.
 
         # Get Observations
-        obs_dict = env._get_observations([player_id])
+        obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
 
         # Check Legal Actions
@@ -55,7 +55,8 @@ class TestKakan:
         # Verify action details
         k_action = kakan_actions[0]
         assert k_action.tile == 3, "Should be able to Kakan with tile 3 (1m)"
-        assert k_action.consume_tiles == [3], "Should consume tile 3"
+        # KAKAN consumes the tiles already in the meld (MJAI standard)
+        assert list(k_action.consume_tiles) == [0, 1, 2], "Should consume the 3 tiles in the Pon"
 
         # Execute Kakan
         env.step({player_id: k_action})
@@ -90,10 +91,9 @@ class TestKakan:
         # Check last few events for Kakan
         found_kakan = False
         for ev in env.mjai_log[-3:]:  # check last 3
-            # RiichiEnv currently logs KAKAN as type="kakan" with 1 consumed tile (the added tile).
-            # ANKAN consumes 4, DAIMINKAN consumes 3.
-            if ev["type"] == "kakan" and len(ev.get("consumed", [])) == 1:
+            # RiichiEnv currently logs KAKAN as type="kakan" with 3 consumed tiles (the existing Pon).
+            if ev["type"] == "kakan" and len(ev.get("consumed", [])) == 3:
                 found_kakan = True
                 break
 
-        assert found_kakan, "KAKAN event should be logged (type='kakan' with 1 consumed tile)"
+        assert found_kakan, "KAKAN event should be logged (type='kakan' with 3 consumed tiles)"

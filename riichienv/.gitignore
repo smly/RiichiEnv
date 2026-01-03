@@ -2,7 +2,7 @@
 **/*.so
 target
 trunk
-*.txt
+# *.txt
 data
-*.log
-kyoku*.json
+# *.log
+# kyoku*.json

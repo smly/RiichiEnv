@@ -196,7 +196,7 @@ class TestChankan:
         env.current_player = 0
         env.phase = Phase.WAIT_ACT
 
-        obs = env._get_observations([0])[0]
+        obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
         ankan = [a for a in legals if a.type == ActionType.ANKAN]
         assert len(ankan) > 0
@@ -218,7 +218,7 @@ class TestChankan:
         env.phase = Phase.WAIT_ACT
         env.riichi_declared[0] = True
 
-        obs = env._get_observations([0])[0]
+        obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
         ankan = [a for a in legals if a.type == ActionType.ANKAN]
         assert len(ankan) > 0
