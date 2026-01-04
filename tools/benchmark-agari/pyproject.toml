@@ -24,4 +24,4 @@ agari = "bench_agari:main"
 force-include = { "bench_agari.py" = "bench_agari.py" }
 
 [tool.uv.sources]
-riichienv = { path = "../riichienv", editable = true }
+riichienv = { path = "../../riichienv", editable = true }

@@ -19,7 +19,9 @@ class TestDaiminkan:
         # Fill rest of hand to 13 total (3 + 10)
         # Just use some honors or manzu
         misc = [i for i in range(10)]
-        env.hands[p1] = sorted(triplet + misc)
+        h = env.hands
+        h[p1] = sorted(triplet + misc)
+        env.hands = h
 
         # Player 0 discards the 4th 2s
         p0 = 0
@@ -30,14 +32,16 @@ class TestDaiminkan:
         env.phase = 0  # WaitAct (though step handles transitions)
         # Ensure P0 has the tile to discard
         # Hand size must be 14 (13+1) for discard
-        env.hands[p0] = sorted([discard_tile] + [i for i in range(13)])
+
         # Actually RiichiEnv usually has 14 tiles if drawn_tile is None but hand has 14
         # OR 13 tiles + drawn_tile set.
         # But here we simulate "Already Drew".
         # Let's set drawn_tile to discard_tile for simplicity or put in hand.
         env.drawn_tile = discard_tile
         # 13 tiles in hand
-        env.hands[p0] = sorted([i for i in range(13)])
+        h = env.hands
+        h[p0] = sorted([i for i in range(13)])
+        env.hands = h
 
         # P0 Discards
         env.step({p0: Action(ActionType.DISCARD, tile=discard_tile)})

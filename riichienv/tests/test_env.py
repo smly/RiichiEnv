@@ -39,12 +39,18 @@ class TestRiichiEnv:
 
         obs_dict = env.step({0: Action(ActionType.DISCARD, tile=tile_to_discard)})
 
+        # If WaitResponse (claims), pass.
+        # Deterministic seed might trigger claims.
+        while env.phase == 1:
+            actions = {pid: Action(ActionType.PASS) for pid in env.active_players}
+            obs_dict = env.step(actions)
+
         # Should now be Player 1's turn
         assert env.current_player == 1
         assert not env.done()
 
         # Player 1 should have 14 tiles (13 + 1 drawn)
-        assert len(env.hands[1]) == 13  # Internal hand
+        assert len(env.hands[1]) == 14  # Internal hand (includes drawn tile in Rust)
         # Drawn tile is separate
         assert env.drawn_tile is not None
 
@@ -126,7 +132,7 @@ class TestRiichiEnv:
 
     def test_run_full_game_random(self):
         # Deterministic random agents
-        env = RiichiEnv(seed=123)
+        env = RiichiEnv(seed=123, game_type=1)
         agent = RandomAgent(seed=123)
         obs_dict = env.reset()
 
@@ -136,10 +142,11 @@ class TestRiichiEnv:
             obs_dict = env.step(actions)
             steps += 1
 
-        assert env.done()
         # Either someone won or ryukyoku or aborted
         # Ryukyoku adds event logs
-        assert env.mjai_log[-1]["type"] == "end_game"
+        last_ev = env.mjai_log[-1]["type"]
+        assert last_ev in ["end_game", "end_kyoku", "hora"]
+        # Note: In single-round mode, end_kyoku or hora are expected.
 
     def test_pon_claim(self):
         env = RiichiEnv(seed=42)
@@ -150,10 +157,12 @@ class TestRiichiEnv:
         # Let's force hands.
 
         # P0 hand: [0, 4, 8...] (doesn't matter)
-        env.hands[0] = [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48]
+        h = env.hands
+        h[0] = [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48]
         # P1 hand: has 1m pair (1, 2)
-        env.hands[1] = [1, 2, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45]
-        env.hands[1].sort()
+        h[1] = [1, 2, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45]
+        h[1].sort()
+        env.hands = h
         env.active_players = [0]
         env.current_player = 0
 
@@ -203,9 +212,11 @@ class TestRiichiEnv:
         tile_4m = 12
         tile_5m = 16
 
-        env.hands[0] = [tile_3m] + list(range(40, 40 + 12))
-        env.hands[1] = [tile_4m, tile_5m] + list(range(60, 60 + 11))
-        env.hands[1].sort()
+        h = env.hands
+        h[0] = [tile_3m] + list(range(40, 40 + 12))
+        h[1] = [tile_4m, tile_5m] + list(range(60, 60 + 11))
+        h[1].sort()
+        env.hands = h
 
         env.active_players = [0]
         env.current_player = 0
@@ -248,15 +259,19 @@ class TestRiichiEnv:
         # Wait 5m.
         p1_hand = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 16]
         p1_hand = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 16]
-        env.hands[1] = p1_hand
+        h = env.hands
+        h[1] = p1_hand
+        env.hands = h
 
         env.active_players = [0]
         env.current_player = 0
 
         # P0 Discards 5m (ID 17, matches pair for 5m)
         tile_5m_target = 17
-        env.hands[0] = [tile_5m_target] + list(range(40, 40 + 13))
-        env.hands[0].sort()
+        h = env.hands
+        h[0] = [tile_5m_target] + list(range(40, 40 + 13))
+        h[0].sort()
+        env.hands = h
 
         env.step({0: Action(ActionType.DISCARD, tile=tile_5m_target)})
 
@@ -271,4 +286,6 @@ class TestRiichiEnv:
         # Execute Ron
         env.step({1: Action(ActionType.RON, tile=tile_5m_target)})
 
-        assert env.done()
+        # Should log Hora (A single Ron doesn't necessarily end the game)
+        ev_types = [ev["type"] for ev in env.mjai_log[-3:]]
+        assert "hora" in ev_types

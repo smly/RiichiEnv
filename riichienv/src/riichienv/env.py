@@ -100,9 +100,12 @@ def _to_mjai_tile(tile_136: int) -> str:
         return f"{num}z"
 
 
-class Phase(IntEnum):
-    WaitAct = 0  # Current player's turn (Discard/Tsumo/Kan/Riichi)
-    WaitResponse = 1  # Other players' turn to claim (Ron/Pon/Chi)
+from ._riichienv import Phase  # type: ignore
+
+Phase.WaitAct = Phase.WaitAct
+Phase.WaitResponse = Phase.WaitResponse
+Phase.WAIT_ACT = Phase.WaitAct
+Phase.WAIT_RESPONSE = Phase.WaitResponse
 
 
 class RiichiEnv:

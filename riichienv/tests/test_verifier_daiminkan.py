@@ -3,14 +3,16 @@ import sys
 from unittest.mock import MagicMock
 
 # Ensure we can import from scripts
-# Assuming running from repo root
-sys.path.append(os.path.join(os.getcwd(), "scripts"))
+# Assuming structure: riichienv/tests/test_verifier_daiminkan.py
+# scripts is in riichienv/scripts
+current_dir = os.path.dirname(os.path.abspath(__file__))
+scripts_dir = os.path.join(current_dir, "..", "scripts")
+sys.path.append(scripts_dir)
 
 from verify_gym_api_with_mjsoul import MjsoulEnvVerifier
 
 import riichienv.convert as cvt
-from riichienv import RiichiEnv
-from riichienv.action import Action, ActionType
+from riichienv import RiichiEnv, Action, ActionType
 
 
 class TestVerifierSmartScan:
@@ -21,8 +23,11 @@ class TestVerifierSmartScan:
         """
         # 1. Setup Verifier and Env
         verifier = MjsoulEnvVerifier(verbose=True)
-        env = RiichiEnv(seed=42)
-        env.reset()
+        # env = RiichiEnv(seed=42) # Cannot use real Rust env for mocking step
+        env = MagicMock()
+        # env.reset() # Mock relies on attrs
+        env.hands = [[], [], [], []]
+
         verifier.env = env
 
         # 2. Setup P0 hand with non-canonical 1z (East)

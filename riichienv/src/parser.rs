@@ -463,3 +463,61 @@ pub fn tid_to_mjai(tid: u8) -> String {
         }
     }
 }
+
+#[allow(dead_code)]
+pub fn mjai_to_tid(mjai: &str) -> Option<u8> {
+    // Honors
+    let honors = ["E", "S", "W", "N", "P", "F", "C"];
+    if let Some(pos) = honors.iter().position(|&h| h == mjai) {
+        return Some(108 + (pos as u8) * 4);
+    }
+
+    // Red 5s
+    if mjai == "5mr" {
+        return Some(16);
+    }
+    if mjai == "5pr" {
+        return Some(52);
+    }
+    if mjai == "5sr" {
+        return Some(88);
+    }
+
+    // MPS
+    if mjai.len() < 2 {
+        return None;
+    }
+    let num_char = mjai.chars().next()?;
+    let suit_char = mjai.chars().nth(1)?;
+    let num = num_char.to_digit(10)? as u8;
+    if num == 0 {
+        // Support 0m/0p/0s just in case
+        let suit_idx = match suit_char {
+            'm' => 0,
+            'p' => 1,
+            's' => 2,
+            _ => return None,
+        };
+        return Some(suit_idx * 36 + 16);
+    }
+    if !(1..=9).contains(&num) {
+        return None;
+    }
+    let suit_idx = match suit_char {
+        'm' => 0,
+        'p' => 1,
+        's' => 2,
+        'z' => {
+            return Some(108 + (num - 1) * 4);
+        }
+        _ => return None,
+    };
+
+    let base = suit_idx * 36 + (num - 1) * 4;
+    // If it's a 5, and not red, it should be base+1 (17, 53, 89)
+    if num == 5 {
+        Some(base + 1)
+    } else {
+        Some(base)
+    }
+}

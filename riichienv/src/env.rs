@@ -1,20 +1,23 @@
 #![allow(clippy::useless_conversion)]
 use pyo3::types::{PyAnyMethods, PyDict, PyDictMethods, PyListMethods};
-use pyo3::{pyclass, pymethods, IntoPy, PyErr, PyObject, PyResult, Python, ToPyObject};
+use pyo3::{
+    pyclass, pymethods, Bound, IntoPy, PyAny, PyErr, PyObject, PyResult, Python, ToPyObject,
+};
 // IntoPy might be needed for .into_py() calls if I revert?
 // I used .to_object() which needs ToPyObject.
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::parser::tid_to_mjai;
 use crate::types::{Agari, Conditions, Meld, MeldType, Wind};
+use sha2::Digest;
 
 // --- Enums ---
 
-#[pyclass(eq, eq_int)]
+#[pyclass(module = "riichienv._riichienv", eq, eq_int)]
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Phase {
@@ -29,7 +32,7 @@ impl Phase {
     }
 }
 
-#[pyclass(eq, eq_int)]
+#[pyclass(module = "riichienv._riichienv", eq, eq_int)]
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ActionType {
@@ -55,7 +58,7 @@ impl ActionType {
 
 // --- Structs ---
 
-#[pyclass]
+#[pyclass(module = "riichienv._riichienv")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Action {
     #[pyo3(get, set, name = "type")]
@@ -66,7 +69,64 @@ pub struct Action {
     pub consume_tiles: Vec<u8>,
 }
 
-#[pyclass]
+#[pymethods]
+impl Action {
+    #[new]
+    #[pyo3(signature = (r#type=ActionType::Pass, tile=None, consume_tiles=vec![]))]
+    pub fn new(r#type: ActionType, tile: Option<u8>, consume_tiles: Vec<u8>) -> Self {
+        Self {
+            action_type: r#type,
+            tile,
+            consume_tiles,
+        }
+    }
+
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+        let dict = PyDict::new_bound(py);
+        dict.set_item("type", self.action_type as i32)?;
+        dict.set_item("tile", self.tile)?;
+
+        let cons: Vec<u32> = self.consume_tiles.iter().map(|&x| x as u32).collect();
+        dict.set_item("consume_tiles", cons)?;
+        Ok(dict.to_object(py))
+    }
+
+    pub fn to_mjai(&self) -> PyResult<String> {
+        let type_str = match self.action_type {
+            ActionType::Discard => "dahai",
+            ActionType::Chi => "chi",
+            ActionType::Pon => "pon",
+            ActionType::Daiminkan => "daiminkan",
+            ActionType::Ankan => "ankan",
+            ActionType::Kakan => "kakan",
+            ActionType::Riichi => "reach",
+            ActionType::Tsumo | ActionType::Ron => "hora",
+            ActionType::KyushuKyuhai => "ryukyoku",
+            ActionType::Pass => "none",
+        };
+
+        let mut data = serde_json::Map::new();
+        data.insert("type".to_string(), Value::String(type_str.to_string()));
+
+        if let Some(t) = self.tile {
+            if self.action_type != ActionType::Tsumo
+                && self.action_type != ActionType::Ron
+                && self.action_type != ActionType::Riichi
+            {
+                data.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
+            }
+        }
+
+        if !self.consume_tiles.is_empty() {
+            let cons: Vec<String> = self.consume_tiles.iter().map(|&t| tid_to_mjai(t)).collect();
+            data.insert("consumed".to_string(), serde_json::to_value(cons).unwrap());
+        }
+
+        Ok(Value::Object(data).to_string())
+    }
+}
+
+#[pyclass(module = "riichienv._riichienv")]
 #[derive(Debug, Clone)]
 pub struct Observation {
     #[pyo3(get)]
@@ -76,19 +136,140 @@ pub struct Observation {
     pub events_json: Vec<String>,
     #[pyo3(get)]
     pub prev_events_size: usize,
-    #[pyo3(get)]
     pub legal_actions: Vec<Action>,
 }
 
-// ... impl Observation ...
+#[pymethods]
+impl Observation {
+    #[new]
+    pub fn new(
+        player_id: u8,
+        hand: Vec<u8>,
+        events_json: Vec<String>,
+        prev_events_size: usize,
+        legal_actions: Vec<Action>,
+    ) -> Self {
+        Self {
+            player_id,
+            hand,
+            events_json,
+            prev_events_size,
+            legal_actions,
+        }
+    }
 
-#[pyclass]
+    #[getter]
+    pub fn events(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let loads = py.import_bound("json")?.getattr("loads")?;
+        let list = pyo3::types::PyList::empty_bound(py);
+        for s in &self.events_json {
+            list.append(loads.call1((s,))?)?;
+        }
+        Ok(list.into_py(py))
+    }
+
+    pub fn new_events(&self, py: Python) -> PyResult<PyObject> {
+        let list = pyo3::types::PyList::empty_bound(py);
+        for s in &self.events_json[self.prev_events_size..] {
+            list.append(s)?;
+        }
+        Ok(list.into_py(py))
+    }
+
+    pub fn select_action_from_mjai(
+        &self,
+        _py: Python,
+        mjai_resp: Bound<PyDict>,
+    ) -> PyResult<Option<Action>> {
+        let r_type: String = mjai_resp
+            .get_item("type")?
+            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("missing type"))?
+            .extract()?;
+        let r_pai: Option<String> = mjai_resp.get_item("pai")?.and_then(|v| v.extract().ok());
+        let r_consumed: Option<Vec<String>> = mjai_resp
+            .get_item("consumed")?
+            .and_then(|v| v.extract().ok());
+
+        for act in &self.legal_actions {
+            let m_type = match act.action_type {
+                ActionType::Discard => "dahai",
+                ActionType::Chi => "chi",
+                ActionType::Pon => "pon",
+                ActionType::Daiminkan => "daiminkan",
+                ActionType::Ankan => "ankan",
+                ActionType::Kakan => "kakan",
+                ActionType::Riichi => "reach",
+                ActionType::Tsumo | ActionType::Ron => "hora",
+                ActionType::Pass => "none",
+                ActionType::KyushuKyuhai => "ryukyoku",
+            };
+
+            if m_type != r_type {
+                continue;
+            }
+
+            // Tile comparison
+            if let Some(ref rp) = r_pai {
+                if let Some(at) = act.tile {
+                    if tid_to_mjai(at) != *rp {
+                        continue;
+                    }
+                } else if act.action_type != ActionType::Riichi
+                    && act.action_type != ActionType::Tsumo
+                    && act.action_type != ActionType::Ron
+                {
+                    continue;
+                }
+            }
+
+            // Consumed comparison
+            if let Some(ref rc) = r_consumed {
+                let mut ac: Vec<String> =
+                    act.consume_tiles.iter().map(|&t| tid_to_mjai(t)).collect();
+                ac.sort();
+                let mut rc_sorted = rc.clone();
+                rc_sorted.sort();
+                if ac != rc_sorted {
+                    continue;
+                }
+            } else if !act.consume_tiles.is_empty() {
+                continue;
+            }
+
+            return Ok(Some(act.clone()));
+        }
+
+        Ok(None)
+    }
+
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+        let dict = PyDict::new_bound(py);
+        dict.set_item("player_id", self.player_id)?;
+        dict.set_item("hand", self.hand.clone())?;
+        dict.set_item("events", self.events(py)?)?;
+        dict.set_item("prev_events_size", self.prev_events_size)?;
+
+        let actions = pyo3::types::PyList::empty_bound(py);
+        for a in &self.legal_actions {
+            actions.append(a.to_dict(py)?)?;
+        }
+        dict.set_item("legal_actions", actions)?;
+
+        Ok(dict.to_object(py))
+    }
+
+    pub fn legal_actions(&self) -> Vec<Action> {
+        self.legal_actions.clone()
+    }
+}
+
+#[pyclass(module = "riichienv._riichienv")]
 #[derive(Debug, Clone)]
 pub struct RiichiEnv {
     // Game State
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub wall: Vec<u8>,
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub hands: [Vec<u8>; 4],
     #[pyo3(get, set)]
     pub melds: [Vec<Meld>; 4],
@@ -102,6 +283,12 @@ pub struct RiichiEnv {
     pub is_done: bool,
     #[pyo3(get, set)]
     pub needs_tsumo: bool,
+    #[pyo3(get, set)]
+    pub needs_initialize_next_round: bool,
+    #[pyo3(get, set)]
+    pub pending_oya_won: bool,
+    #[pyo3(get, set)]
+    pub pending_is_draw: bool,
     #[pyo3(get, set)]
     pub scores: [i32; 4],
     #[pyo3(get, set)]
@@ -120,22 +307,16 @@ pub struct RiichiEnv {
     pub double_riichi_declared: [bool; 4],
 
     // Phases
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub phase: Phase,
     #[pyo3(get, set)]
     pub active_players: Vec<u8>,
-    #[pyo3(get, set)]
     pub last_discard: Option<(u8, u8)>,
-
     #[pyo3(get, set)]
     pub current_claims: HashMap<u8, Vec<Action>>,
 
-    // pending_kan tuple?
-    // ...
-
-    // ...
     #[pyo3(get, set)]
-    pub pending_kan: Option<Action>,
+    pub pending_kan: Option<(u8, Action)>,
 
     #[pyo3(get, set)]
     pub oya: u8,
@@ -167,6 +348,8 @@ pub struct RiichiEnv {
     pub nagashi_eligible: [bool; 4],
     #[pyo3(get, set)]
     pub drawn_tile: Option<u8>,
+    #[pyo3(get, set)]
+    pub ippatsu_cycle: [bool; 4],
 
     #[pyo3(get)]
     pub wall_digest: String,
@@ -176,7 +359,7 @@ pub struct RiichiEnv {
     pub agari_results: HashMap<u8, Agari>,
     #[pyo3(get)]
     pub last_agari_results: HashMap<u8, Agari>,
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub round_end_scores: Option<[i32; 4]>,
 
     pub mjai_log: Vec<String>,
@@ -186,7 +369,7 @@ pub struct RiichiEnv {
     // Config
     #[pyo3(get)]
     pub game_type: u8,
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub mjai_mode: bool,
     #[pyo3(get)]
     pub seed: Option<u64>,
@@ -275,6 +458,30 @@ impl RiichiEnv {
         self._end_kyoku_ryukyoku(is_renchan, true);
     }
 
+    fn _is_game_over(&self) -> bool {
+        if self.scores.iter().any(|&s| s < 0) {
+            return true;
+        }
+        if self.game_type == 1 || self.game_type == 4 {
+            // Tonpu
+            if self.round_wind > 0 {
+                return true;
+            }
+        } else if self.game_type == 2 || self.game_type == 5 {
+            // Hanchan
+            if self.round_wind > 1 {
+                return true;
+            }
+        } else if self.game_type == 0 || self.game_type == 3 {
+            // Ikkyoku (One Round)
+            // If we are checking is_game_over, the kyoku has just ended (or checking bankruptcy).
+            // For Ikkyoku, any kyoku end = game over.
+            return true;
+        }
+
+        false
+    }
+
     fn _end_kyoku_win(
         &mut self,
         winners: Vec<u8>,
@@ -286,68 +493,140 @@ impl RiichiEnv {
         let mut total_deltas = [0; 4];
 
         // Calculate deltas for all winners
+        let mut sticks_awarded = false;
         for &w in &winners {
             if let Some(agari) = self.agari_results.get(&w).cloned() {
-                let d = self._calculate_deltas(&agari, w, is_tsumo, loser, true);
+                let d = self._calculate_deltas(&agari, w, is_tsumo, loser, true, !sticks_awarded);
+                sticks_awarded = true;
                 for i in 0..4 {
                     total_deltas[i] += d[i];
                 }
             }
         }
 
-        for (i, d) in total_deltas.iter().enumerate() {
-            self.scores[i] += d;
-            self.score_deltas[i] += d;
+        for (i, delta) in total_deltas.iter().enumerate() {
+            self.scores[i] += delta;
+            self.score_deltas[i] += delta;
         }
+        self.riichi_sticks = 0;
 
         self.last_agari_results = self.agari_results.clone();
         self.round_end_scores = Some(self.scores);
-        self.is_done = true;
-    }
-
-    fn _end_kyoku_ryukyoku(&mut self, is_renchan: bool, is_draw: bool) {
-        let mut ev = serde_json::Map::new();
-        ev.insert("type".to_string(), Value::String("end_kyoku".to_string()));
-        self.mjai_log.push(Value::Object(ev).to_string());
-
-        // Simple Game Over check (match OneKyokuRule behavior if that's the default)
-        // For now, if game_type is IKKYOKU, we finish.
-        // Actually, Python's is_game_over(OneKyokuRule) returns True always.
-        if self.game_type == 0 || self.game_type == 1 {
-            // Assuming 0, 1 are IKKYOKU
+        if self._is_game_over() {
             let mut ev = serde_json::Map::new();
             ev.insert("type".to_string(), Value::String("end_game".to_string()));
             self.mjai_log.push(Value::Object(ev).to_string());
             self.is_done = true;
+        } else {
+            self.needs_initialize_next_round = true;
+            self.pending_oya_won = true;
+            self.pending_is_draw = false;
+        }
+        self.phase = Phase::WaitAct; // Reset phase to prevent re-triggering
+        self.active_players = vec![];
+    }
+
+    fn _end_kyoku_ryukyoku(&mut self, is_renchan: bool, is_draw: bool) {
+        self.round_end_scores = Some(self.scores); // Set round end scores for verification
+        let mut ev = serde_json::Map::new();
+        ev.insert("type".to_string(), Value::String("end_kyoku".to_string()));
+        self.mjai_log.push(Value::Object(ev).to_string());
+
+        if self._is_game_over() {
+            let mut ev = serde_json::Map::new();
+            ev.insert("type".to_string(), Value::String("end_game".to_string()));
+            self.mjai_log.push(Value::Object(ev).to_string());
+            self.is_done = true;
+        } else {
+            self.needs_initialize_next_round = true;
+            self.pending_oya_won = is_renchan;
+            self.pending_is_draw = is_draw;
+        }
+        self.phase = Phase::WaitAct;
+        self.active_players = vec![];
+    }
+
+    fn _initialize_next_round(&mut self, oya_won: bool, is_draw: bool) {
+        if self.is_done {
             return;
         }
 
-        // Standard Transition logic (Simplified)
-        let next_honba = if is_renchan || is_draw {
-            self.honba + 1
-        } else {
-            0
-        };
-        let next_oya = if is_renchan {
-            self.oya
-        } else {
-            (self.oya + 1) % 4
-        };
+        let mut next_honba = self.honba;
+        let mut next_oya = self.oya;
+        let mut next_round_wind = self.round_wind;
 
-        // If oya moved and next_oya is 0, bakaze changes (simplified)
-        // ... (This needs a bakaze field which I don't see in struct yet,
-        // oh wait there is oya, but where is bakaze?)
-        // Ah, current Python implementation of get_next_kyoku_params uses round_wind.
-        // I need to add that to the struct.
+        if oya_won {
+            // Renchan (Oya Win or Oya Tenpai in Draw)
+            next_honba = next_honba.saturating_add(1);
+        } else if is_draw {
+            // Ryukyoku, Oya Nontenpai -> Rotate but keep sticks (honba + 1)
+            next_honba = next_honba.saturating_add(1);
+            next_oya = (next_oya + 1) % 4;
+            if next_oya == 0 {
+                next_round_wind += 1;
+            }
+        } else {
+            // Ko Win -> Rotate, clear honba
+            next_honba = 0;
+            next_oya = (next_oya + 1) % 4;
+            if next_oya == 0 {
+                next_round_wind += 1;
+            }
+        }
 
-        self.honba = next_honba;
-        self.oya = next_oya;
-        self.is_done = true; // For now, end kyoku just ends the loop in step()
-                             // But next round should be initialized.
-                             // Python calls _initialize_round.
-                             // Since I'm essentially porting functionality, let's keep is_done = true for now
-                             // and let the user decide how to handle multiple kyokus in one session if they want.
-                             // Existing tests usually use one Kyoku per reset().
+        // Check game end conditions (e.g. Hanchan ends after South 4)
+        // Check game end conditions
+        // Tonpu: Ends if we move to South (Round Wind 1) or later?
+        // Actually:
+        // Tonpu (1, 4): Ends when round_wind becomes 1 (South) -> "East round finished"
+        // Hanchan (2, 5): Ends when round_wind becomes 2 (West) -> "South round finished"
+        // Ikkyoku (0, 3): Usually just 1 hand, but assuming standard logic:
+        // If it was just one kyoku, we might rely on the caller or external config?
+        // But let's assume standard behavior:
+
+        match self.game_type {
+            1 | 4 => {
+                // Tonpusen (Yon, San)
+                if next_round_wind >= 1 {
+                    self.is_done = true;
+                    return;
+                }
+            }
+            2 | 5 => {
+                // Hanchan (Yon, San)
+                if next_round_wind >= 2 {
+                    self.is_done = true;
+                    return;
+                }
+            }
+            0 | 3 => {
+                // Ikkyoku
+                // End after 1 hand regardless?
+                // Or allow renchan? Most Ikkyoku modes end after 1 hand.
+                // Let's assume end if we transitioned (next_honba == 0 and different oya/wind)
+                // Simplest: Always end after 1 hand for now to be safe.
+                self.is_done = true;
+                return;
+            }
+            _ => {
+                // Unknown, maybe default to Tonpu limit?
+                if next_round_wind >= 1 {
+                    self.is_done = true;
+                    return;
+                }
+            }
+        }
+
+        let next_scores = self.scores;
+        let next_sticks = self.riichi_sticks;
+        self._initialize_round(
+            next_oya,
+            next_round_wind,
+            next_honba,
+            next_sticks,
+            None,
+            Some(next_scores),
+        );
     }
 
     fn _accept_riichi(&mut self) {
@@ -373,112 +652,6 @@ impl RiichiEnv {
     }
 }
 
-// --- Helpers ---
-
-// --- Implementations ---
-
-#[pymethods]
-impl Action {
-    #[new]
-    #[pyo3(signature = (action_type, tile=None, consume_tiles=vec![]))]
-    pub fn new(action_type: ActionType, tile: Option<u8>, consume_tiles: Vec<u8>) -> Self {
-        Self {
-            action_type,
-            tile,
-            consume_tiles,
-        }
-    }
-
-    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
-        dict.set_item("type", self.action_type as i32)?;
-        dict.set_item("tile", self.tile)?;
-
-        let cons: Vec<u32> = self.consume_tiles.iter().map(|&x| x as u32).collect();
-        dict.set_item("consume_tiles", cons)?;
-        Ok(dict.to_object(py))
-    }
-
-    pub fn to_mjai(&self) -> PyResult<String> {
-        let type_str = match self.action_type {
-            ActionType::Discard => "dahai",
-            ActionType::Chi => "chi",
-            ActionType::Pon => "pon",
-            ActionType::Daiminkan => "daiminkan",
-            ActionType::Ankan => "ankan",
-            ActionType::Kakan => "kakan",
-            ActionType::Riichi => "reach",
-            ActionType::Tsumo | ActionType::Ron => "hora",
-            ActionType::KyushuKyuhai => "ryukyoku",
-            ActionType::Pass => "none",
-        };
-
-        let mut data = serde_json::Map::new();
-        data.insert("type".to_string(), Value::String(type_str.to_string()));
-
-        if let Some(t) = self.tile {
-            if self.action_type != ActionType::Tsumo
-                && self.action_type != ActionType::Ron
-                && self.action_type != ActionType::Riichi
-            {
-                data.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
-            }
-        }
-
-        if !self.consume_tiles.is_empty() {
-            let cons: Vec<String> = self.consume_tiles.iter().map(|&t| tid_to_mjai(t)).collect();
-            data.insert("consumed".to_string(), serde_json::to_value(cons).unwrap());
-        }
-
-        Ok(Value::Object(data).to_string())
-    }
-}
-
-#[pymethods]
-impl Observation {
-    #[new]
-    pub fn new(
-        player_id: u8,
-        hand: Vec<u8>,
-        events_json: Vec<String>,
-        prev_events_size: usize,
-        legal_actions: Vec<Action>,
-    ) -> Self {
-        Self {
-            player_id,
-            hand,
-            events_json,
-            prev_events_size,
-            legal_actions,
-        }
-    }
-
-    #[getter]
-    fn events(&self, py: Python) -> PyResult<PyObject> {
-        let json = py.import_bound("json")?;
-        let loads = json.getattr("loads")?;
-        let list = pyo3::types::PyList::empty_bound(py);
-        for s in &self.events_json {
-            list.append(loads.call1((s,))?)?;
-        }
-        Ok(list.into_py(py))
-    }
-
-    pub fn new_events(&self, py: Python) -> PyResult<PyObject> {
-        let json = py.import_bound("json")?;
-        let loads = json.getattr("loads")?;
-        let list = pyo3::types::PyList::empty_bound(py);
-        for s in &self.events_json[self.prev_events_size..] {
-            list.append(loads.call1((s,))?)?;
-        }
-        Ok(list.into_py(py))
-    }
-
-    pub fn legal_actions(&self) -> Vec<Action> {
-        self.legal_actions.clone()
-    }
-}
-
 fn _tid_to_mjai_hand(hand: &[u8]) -> Vec<String> {
     hand.iter().map(|&t| tid_to_mjai(t)).collect()
 }
@@ -486,7 +659,7 @@ fn _tid_to_mjai_hand(hand: &[u8]) -> Vec<String> {
 #[pymethods]
 impl RiichiEnv {
     #[new]
-    #[pyo3(signature = (game_type=4, mjai_mode=false, seed=None, round_wind=None))]
+    #[pyo3(signature = (game_type=4, mjai_mode=true, seed=None, round_wind=None))]
     pub fn new(game_type: u8, mjai_mode: bool, seed: Option<u64>, round_wind: Option<u8>) -> Self {
         RiichiEnv {
             wall: Vec::new(),
@@ -497,6 +670,9 @@ impl RiichiEnv {
             turn_count: 0,
             is_done: false,
             needs_tsumo: false,
+            needs_initialize_next_round: false,
+            pending_oya_won: false,
+            pending_is_draw: false,
             scores: [25000; 4],
             score_deltas: [0; 4],
             riichi_sticks: 0,
@@ -529,6 +705,7 @@ impl RiichiEnv {
             mjai_log: Vec::new(),
             player_event_counts: [0; 4],
             round_wind: round_wind.unwrap_or(0),
+            ippatsu_cycle: [false; 4],
             game_type,
             mjai_mode,
             seed,
@@ -574,10 +751,10 @@ impl RiichiEnv {
         self.round_end_scores = None;
 
         self._initialize_round(
-            oya.unwrap_or(0),
-            bakaze.unwrap_or(0),
-            honba.unwrap_or(0),
-            kyotaku.unwrap_or(0),
+            oya.unwrap_or(self.oya),
+            bakaze.unwrap_or(self.round_wind),
+            honba.unwrap_or(self.honba),
+            kyotaku.unwrap_or(self.riichi_sticks),
             wall,
             Some(initial_scores),
         );
@@ -617,6 +794,150 @@ impl RiichiEnv {
         self.round_wind
     }
 
+    pub fn ranks(&self) -> [u8; 4] {
+        let mut indices: Vec<usize> = (0..4).collect();
+        indices.sort_by(|&a, &b| {
+            if self.scores[a] != self.scores[b] {
+                self.scores[b].cmp(&self.scores[a])
+            } else {
+                a.cmp(&b)
+            }
+        });
+        let mut ranks = [0; 4];
+        for (rank, &idx) in indices.iter().enumerate() {
+            ranks[idx] = (rank + 1) as u8;
+        }
+        ranks
+    }
+
+    #[pyo3(signature = (preset_rule=None))]
+    pub fn points(&self, preset_rule: Option<&str>) -> PyResult<[i32; 4]> {
+        let rule_str = preset_rule.unwrap_or("basic");
+        let (soten_weight, soten_base, jun_weight) = match rule_str {
+            "basic" => (1, 25000, [50, 10, -10, -50]),
+            "ouza-tyoujyo" => (0, 25000, [100, 40, -40, -100]),
+            "ouza-normal" => (0, 25000, [50, 20, -20, -50]),
+            _ => {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Unknown preset rule: {}",
+                    rule_str
+                )))
+            }
+        };
+
+        let ranks = self.ranks();
+        let mut points = [0; 4];
+        for i in 0..4 {
+            points[i] = ((self.scores[i] - soten_base) as f64 / 1000.0 * soten_weight as f64
+                + jun_weight[ranks[i] as usize - 1] as f64) as i32;
+        }
+        Ok(points)
+    }
+
+    pub fn _get_waits(&self, pid: u8) -> HashSet<u8> {
+        let mut waits = HashSet::new();
+        let hand = &self.hands[pid as usize];
+        let melds = &self.melds[pid as usize];
+
+        let calc = crate::agari_calculator::AgariCalculator::new(hand.clone(), melds.clone());
+        if !calc.is_tenpai() {
+            return waits;
+        }
+
+        for t_type in 0..34 {
+            let win_tile = t_type * 4;
+            let cond = Conditions {
+                tsumo: false,
+                riichi: self.riichi_declared[pid as usize],
+                double_riichi: self.double_riichi_declared[pid as usize],
+                player_wind: crate::types::Wind::from((pid + 4 - self.oya) % 4),
+                round_wind: crate::types::Wind::from(self.round_wind),
+                ..Default::default()
+            };
+
+            let res = calc.calc(
+                win_tile,
+                self.dora_indicators.clone(),
+                vec![], // No Ura indicators for waits check
+                Some(cond),
+            );
+            if res.agari {
+                waits.insert(t_type);
+            }
+        }
+        waits
+    }
+
+    pub fn _is_furiten(&self, pid: u8) -> bool {
+        if self.missed_agari_riichi[pid as usize] || self.missed_agari_doujun[pid as usize] {
+            return true;
+        }
+
+        let waits = self._get_waits(pid);
+        if waits.is_empty() {
+            return false;
+        }
+
+        for &t in &self.discards[pid as usize] {
+            if waits.contains(&(t / 4)) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn _check_midway_draws(&mut self) -> bool {
+        // 1. Sufuurenta
+        {
+            let mut discards = Vec::new();
+            for p in 0..4 {
+                if self.discards[p].len() != 1 {
+                    break;
+                }
+                discards.push(self.discards[p][0]);
+            }
+            if discards.len() == 4 {
+                let t = discards[0] / 4;
+                if (27..=30).contains(&t)
+                    && discards.iter().all(|&d| d / 4 == t)
+                    && self.melds.iter().all(|m| m.is_empty())
+                {
+                    self._trigger_ryukyoku("sufuurenta");
+                    return true;
+                }
+            }
+        }
+
+        // 2. Suukansansen
+        {
+            let mut tk = 0;
+            let mut kp = HashSet::new();
+            for (p, ms) in self.melds.iter().enumerate() {
+                for m in ms {
+                    if matches!(
+                        m.meld_type,
+                        MeldType::Gang | MeldType::Angang | MeldType::Addgang
+                    ) {
+                        tk += 1;
+                        kp.insert(p);
+                    }
+                }
+            }
+            if tk >= 4 && kp.len() > 1 {
+                self._trigger_ryukyoku("suukansansen");
+                return true;
+            }
+        }
+
+        // 3. Suurechi
+        if self.riichi_declared.iter().all(|&r| r) {
+            self._trigger_ryukyoku("suurechi");
+            return true;
+        }
+
+        false
+    }
+
     #[getter]
     pub fn mjai_log(&self, py: Python) -> PyResult<PyObject> {
         let json = py.import_bound("json")?;
@@ -626,6 +947,57 @@ impl RiichiEnv {
             list.append(loads.call1((s,))?)?;
         }
         Ok(list.into_py(py))
+    }
+
+    #[setter]
+    pub fn set_phase(&mut self, val: Bound<'_, PyAny>) -> PyResult<()> {
+        if let Ok(i) = val.extract::<i32>() {
+            self.phase = match i {
+                0 => Phase::WaitAct,
+                1 => Phase::WaitResponse,
+                _ => Phase::WaitAct,
+            };
+        } else if let Ok(p) = val.extract::<Phase>() {
+            self.phase = p;
+        } else {
+            return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                "Expected int or Phase",
+            ));
+        }
+        Ok(())
+    }
+
+    #[getter]
+    pub fn current_player(&self) -> u8 {
+        self.current_player
+    }
+
+    #[setter]
+    pub fn set_current_player(&mut self, val: u8) {
+        self.current_player = val % 4;
+        self.missed_agari_doujun[self.current_player as usize] = false;
+    }
+
+    #[getter]
+    pub fn last_discard(&self) -> Option<(u8, u8)> {
+        self.last_discard
+    }
+
+    #[setter]
+    pub fn set_last_discard(&mut self, val: Option<(u8, u8)>) {
+        self.last_discard = val;
+    }
+
+    pub fn _get_legal_actions(&self, pid: u8) -> Vec<Action> {
+        // Internal method reused for Python testing
+        // Requires importing _get_legal_actions logic (which is private but available to struct)
+        // Wait, self._get_legal_actions(pid) is defined later?
+        // I need to search for definition instructions.
+        // If it is defined as `fn _get_legal_actions(&self, pid: u8) -> Vec<Action>`, I can just double expose it?
+        // No, PyO3 requires `pub`.
+        // If internal is private `fn`, I can wrap it.
+        // Assuming internal is `fn _get_legal_actions`.
+        self._get_legal_actions_internal(pid)
     }
 
     pub fn done(&self) -> bool {
@@ -638,23 +1010,32 @@ impl RiichiEnv {
         actions: HashMap<u8, Action>,
     ) -> PyResult<PyObject> {
         while !self.is_done {
+            if self.needs_initialize_next_round {
+                self._initialize_next_round(self.pending_oya_won, self.pending_is_draw);
+            }
             if self.needs_tsumo {
-                // Handle leading tsumo draw
-                // Midway draws logic TODO
+                // Midway draws logic
+                if self._check_midway_draws() {
+                    return self.get_obs_py(py, Some(self.active_players.clone()));
+                }
                 // Exhaustive draw check
                 if self.wall.len() <= 14 {
                     self._trigger_ryukyoku("exhaustive_draw");
-                    return self.get_obs_py(py, None);
+                    return self.get_obs_py(py, Some(self.active_players.clone()));
                 }
 
                 if self.is_rinshan_flag {
                     if !self.wall.is_empty() {
-                        self.drawn_tile = Some(self.wall.remove(0));
-                        self.is_rinshan_flag = false;
+                        let t = self.wall.remove(0);
+                        self.drawn_tile = Some(t);
+                        self.hands[self.current_player as usize].push(t);
+                        // self.is_rinshan_flag = false; // Keep flag for Agari/Test check
                         self.rinshan_draw_count += 1;
                     }
                 } else if !self.wall.is_empty() {
-                    self.drawn_tile = self.wall.pop();
+                    let t = self.wall.pop().unwrap();
+                    self.drawn_tile = Some(t);
+                    self.hands[self.current_player as usize].push(t);
                 }
 
                 if let Some(t) = self.drawn_tile {
@@ -668,8 +1049,6 @@ impl RiichiEnv {
                     );
                     ev.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
                     self.mjai_log.push(Value::Object(ev).to_string());
-
-                    // DO NOT add to hand here. Keep it in self.drawn_tile.
                 } else {
                     // Should have triggered ryukyoku?
                 }
@@ -694,6 +1073,14 @@ impl RiichiEnv {
 
             // If WaitAct
             if self.phase == Phase::WaitAct {
+                if self.mjai_mode {
+                    println!(
+                        "DEBUG RUST: step START. pid={} melds[{}].len={}",
+                        self.current_player,
+                        self.current_player,
+                        self.melds[self.current_player as usize].len()
+                    );
+                }
                 if let Some(act) = actions.get(&self.current_player) {
                     if act.action_type == ActionType::Discard {
                         let is_tsumogiri = act.tile == self.drawn_tile;
@@ -713,7 +1100,7 @@ impl RiichiEnv {
                             tsumo: true,
                             riichi: self.riichi_declared[winner as usize],
                             double_riichi: self.double_riichi_declared[winner as usize],
-                            ippatsu: false,
+                            ippatsu: self.ippatsu_cycle[winner as usize],
                             player_wind: Wind::from((winner + 4 - self.oya) % 4),
                             round_wind: Wind::from(self.round_wind),
                             chankan: false,
@@ -727,16 +1114,32 @@ impl RiichiEnv {
                         };
 
                         let mut hand_for_calc = self.hands[winner as usize].clone();
-                        hand_for_calc.push(tile);
+                        // self.hands already contains the drawn tile (14 tiles).
+                        // AgariCalculator::calc(tile) usually adds the win_tile to the hand check.
+                        // So we should pass 13 tiles to AgariCalculator::new.
+                        if let Some(idx) = hand_for_calc.iter().rposition(|&t| t == tile) {
+                            hand_for_calc.remove(idx);
+                        }
                         let calc = crate::agari_calculator::AgariCalculator::new(
                             hand_for_calc,
                             self.melds[winner as usize].clone(),
                         );
-                        let agari =
-                            calc.calc(tile, self.dora_indicators.clone(), vec![], Some(cond));
+                        let ura = if self.riichi_declared[winner as usize] {
+                            self._get_ura_markers_u8()
+                        } else {
+                            vec![]
+                        };
+                        println!(
+                            "DEBUG Tsumo: pid={} riichi={} ippatsu={} ura_len={}",
+                            winner,
+                            self.riichi_declared[winner as usize],
+                            self.ippatsu_cycle[winner as usize],
+                            ura.len()
+                        );
+                        let agari = calc.calc(tile, self.dora_indicators.clone(), ura, Some(cond));
 
                         let deltas =
-                            self._calculate_deltas(&agari, winner, true, Some(winner), true);
+                            self._calculate_deltas(&agari, winner, true, Some(winner), true, true);
 
                         // Log Hora
                         let mut ev = serde_json::Map::new();
@@ -744,14 +1147,195 @@ impl RiichiEnv {
                         ev.insert("actor".to_string(), Value::Number(winner.into()));
                         ev.insert("target".to_string(), Value::Number(winner.into()));
                         ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
+                        ev.insert("tsumo".to_string(), Value::Bool(true));
                         ev.insert("deltas".to_string(), serde_json::to_value(deltas).unwrap());
-                        ev.insert("ura_markers".to_string(), Value::Array(vec![])); // TODO Ura
+                        let uras = if self.riichi_declared[winner as usize] {
+                            serde_json::to_value(self._get_ura_markers()).unwrap()
+                        } else {
+                            Value::Array(vec![])
+                        };
+                        ev.insert("ura_markers".to_string(), uras);
                         self.mjai_log.push(Value::Object(ev).to_string());
 
                         let mut agaris = HashMap::new();
                         agaris.insert(winner, agari);
                         self._end_kyoku_win(vec![winner], true, Some(winner), agaris);
-                        return self.get_obs_py(py, None);
+                        return self.get_obs_py(py, Some(self.active_players.clone()));
+                    }
+
+                    if act.action_type == ActionType::Kakan {
+                        let pid = self.current_player;
+                        let tile = act.tile.unwrap();
+                        let p_usize = pid as usize;
+                        // Validate: Tile in hand + Pon in melds
+                        let mut has_tile_idx = None;
+                        if let Some(idx) = self.hands[p_usize].iter().position(|&t| t == tile) {
+                            has_tile_idx = Some(idx);
+                        } else if let Some(dt) = self.drawn_tile {
+                            if dt == tile {
+                                has_tile_idx = self.hands[p_usize].len().checked_sub(1);
+                                // Drawn tile is last?
+                                // Actually we should look up by value in hands, as we pushed it.
+                                // The iter position found it if it's there.
+                            }
+                        }
+
+                        let meld_idx = self.melds[p_usize].iter().position(|m| {
+                            m.meld_type == MeldType::Peng && m.tiles[0] / 4 == tile / 4
+                        });
+
+                        if let (Some(h_idx), Some(m_idx)) = (has_tile_idx, meld_idx) {
+                            // Check Chankan
+                            let mut chankan_ronners = Vec::new();
+                            for i in 0..4 {
+                                if i == pid {
+                                    continue;
+                                }
+                                if self._check_ron(i, tile, pid) {
+                                    chankan_ronners.push(i);
+                                }
+                            }
+
+                            if !chankan_ronners.is_empty() {
+                                self.pending_kan = Some((pid, act.clone()));
+                                self.phase = Phase::WaitResponse;
+                                self.active_players = chankan_ronners;
+                                self.active_players.sort();
+                                self.needs_tsumo = false;
+                                return self.get_obs_py(py, Some(self.active_players.clone()));
+                            }
+
+                            // Execute Kakan
+                            let t = self.hands[p_usize].remove(h_idx);
+                            let mut m = self.melds[p_usize][m_idx].clone();
+                            m.meld_type = MeldType::Addgang;
+                            m.tiles.push(t);
+                            m.tiles.sort();
+                            self.hands[p_usize].sort();
+                            self.drawn_tile = None;
+
+                            self.is_rinshan_flag = true;
+                            self.needs_tsumo = true;
+                            self.active_players = vec![];
+                            // Log Kakan
+                            let mut ev = serde_json::Map::new();
+                            ev.insert("type".to_string(), Value::String("kakan".to_string()));
+                            ev.insert("actor".to_string(), Value::Number(pid.into()));
+                            ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
+                            // FIX: Only take 3 tiles for consumed
+                            let consumed_mjai: Vec<Value> = m
+                                .tiles
+                                .iter()
+                                .take(3)
+                                .map(|&t| Value::String(tid_to_mjai(t)))
+                                .collect();
+                            ev.insert("consumed".to_string(), Value::Array(consumed_mjai));
+                            self.mjai_log.push(Value::Object(ev).to_string());
+
+                            self.melds[p_usize][m_idx] = m;
+
+                            self._reveal_kan_dora();
+                            self._check_midway_draws();
+
+                            if self.mjai_mode {
+                                // return self.get_obs_py(py, Some(vec![pid]));
+                            }
+                            continue;
+                        }
+                    }
+
+                    if act.action_type == ActionType::Ankan {
+                        let pid = self.current_player;
+                        let tile = act.tile.unwrap();
+                        let p_usize = pid as usize;
+                        // Validate: 4 tiles
+                        let t_type = tile / 4;
+                        let indices: Vec<usize> = self.hands[p_usize]
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, &t)| t / 4 == t_type)
+                            .map(|(i, _)| i)
+                            .collect();
+
+                        if indices.len() >= 4 {
+                            // Check Chankan (Kokushi)
+                            let mut chankan_ronners = Vec::new();
+                            // Note: Kokushi Chankan is rare.
+                            // We need to pass a flag to check_ron?
+                            // Or assume chankan=true in check_ron implies "Is this chankan valid?"
+                            // Standard check_ron doesn't know it's Ankan vs Kakan.
+                            // We will assume _check_ron returns true if Agari.
+                            // Checking Kokushi inside check_ron is implicit if hand structure matches.
+                            // However, strictly only Kokushi can Ron Ankan.
+                            // We should verify Yaku contains Kokushi (ID 42/43) results or similar.
+                            // But for now, we trigger WaitResponse if ANY ron.
+                            // Refinement: Ideally filter `chankan_ronners` for Kokushi only?
+
+                            for i in 0..4 {
+                                if i == pid {
+                                    continue;
+                                }
+                                // Temporarily treat tile as discard?
+                                // If _check_ron treats tile as Ron target.
+                                if self._check_ron(i, tile, pid) {
+                                    // TODO: Strict rule check (Kokushi)
+                                    chankan_ronners.push(i);
+                                }
+                            }
+
+                            if !chankan_ronners.is_empty() {
+                                self.pending_kan = Some((pid, act.clone()));
+                                self.phase = Phase::WaitResponse;
+                                self.active_players = chankan_ronners;
+                                self.active_players.sort();
+                                self.needs_tsumo = false;
+                                return self.get_obs_py(py, Some(self.active_players.clone()));
+                            }
+
+                            // Execute Ankan
+                            // Remove 4 tiles (reverse index to avoid shift)
+                            let mut consumed = Vec::new();
+                            for &idx in indices.iter().rev() {
+                                consumed.push(self.hands[p_usize].remove(idx));
+                            }
+                            consumed.sort(); // Should be 4 sorted tiles
+
+                            let m = Meld {
+                                meld_type: MeldType::Angang,
+                                tiles: consumed.clone(),
+                                opened: false, // Ankan is closed
+                            };
+                            self.melds[p_usize].push(m);
+                            self.hands[p_usize].sort();
+                            self.drawn_tile = None;
+
+                            self.is_rinshan_flag = true;
+                            self.needs_tsumo = true;
+                            self.active_players = vec![];
+
+                            // Log Ankan
+                            let mut ev = serde_json::Map::new();
+                            ev.insert("type".to_string(), Value::String("ankan".to_string()));
+                            ev.insert("actor".to_string(), Value::Number(pid.into()));
+                            ev.insert(
+                                "consumed".to_string(),
+                                Value::Array(
+                                    consumed
+                                        .iter()
+                                        .map(|&t| Value::String(tid_to_mjai(t)))
+                                        .collect(),
+                                ),
+                            );
+                            self.mjai_log.push(Value::Object(ev).to_string());
+
+                            self._reveal_kan_dora();
+                            self._check_midway_draws();
+
+                            if self.mjai_mode {
+                                // return self.get_obs_py(py, Some(vec![pid]));
+                            }
+                            continue;
+                        }
                     }
 
                     if act.action_type == ActionType::Riichi {
@@ -770,8 +1354,18 @@ impl RiichiEnv {
                         self.mjai_log.push(Value::Object(ev).to_string());
                         return self.get_obs_py(py, Some(vec![self.current_player]));
                     }
+
+                    if act.action_type == ActionType::KyushuKyuhai {
+                        self._trigger_ryukyoku("kyushu_kyuhai");
+                        continue;
+                    }
                 }
             } else if self.phase == Phase::WaitResponse {
+                // Check if all active players have responded
+                if !self.active_players.iter().all(|p| actions.contains_key(p)) {
+                    return self.get_obs_py(py, Some(self.active_players.clone()));
+                }
+
                 // 1. Check missed agari
                 for (pid, act) in &actions {
                     if let Some(claims) = self.current_claims.get(pid) {
@@ -806,14 +1400,20 @@ impl RiichiEnv {
                     let mut sorted_ronners = ronners.clone();
                     sorted_ronners.sort_by_key(|&p| (p + 4 - discarder) % 4);
 
-                    let tile = self.last_discard.unwrap().1;
+                    let tile = if let Some(ld) = self.last_discard {
+                        ld.1
+                    } else if let Some((_, ref pact)) = self.pending_kan {
+                        pact.tile.unwrap()
+                    } else {
+                        0 // Should trigger panic or error?
+                    };
                     let mut agaris = HashMap::new();
                     for (idx, &winner) in sorted_ronners.iter().enumerate() {
                         let cond = Conditions {
                             tsumo: false,
                             riichi: self.riichi_declared[winner as usize],
                             double_riichi: self.double_riichi_declared[winner as usize],
-                            ippatsu: false,
+                            ippatsu: self.ippatsu_cycle[winner as usize],
                             player_wind: Wind::from((winner + 4 - self.oya) % 4),
                             round_wind: Wind::from(self.round_wind),
                             chankan: self.pending_kan.is_some(),
@@ -831,8 +1431,12 @@ impl RiichiEnv {
                             self.hands[winner as usize].clone(),
                             self.melds[winner as usize].clone(),
                         );
-                        let agari =
-                            calc.calc(tile, self.dora_indicators.clone(), vec![], Some(cond));
+                        let ura = if self.riichi_declared[winner as usize] {
+                            self._get_ura_markers_u8()
+                        } else {
+                            vec![]
+                        };
+                        let agari = calc.calc(tile, self.dora_indicators.clone(), ura, Some(cond));
 
                         // Calculate Deltas
                         let deltas = self._calculate_deltas(
@@ -840,6 +1444,7 @@ impl RiichiEnv {
                             winner,
                             false,
                             Some(discarder),
+                            idx == 0,
                             idx == 0,
                         );
 
@@ -850,14 +1455,20 @@ impl RiichiEnv {
                         ev.insert("target".to_string(), Value::Number(discarder.into()));
                         ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
                         ev.insert("deltas".to_string(), serde_json::to_value(deltas).unwrap());
-                        ev.insert("ura_markers".to_string(), Value::Array(vec![])); // TODO Ura
+
+                        let uras = if self.riichi_declared[winner as usize] {
+                            serde_json::to_value(self._get_ura_markers()).unwrap()
+                        } else {
+                            Value::Array(vec![])
+                        };
+                        ev.insert("ura_markers".to_string(), uras);
                         self.mjai_log.push(Value::Object(ev).to_string());
 
                         agaris.insert(winner, agari);
                     }
 
                     self._end_kyoku_win(sorted_ronners, false, Some(discarder), agaris);
-                    return self.get_obs_py(py, None);
+                    return self.get_obs_py(py, Some(self.active_players.clone()));
                 }
 
                 // 4. Pon / Daiminkan
@@ -870,26 +1481,94 @@ impl RiichiEnv {
                     .collect();
 
                 if let Some(&claimer) = ponners.first() {
-                    self._execute_claim(
-                        claimer,
-                        valid_actions[&claimer].clone(),
-                        Some(self.current_player),
-                    );
-                    self.current_player = claimer;
-                    self.phase = Phase::WaitAct;
-                    self.active_players = vec![claimer];
+                    let action = valid_actions[&claimer].clone();
+                    let tile = self.last_discard.unwrap().1;
 
-                    if valid_actions[&claimer].action_type == ActionType::Daiminkan {
-                        self.is_rinshan_flag = true;
-                        self.needs_tsumo = true;
-                        self.active_players = vec![];
+                    self._execute_claim(claimer, action.clone(), Some(self.current_player));
+
+                    if let Some((_, pk)) = self.pending_kan.clone() {
+                        if pk.action_type == ActionType::Kakan
+                            || pk.action_type == ActionType::Daiminkan
+                        {
+                            // Resuming from Kan interruption (all passed)
+                            self.is_rinshan_flag = true;
+                            self.riichi_stage = [false; 4]; // Ippatsu eligible reset
+                            self.needs_tsumo = true;
+                            self.phase = Phase::WaitAct;
+                            self.active_players = vec![];
+                            self.pending_kan = None;
+                            self._reveal_kan_dora();
+                            self._check_midway_draws();
+                            if self.mjai_mode {
+                                return self.get_obs_py(py, Some(vec![]));
+                            }
+                            continue; // Proceed to draw
+                        }
+                    }
+
+                    if action.action_type == ActionType::Daiminkan {
+                        // Pause for Chankan
+                        self.phase = Phase::WaitResponse;
+                        let mut chankan_ronners = Vec::new();
+                        for pid in 0..4 {
+                            if pid == claimer {
+                                continue;
+                            }
+                            if self.is_done {
+                                continue;
+                            }
+                            if self.missed_agari_doujun[pid as usize]
+                                || self.missed_agari_riichi[pid as usize]
+                            {
+                                continue;
+                            }
+                            let is_furiten = self.discards[pid as usize].contains(&tile);
+                            if is_furiten {
+                                continue;
+                            }
+                            if self._check_ron(pid, tile, claimer) {
+                                chankan_ronners.push(pid);
+                            }
+                        }
+
+                        if !chankan_ronners.is_empty() {
+                            self.active_players = chankan_ronners.clone();
+                            self.pending_kan = Some((claimer, action)); // Store action to resume later
+                            self.current_claims = HashMap::new();
+                            for &pid in &self.active_players {
+                                self.current_claims.insert(
+                                    pid,
+                                    vec![Action::new(ActionType::Ron, Some(tile), vec![])],
+                                );
+                            }
+                            if self.mjai_mode {
+                                // return self.get_obs_py(py, Some(self.active_players.clone()));
+                            }
+                        } else {
+                            // No Chankan, proceed with Daiminkan
+                            self.current_player = claimer;
+                            self.phase = Phase::WaitAct;
+                            self.is_rinshan_flag = true;
+                            self.needs_tsumo = true;
+                            self.active_players = vec![];
+                            self._reveal_kan_dora();
+                            self._check_midway_draws();
+                            continue;
+                        }
                     } else {
+                        // Pon
+                        self.current_player = claimer;
+                        self.phase = Phase::WaitAct;
                         self.is_rinshan_flag = false;
                         self.drawn_tile = None;
                         self.needs_tsumo = false;
+                        self.active_players = vec![claimer];
                     }
 
-                    return self.get_obs_py(py, Some(self.active_players.clone()));
+                    if self.mjai_mode {
+                        // return self.get_obs_py(py, Some(self.active_players.clone()));
+                    }
+                    continue;
                 }
 
                 // 5. Chi
@@ -913,6 +1592,133 @@ impl RiichiEnv {
                     self.needs_tsumo = false;
 
                     return self.get_obs_py(py, Some(self.active_players.clone()));
+                }
+
+                if self.pending_kan.is_some() {
+                    let (pid, act) = self.pending_kan.take().unwrap();
+                    let p_usize = pid as usize;
+
+                    if act.action_type == ActionType::Kakan {
+                        let tile = act.tile.unwrap();
+                        // We need to find h_idx and m_idx again? Or store them?
+                        // Recalculate to be safe.
+                        let mut has_tile_idx = None;
+                        if let Some(idx) = self.hands[p_usize].iter().position(|&t| t == tile) {
+                            has_tile_idx = Some(idx);
+                        } else if let Some(dt) = self.drawn_tile {
+                            if dt == tile {
+                                has_tile_idx = self.hands[p_usize].len().checked_sub(1);
+                            }
+                        }
+
+                        let meld_idx = self.melds[p_usize].iter().position(|m| {
+                            m.meld_type == MeldType::Peng && m.tiles[0] / 4 == tile / 4
+                        });
+
+                        if let (Some(h_idx), Some(m_idx)) = (has_tile_idx, meld_idx) {
+                            // Execute Kakan
+                            let t = self.hands[p_usize].remove(h_idx);
+
+                            // Capture original Pon tiles for logging
+                            let _consumed_tiles = self.melds[p_usize][m_idx].tiles.clone();
+
+                            let mut m = self.melds[p_usize][m_idx].clone();
+                            m.meld_type = MeldType::Addgang;
+                            m.tiles.push(t);
+                            m.tiles.sort();
+                            self.melds[p_usize][m_idx] = m;
+                            self.hands[p_usize].sort();
+                            self.drawn_tile = None;
+
+                            self.is_rinshan_flag = true;
+                            self.needs_tsumo = true;
+                            self.active_players = vec![];
+
+                            // Log Kakan
+                            let mut ev = serde_json::Map::new();
+                            ev.insert("type".to_string(), Value::String("kakan".to_string()));
+                            ev.insert("actor".to_string(), Value::Number(pid.into()));
+                            ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
+                            ev.insert(
+                                "consumed".to_string(),
+                                Value::Array(
+                                    act.consume_tiles
+                                        .iter()
+                                        .take(3)
+                                        .map(|&t| Value::String(tid_to_mjai(t)))
+                                        .collect(),
+                                ),
+                            );
+                            self.mjai_log.push(Value::Object(ev).to_string());
+
+                            self._reveal_kan_dora();
+                            self._check_midway_draws();
+
+                            self.current_player = pid; // Remain current player
+                            self.phase = Phase::WaitAct;
+                            if self.mjai_mode {
+                                // return self.get_obs_py(py, Some(vec![pid]));
+                            }
+                            continue;
+                        }
+                    } else if act.action_type == ActionType::Ankan {
+                        let tile = act.tile.unwrap();
+                        let t_type = tile / 4;
+                        let indices: Vec<usize> = self.hands[p_usize]
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, &t)| t / 4 == t_type)
+                            .map(|(i, _)| i)
+                            .collect();
+
+                        if indices.len() >= 4 {
+                            // Execute Ankan
+                            let mut consumed = Vec::new();
+                            for &idx in indices.iter().rev() {
+                                consumed.push(self.hands[p_usize].remove(idx));
+                            }
+                            consumed.sort();
+
+                            let m = Meld {
+                                meld_type: MeldType::Angang,
+                                tiles: consumed.clone(),
+                                opened: false,
+                            };
+                            self.melds[p_usize].push(m);
+                            self.hands[p_usize].sort();
+                            self.drawn_tile = None;
+
+                            self.is_rinshan_flag = true;
+                            self.needs_tsumo = true;
+                            self.active_players = vec![];
+
+                            // Log Ankan
+                            let mut ev = serde_json::Map::new();
+                            ev.insert("type".to_string(), Value::String("ankan".to_string()));
+                            ev.insert("actor".to_string(), Value::Number(pid.into()));
+                            ev.insert(
+                                "consumed".to_string(),
+                                Value::Array(
+                                    consumed
+                                        .iter()
+                                        .map(|&t| Value::String(tid_to_mjai(t)))
+                                        .collect(),
+                                ),
+                            );
+                            self.mjai_log.push(Value::Object(ev).to_string());
+
+                            self._reveal_kan_dora();
+                            self._check_midway_draws();
+
+                            self.current_player = pid;
+                            self.phase = Phase::WaitAct;
+
+                            if self.mjai_mode {
+                                // return self.get_obs_py(py, Some(vec![pid]));
+                            }
+                            continue;
+                        }
+                    }
                 }
 
                 // 6. All Passed -> Next Player
@@ -944,7 +1750,7 @@ impl RiichiEnv {
             // Fallback to break loop
             break;
         }
-        self.get_obs_py(py, None)
+        self.get_obs_py(py, Some(self.active_players.clone()))
     }
 
     pub fn _reveal_kan_dora(&mut self) {
@@ -965,25 +1771,31 @@ impl RiichiEnv {
         }
         uras
     }
+
+    pub fn _get_ura_markers_u8(&self) -> Vec<u8> {
+        let mut uras = Vec::new();
+        for i in 0..self.dora_indicators.len() {
+            let target_idx = (5 + 2 * i) as isize - self.rinshan_draw_count as isize;
+            if target_idx >= 0 && (target_idx as usize) < self.wall.len() {
+                uras.push(self.wall[target_idx as usize]);
+            }
+        }
+        uras
+    }
 }
 
 impl RiichiEnv {
     fn _perform_discard(&mut self, pid: u8, tile: u8, is_tsumogiri: bool) {
-        let mut tsumogiri = is_tsumogiri;
-        // If not tsumogiri, remove from hand and add current drawn tile to hand
-        if !tsumogiri {
-            // Remove tile from hand
-            if let Some(pos) = self.hands[pid as usize].iter().position(|&t| t == tile) {
-                self.hands[pid as usize].remove(pos);
-                // Add drawn tile to hand
-                if let Some(dt) = self.drawn_tile {
-                    self.hands[pid as usize].push(dt);
-                }
-                self.hands[pid as usize].sort();
-            } else {
-                // Might be tsumogiri if hand doesn't have it?
-                tsumogiri = true;
-            }
+        self.is_rinshan_flag = false; // Clear Rinshan flag on discard
+        self.ippatsu_cycle[pid as usize] = false; // Discard ends your Ippatsu chance (until you declare Riichi again)
+        let tsumogiri = is_tsumogiri;
+        // Simplified Discard Logic (14 tiles hand)
+        if let Some(pos) = self.hands[pid as usize].iter().position(|&t| t == tile) {
+            self.hands[pid as usize].remove(pos);
+            self.hands[pid as usize].sort();
+        } else {
+            // Should not happen if valid action
+            // But if tsumogiri and tile was drawn_tile (which is in hand), it should find it.
         }
 
         self.discards[pid as usize].push(tile);
@@ -1012,7 +1824,9 @@ impl RiichiEnv {
                 self.riichi_stage[pid as usize] = false;
                 self.riichi_declared[pid as usize] = true;
                 self.scores[pid as usize] -= 1000;
+                self.score_deltas[pid as usize] -= 1000;
                 self.riichi_sticks += 1;
+                self.ippatsu_cycle[pid as usize] = true; // Start Ippatsu cycle
 
                 let mut ev = serde_json::Map::new();
                 ev.insert(
@@ -1075,7 +1889,10 @@ impl RiichiEnv {
                 }
 
                 let hand = &self.hands[pid as usize];
+                // DEBUG
+                // println!("PID {} checking claims for tile {}. Hand: {:?}", pid, tile, hand);
                 let count = hand.iter().filter(|&&t| t / 4 == tile / 4).count();
+                // println!("Count: {}", count);
 
                 if count >= 2 {
                     // Pon
@@ -1194,6 +2011,7 @@ impl RiichiEnv {
     ) {
         self.oya = oya;
         self.honba = honba;
+        self.riichi_sticks = kyotaku; // Initialize sticks
         self.round_wind = bakaze;
         self.hands = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         self.melds = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
@@ -1214,15 +2032,26 @@ impl RiichiEnv {
         self.score_deltas = [0; 4];
         self.turn_count = 0;
         self.needs_tsumo = true;
+        self.needs_initialize_next_round = false;
+        self.pending_oya_won = false;
+        self.pending_is_draw = false;
+        self.ippatsu_cycle = [false; 4];
 
         if let Some(s) = scores {
             self.scores = s;
         }
 
-        if let Some(w) = wall {
-            let mut w_rev = w;
-            w_rev.reverse();
-            self.wall = w_rev;
+        if let Some(mut w) = wall {
+            println!(
+                "DEBUG RUST: _initialize_round wall provided. First 34 tiles BEFORE reversal: {:?}",
+                &w[0..34]
+            );
+            w.reverse();
+            println!(
+                "DEBUG RUST: _initialize_round wall reversed. First 34 tiles (drawing order): {:?}",
+                &w[0..34]
+            );
+            self.wall = w;
         } else {
             let mut w: Vec<u8> = (0..136).collect();
             let mut rng = if let Some(s) = self.seed {
@@ -1233,6 +2062,40 @@ impl RiichiEnv {
             w.shuffle(&mut rng);
             self.wall = w;
         }
+
+        println!(
+            "DEBUG RUST: Clearing Melds in _initialize_round. Melds len: {}",
+            self.melds[0].len()
+        );
+        self.dora_indicators = vec![self.wall[5]];
+
+        // Generate Salt
+        if self.salt.is_empty() {
+            let mut rng = if let Some(s) = self.seed {
+                StdRng::seed_from_u64(s)
+            } else {
+                StdRng::from_entropy()
+            };
+            // 16 chars random hex
+            let chars: Vec<u8> = (0..8).map(|_| rng.gen()).collect();
+            self.salt = hex::encode(chars);
+        }
+
+        // Calculate Wall Digest
+        // Format: salt + wall_str
+        // wall_str: join ints comma separated?
+        // Python: hashlib.sha256((self.salt + ",".join(map(str, self.wall))).encode()).hexdigest()
+        let wall_str = self
+            .wall
+            .iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<String>>()
+            .join(",");
+        let input = format!("{}{}", self.salt, wall_str);
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(input);
+        let result = hasher.finalize();
+        self.wall_digest = hex::encode(result);
 
         self.dora_indicators = vec![self.wall[4]];
 
@@ -1260,6 +2123,10 @@ impl RiichiEnv {
 
         for pid in 0..4 {
             self.hands[pid].sort();
+            println!(
+                "DEBUG RUST: Initial hand player {} : {:?}",
+                pid, self.hands[pid]
+            );
         }
 
         self.current_player = self.oya;
@@ -1297,17 +2164,18 @@ impl RiichiEnv {
             hand: self.hands[pid as usize].clone(),
             events_json: self.mjai_log.clone(),
             prev_events_size: self.player_event_counts[pid as usize],
-            legal_actions: self._get_legal_actions(pid),
+            legal_actions: self._get_legal_actions_internal(pid),
         }
     }
 
     fn _calculate_deltas(
-        &mut self,
+        &self,
         agari: &Agari,
         winner: u8,
         is_tsumo: bool,
         loser: Option<u8>,
         include_bonus: bool,
+        include_riichi_sticks: bool,
     ) -> [i32; 4] {
         let mut deltas = [0; 4];
         let h_val = if include_bonus { self.honba as i32 } else { 0 };
@@ -1370,29 +2238,18 @@ impl RiichiEnv {
             }
         }
 
-        if include_bonus && self.riichi_sticks > 0 {
+        if include_bonus && include_riichi_sticks && self.riichi_sticks > 0 {
             deltas[winner as usize] += (self.riichi_sticks * 1000) as i32;
-            self.riichi_sticks = 0;
-        }
-
-        for i in 0..4 {
-            self.scores[i as usize] += deltas[i as usize];
-            self.score_deltas[i as usize] += deltas[i as usize];
         }
 
         deltas
     }
 
-    fn _get_legal_actions(&self, pid: u8) -> Vec<Action> {
+    fn _get_legal_actions_internal(&self, pid: u8) -> Vec<Action> {
         let mut actions = Vec::new();
         let hand = &self.hands[pid as usize];
 
         let mut h14 = hand.clone();
-        if let Some(t) = self.drawn_tile {
-            if pid == self.current_player {
-                h14.push(t);
-            }
-        }
         h14.sort();
 
         if self.phase == Phase::WaitAct {
@@ -1435,7 +2292,31 @@ impl RiichiEnv {
 
             // Normal Turn
             // 1. Kyushukyuhai
-            // ...
+            // Condition: First turn (no discards by self) and no melds on board (uninterrupted)
+            let is_first_turn_personal = self.discards[pid as usize].is_empty();
+            let no_melds = self.melds.iter().all(|pm| pm.is_empty());
+
+            if is_first_turn_personal && no_melds {
+                let mut yaochuu_count = 0;
+                let mut seen = [false; 34];
+                for &t in &h14 {
+                    let tt = t / 4;
+                    let is_yaochuu = tt == 0
+                        || tt == 8
+                        || tt == 9
+                        || tt == 17
+                        || tt == 18
+                        || tt == 26
+                        || tt >= 27;
+                    if is_yaochuu && !seen[tt as usize] {
+                        seen[tt as usize] = true;
+                        yaochuu_count += 1;
+                    }
+                }
+                if yaochuu_count >= 9 {
+                    actions.push(Action::new(ActionType::KyushuKyuhai, None, vec![]));
+                }
+            }
 
             // 2. Discards
             for &t in &h14 {
@@ -1451,12 +2332,9 @@ impl RiichiEnv {
             }
 
             // 4. Riichi
-            // menzen, socre >= 1000, wall >= 4
+            // menzen, socre >= 1000, wall >= 18
             let is_menzen = self.melds[pid as usize].iter().all(|m| !m.opened);
-            if is_menzen && self.scores[pid as usize] >= 1000 && self.wall.len() >= 4 {
-                // Check if any discard leads to Tenpai
-                // Slow check?
-                // For each unique discard, check if tenpai.
+            if is_menzen && self.scores[pid as usize] >= 1000 && self.wall.len() >= 18 {
                 let mut can_riichi = false;
                 // De-dup tiles to check
                 let mut checked_types = std::collections::HashSet::new();
@@ -1467,10 +2345,6 @@ impl RiichiEnv {
                     }
                     checked_types.insert(tt);
 
-                    // Try removing t
-                    // AgariCalculator.is_tenpai
-                    // Need to implement efficient is_tenpai or use crate.
-                    // Instantiate AgariCalculator with h14 minus t.
                     let mut temp_hand = h14.clone();
                     if let Some(pos) = temp_hand.iter().position(|&x| x == t) {
                         temp_hand.remove(pos);
@@ -1498,11 +2372,11 @@ impl RiichiEnv {
                         // Check if we have the 4th tile
                         let target_type = m.tiles[0] / 4;
                         if let Some(&kakan_tile) = h14.iter().find(|&&t| t / 4 == target_type) {
-                            actions.push(Action::new(
-                                ActionType::Kakan,
-                                Some(kakan_tile),
-                                m.tiles.clone(),
-                            ));
+                            let act =
+                                Action::new(ActionType::Kakan, Some(kakan_tile), m.tiles.clone());
+                            // Ensure we only send 3 tiles?
+                            // m.tiles should be 3.
+                            actions.push(act);
                         }
                     }
                 }
@@ -1511,8 +2385,10 @@ impl RiichiEnv {
                 for &t in &h14 {
                     *counts.entry(t / 4).or_insert(0) += 1;
                 }
-                for (&tt, &count) in &counts {
-                    if count == 4 {
+                let mut keys: Vec<u8> = counts.keys().cloned().collect();
+                keys.sort(); // Deterministic order
+                for tt in keys {
+                    if counts[&tt] == 4 {
                         let tiles: Vec<u8> = h14.iter().cloned().filter(|&t| t / 4 == tt).collect();
                         actions.push(Action::new(ActionType::Ankan, Some(tiles[0]), tiles));
                     }
@@ -1525,6 +2401,18 @@ impl RiichiEnv {
                 for c in claims {
                     actions.push(c.clone());
                 }
+            } else if self.pending_kan.is_some() {
+                // Chankan opportunity
+                // If this player is active (WaitResponse), and pending_kan exists,
+                // it implies they can Ron (Chankan).
+                // We don't have the tile in 'current_claims', but we know the target tile is in pending_kan.
+                let (_kan_actor, ref kan_act) = self.pending_kan.as_ref().unwrap();
+                let tile = kan_act.tile.unwrap();
+
+                // We must verify Ron validity?
+                // step() logic filtered `active_players` using `_check_ron`.
+                // So if we are active, we can Ron.
+                actions.push(Action::new(ActionType::Ron, Some(tile), vec![]));
             }
         }
 
@@ -1532,7 +2420,16 @@ impl RiichiEnv {
     }
 
     fn _execute_claim(&mut self, pid: u8, action: Action, from_pid: Option<u8>) {
+        if self.mjai_mode {
+            println!(
+                "DEBUG RUST: _execute_claim START pid={} action={:?} current_melds_len={}",
+                pid,
+                action.action_type,
+                self.melds[pid as usize].len()
+            );
+        }
         use serde_json::Value; // Added use statement for Value
+        self.ippatsu_cycle = [false; 4]; // Any claim breaks Ippatsu for everyone
         let hand = &mut self.hands[pid as usize];
 
         let mut m_type = MeldType::Peng;
@@ -1577,11 +2474,24 @@ impl RiichiEnv {
                         "pai".to_string(),
                         Value::String(tid_to_mjai(action.tile.unwrap())),
                     );
-                    let old_cons: Vec<String> = old_meld
-                        .tiles
+                    let _kakan_tile = action.tile.unwrap();
+                    let old_cons: Vec<String> = action
+                        .consume_tiles
                         .iter()
-                        .filter(|&&t| t != action.tile.unwrap())
-                        .map(|&t| tid_to_mjai(t))
+                        .take(3)
+                        .map(|&t| {
+                            // Check Red 5s
+                            if t == 16 {
+                                return "0m".to_string();
+                            }
+                            if t == 52 {
+                                return "0p".to_string();
+                            }
+                            if t == 88 {
+                                return "0s".to_string();
+                            }
+                            tid_to_mjai(t)
+                        })
                         .collect();
                     ev.insert(
                         "consumed".to_string(),
@@ -1632,7 +2542,9 @@ impl RiichiEnv {
                 Value::Number(from_pid.unwrap_or(pid).into()),
             );
             if let Some(t) = action.tile {
-                ev.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
+                if action.action_type != ActionType::Ankan {
+                    ev.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
+                }
             }
             let cons_str: Vec<String> = consumed.iter().map(|&t| tid_to_mjai(t)).collect();
             ev.insert(
@@ -1693,4 +2605,36 @@ impl RiichiEnv {
 fn is_terminal_tile(tile: u8) -> bool {
     let t = tile / 4;
     t == 0 || t == 8 || t == 9 || t == 17 || t == 18 || t >= 26
+}
+
+#[allow(dead_code)]
+fn serde_json_to_pyobject(py: Python<'_>, value: &Value) -> PyResult<PyObject> {
+    match value {
+        Value::Null => Ok(py.None()),
+        Value::Bool(b) => Ok(b.to_object(py)),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(i.to_object(py))
+            } else if let Some(f) = n.as_f64() {
+                Ok(f.to_object(py))
+            } else {
+                Ok(n.to_string().to_object(py))
+            }
+        }
+        Value::String(s) => Ok(s.to_object(py)),
+        Value::Array(arr) => {
+            let list = pyo3::types::PyList::empty_bound(py);
+            for v in arr {
+                list.append(serde_json_to_pyobject(py, v)?)?;
+            }
+            Ok(list.to_object(py))
+        }
+        Value::Object(obj) => {
+            let dict = pyo3::types::PyDict::new_bound(py);
+            for (k, v) in obj {
+                dict.set_item(k, serde_json_to_pyobject(py, v)?)?;
+            }
+            Ok(dict.to_object(py))
+        }
+    }
 }

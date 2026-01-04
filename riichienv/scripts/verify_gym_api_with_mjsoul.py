@@ -34,6 +34,10 @@ from riichienv.log import get_logger
 
 # Initialize logger
 logger = get_logger(__file__)
+print(f"DEBUG: RiichiEnv is {RiichiEnv}")
+import inspect
+print(f"DEBUG: RiichiEnv file is {inspect.getfile(RiichiEnv)}")
+
 
 
 def parse_args() -> argparse.Namespace:
@@ -136,7 +140,13 @@ class MjsoulEnvVerifier:
             assert self.env.drawn_tile is not None
             self.mjai_idx = len(self.env.mjai_log)
         else:
+            if self._verbose:
+                logger.info(f"DEBUG SCRIPT: Resetting env for oya={oya}")
+            print(f"DEBUG SCRIPT: Calling env.reset(oya={oya})")
             self.obs_dict = self.env.reset(oya=oya, wall=paishan_wall, bakaze=bakaze_idx, scores=scores, honba=honba, kyotaku=kyotaku)
+            print(f"DEBUG SCRIPT: After env.reset, melds[0] len: {len(self.env.melds[0])}")
+            if self._verbose:
+                logger.info(f"DEBUG SCRIPT: After reset, melds[0] len: {len(self.env.melds[0])}")
             self.match_started = True
             self.mjai_idx = len(self.env.mjai_log)
 
@@ -147,17 +157,31 @@ class MjsoulEnvVerifier:
             self.env.step({})
 
         # 牌山から配牌を決定するロジックの一致を検証
-        if cvt.tid_to_mjai_list(self.env.hands[0]) != cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data["tiles0"][:13])))):
-            print(f"DEBUG: Hand 0 mismatch.")
-            print(f"  Env Hand: {cvt.tid_to_mjai_list(self.env.hands[0])} (len {len(self.env.hands[0])})")
-            drawn = self.env.drawn_tile
-            print(f"  Env Drawn: {cvt.tid_to_mjai(drawn) if drawn is not None else 'None'}")
-            print(f"  Log: {cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data['tiles0'][:13]))))}")
+        # Dealer (Hands[0]) might have 14 tiles if initialized with drawn tile.
+        # Log data["tiles0"] usually has 13.
+        # We compare the sorted 13 tiles.
         
-        assert cvt.tid_to_mjai_list(self.env.hands[0]) == cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data["tiles0"][:13]))))
-        assert cvt.tid_to_mjai_list(self.env.hands[1]) == cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data["tiles1"][:13]))))
-        assert cvt.tid_to_mjai_list(self.env.hands[2]) == cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data["tiles2"][:13]))))
-        assert cvt.tid_to_mjai_list(self.env.hands[3]) == cvt.tid_to_mjai_list(list(sorted(cvt.mpsz_to_tid_list(data["tiles3"][:13]))))
+        for pid in range(4):
+            env_h = sorted(self.env.hands[pid])
+            log_h = sorted(cvt.mpsz_to_tid_list(data[f"tiles{pid}"][:13]))
+            
+            # If env has 14 tiles, remove the drawn tile for comparison
+            # checking if this player is the one who drew?
+            # Or just blindly if len=14.
+            # Usually only one player has 14 tiles (the dealer/current player).
+            if len(env_h) == 14 and self.env.drawn_tile is not None:
+                 d = self.env.drawn_tile
+                 if d in env_h:
+                     env_h.remove(d)
+            
+            if cvt.tid_to_mjai_list(env_h) != cvt.tid_to_mjai_list(log_h):
+                print(f"DEBUG: Hand {pid} mismatch.")
+                print(f"  Env Hand: {cvt.tid_to_mjai_list(sorted(self.env.hands[pid]))} (len {len(self.env.hands[pid])})")
+                drawn = self.env.drawn_tile
+                print(f"  Env Drawn: {cvt.tid_to_mjai(drawn) if drawn is not None else 'None'}")
+                print(f"  Log: {cvt.tid_to_mjai_list(log_h)}")
+            
+            assert cvt.tid_to_mjai_list(env_h) == cvt.tid_to_mjai_list(log_h)
 
         # 最初の親のツモが RiichiEnv で設定したものとログが一致することを確認
         assert self.env.drawn_tile is not None

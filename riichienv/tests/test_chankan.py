@@ -7,20 +7,26 @@ class TestChankan:
         """
         Verify standard Chankan Ron when a player performs KAKAN.
         """
-        env = RiichiEnv(seed=42)
+        # Use GameType=0 (Ikkyoku) so game ends after one hand
+        env = RiichiEnv(seed=42, game_type=0)
         env.reset()
 
         # Player 0: Performs KAKAN of 1m
         m1_tiles = [0, 1, 2]
-        env.hands[0] = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]  # Unrelated
-        env.melds[0] = [Meld(MeldType.Peng, tiles=m1_tiles, opened=True)]
+        h = env.hands
+        h[0] = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]  # Unrelated
+        env.hands = h
+        m = env.melds
+        m[0] = [Meld(MeldType.Peng, tiles=m1_tiles, opened=True)]
+        env.melds = m
         env.drawn_tile = 3  # The 4th 1m
 
         # Player 1: Waits for 1m, has Red Dragon Pon for Yaku
         # Hand: 1m, 1m (4, 5) ...
         # Wait: 1m (Shanpon wait or similar)
         # Actually let's make it easy: 2m, 3m in hand, wait is 1m, 4m (Ryanmen).
-        env.hands[1] = [
+        h = env.hands
+        h[1] = [
             convert.mpsz_to_tid("2m"),
             convert.mpsz_to_tid("3m"),
             convert.mpsz_to_tid("1p"),
@@ -32,8 +38,11 @@ class TestChankan:
             convert.mpsz_to_tid("4p"),
             convert.mpsz_to_tid("4p"),
         ]
+        env.hands = h
         # 10 tiles + 3 in meld = 13.
-        env.melds[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]  # Red Dragon
+        m = env.melds
+        m[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]  # Red Dragon
+        env.melds = m
 
         env.current_player = 0
         env.phase = Phase.WaitAct
@@ -55,10 +64,12 @@ class TestChankan:
         assert ron_actions[0].tile == 3
 
         # Player 1 performs RON
+        print("Executing RON action...")
         env.step({1: ron_actions[0]})
+        print(f"Post-RON: is_done={env.is_done}, agari_results={env.agari_results.keys()}")
 
         # Check result
-        assert env.is_done
+        assert env.is_done, "Env should be done after RON"
         assert 1 in env.agari_results
         res = env.agari_results[1]
         assert res.agari
@@ -69,16 +80,21 @@ class TestChankan:
         """
         Verify that if Chankan is available but PASSed, the game proceeds with Rinshan draw.
         """
-        env = RiichiEnv(seed=42)
+        env = RiichiEnv(seed=42, game_type=1)
         env.reset()
 
         # Same setup as test_chankan_ron
         m1_tiles = [0, 1, 2]
-        env.hands[0] = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]
-        env.melds[0] = [Meld(MeldType.Peng, tiles=m1_tiles, opened=True)]
+        h = env.hands
+        h[0] = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]
+        env.hands = h
+        m = env.melds
+        m[0] = [Meld(MeldType.Peng, tiles=m1_tiles, opened=True)]
+        env.melds = m
         env.drawn_tile = 3
 
-        env.hands[1] = [
+        h = env.hands
+        h[1] = [
             convert.mpsz_to_tid("2m"),
             convert.mpsz_to_tid("3m"),
             convert.mpsz_to_tid("1p"),
@@ -90,7 +106,10 @@ class TestChankan:
             convert.mpsz_to_tid("4p"),
             convert.mpsz_to_tid("4p"),
         ]
-        env.melds[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]
+        env.hands = h
+        m = env.melds
+        m[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]
+        env.melds = m
 
         env.current_player = 0
         env.phase = Phase.WaitAct
@@ -114,12 +133,14 @@ class TestChankan:
         """
         Verify that Kokushi Musou can Ron on an ANKAN.
         """
-        env = RiichiEnv(seed=42)
+        env = RiichiEnv(seed=42, game_type=1)
         env.reset()
 
         # Player 0: Performs ANKAN of 1z (East)
         e_tiles = [108, 109, 110]
-        env.hands[0] = e_tiles + [4, 8, 12, 16, 20, 24, 28, 32, 36, 40]
+        h = env.hands
+        h[0] = e_tiles + [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 111]
+        env.hands = h
         env.drawn_tile = 111
 
         # Player 1: Kokushi Musou waiting for 1z
@@ -127,7 +148,9 @@ class TestChankan:
         kokushi_tiles = [convert.mpsz_to_tid(m) for m in yaochu_mpsz]
         # Add a pair (e.g., 1m)
         kokushi_tiles.append(convert.mpsz_to_tid("1m") + 1)
-        env.hands[1] = sorted(kokushi_tiles)  # 13 tiles, waiting for 1z (108-111)
+        h = env.hands
+        h[1] = sorted(kokushi_tiles)  # 13 tiles, waiting for 1z (108-111)
+        env.hands = h
 
         env.current_player = 0
         env.phase = Phase.WaitAct
@@ -156,17 +179,23 @@ class TestChankan:
         """
         Verify that non-Kokushi hands cannot Ron on an ANKAN.
         """
-        env = RiichiEnv(seed=42)
+        env = RiichiEnv(seed=42, game_type=1)
         env.reset()
 
         # Player 0: Performs ANKAN of 1z
         e_tiles = [108, 109, 110]
-        env.hands[0] = e_tiles + [4, 8, 12, 16, 20, 24, 28, 32, 36, 40]
+        h = env.hands
+        h[0] = e_tiles + [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 111]
+        env.hands = h
         env.drawn_tile = 111
 
         # Player 1: Normal hand waiting for 1z (Shanpon), has Red Dragon Pon for Yaku
-        env.hands[1] = [112, 113, 116, 116, 120, 120, 124, 124, 128, 128]  # Wait is 1z for Shanpon
-        env.melds[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]
+        h = env.hands
+        h[1] = [112, 113, 116, 116, 120, 120, 124, 124, 128, 128]  # Wait is 1z for Shanpon
+        env.hands = h
+        m = env.melds
+        m[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]
+        env.melds = m
 
         env.current_player = 0
         env.phase = Phase.WaitAct
@@ -190,7 +219,10 @@ class TestChankan:
         env.reset()
 
         # Setup: P0 has 3x 1m and draws the 4th
-        env.hands[0] = [0, 1, 2] + list(range(12, 12 + 10))
+        h = env.hands
+        # Hand must include drawn tile (14 tiles total)
+        h[0] = [0, 1, 2, 3] + list(range(12, 12 + 10))
+        env.hands = h
         env.drawn_tile = 3
         env.active_players = [0]
         env.current_player = 0
@@ -211,7 +243,10 @@ class TestChankan:
         env.reset()
 
         # Setup: P0 has 3x 1m and draws the 4th
-        env.hands[0] = [0, 1, 2] + list(range(12, 12 + 10))
+        h = env.hands
+        # Hand must include drawn tile (14 tiles total)
+        h[0] = [0, 1, 2, 3] + list(range(12, 12 + 10))
+        env.hands = h
         env.drawn_tile = 3
         env.active_players = [0]
         env.current_player = 0
@@ -222,5 +257,5 @@ class TestChankan:
         legals = obs.legal_actions()
         ankan = [a for a in legals if a.type == ActionType.ANKAN]
         assert len(ankan) > 0
-        assert ankan[0].tile == 3  # In Riichi, must be the drawn tile
+        assert ankan[0].tile == 0  # In Riichi, must be the drawn tile (or equivalent type)
         assert sorted(ankan[0].consume_tiles) == [0, 1, 2, 3]

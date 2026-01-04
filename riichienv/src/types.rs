@@ -93,6 +93,13 @@ impl From<u8> for Wind {
     }
 }
 
+#[pymethods]
+impl Wind {
+    fn __hash__(&self) -> isize {
+        *self as isize
+    }
+}
+
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Meld {

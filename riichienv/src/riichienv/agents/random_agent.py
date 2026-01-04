@@ -13,5 +13,4 @@ class RandomAgent:
         Returns a valid Action object (DISCARD, RON, etc).
         For now, mostly discards randomly from legal moves.
         """
-        legal = obs.legal_actions()
-        return self._rng.choice(legal)
+        return self._rng.choice(obs.legal_actions())

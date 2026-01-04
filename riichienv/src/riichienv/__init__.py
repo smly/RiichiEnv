@@ -1,8 +1,6 @@
 from . import convert
 from ._riichienv import (  # type: ignore
-    # RiichiEnv,  # Imported from .env below
-    Action,
-    ActionType,
+    RiichiEnv,
     AgariContext,
     Kyoku,
     Meld,
@@ -16,7 +14,9 @@ from ._riichienv import (  # type: ignore
     parse_hand,
     parse_tile,
 )
-from .env import RiichiEnv
+from .action import Action, ActionType
+
+# from .env import RiichiEnv
 from .game_mode import GameType
 from .hand import Agari, AgariCalculator, Conditions
 

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from mahjong.hand_calculating.hand import HandCalculator
 
-from riichienv import AgariCalculator, Conditions, ReplayGame
+from riichienv import AgariCalculator, Conditions, ReplayGame, Wind
 
 YAKUMAN_IDS = [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 47, 48, 49, 50]
 
@@ -14,7 +14,7 @@ def to_mahjong_args(ctx):
     from mahjong.meld import Meld as MahjongMeld
 
     # Map winds
-    wind_map = {0: EAST, 1: SOUTH, 2: WEST, 3: NORTH}
+    wind_map = {Wind.East: EAST, Wind.South: SOUTH, Wind.West: WEST, Wind.North: NORTH}
 
     config = HandConfig(
         is_tsumo=ctx.conditions.tsumo,
@@ -68,10 +68,8 @@ def to_mahjong_args(ctx):
 
 def main() -> None:
     # Prefer data directory in sibling riichienv package; fall back to local data/ when running from project root.
-    log_dir = Path("../riichienv/data/game_record_4p_thr_2025-12-14_out/")
-    if not log_dir.exists():
-        # Fallback to data directory relative to current working directory.
-        log_dir = Path("data/game_record_4p_thr_2025-12-14_out/")
+    log_dir = Path("../../riichienv/data/game_record_4p_thr_2025-12-14_out/")
+    assert len(list(log_dir.glob("251214-*.json.gz"))) > 0
 
     total_agari = 0
     t_riichienv = 0.0

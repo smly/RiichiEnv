@@ -52,7 +52,9 @@ class TestPaishan:
         assert cvt.tid_to_mpsz(env.dora_indicators[0]) == "4s"
 
         # Simulate Rinshan draw (Popping from Dead Wall side 0)
-        env.wall.pop(0)
+        wall = env.wall
+        wall.pop(0)
+        env.wall = wall
         env.rinshan_draw_count += 1
         env.pending_kan_dora_count = 1  # Manual usage requires setting pending count for correct index calc
         env._reveal_kan_dora()
@@ -72,7 +74,9 @@ class TestPaishan:
 
         # Kan 1
         # Simulate Rinshan draw
-        env.wall.pop(0)
+        wall = env.wall
+        wall.pop(0)
+        env.wall = wall
         env.rinshan_draw_count += 1
         env.pending_kan_dora_count = 1  # Manual usage requires setting pending count for correct index calc
         env._reveal_kan_dora()
