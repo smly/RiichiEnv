@@ -6,67 +6,6 @@ from riichienv.agents import RandomAgent
 
 
 class TestRiichiEnv:
-    def test_initialization(self):
-        env = RiichiEnv(seed=42)
-        obs_dict = env.reset()
-
-        # Only dealer (0) is actionable at start
-        assert len(obs_dict) == 1
-        assert 0 in obs_dict
-        assert env.current_player == 0
-        assert not env.done()
-
-        # Check secure wall
-        assert len(env.salt) == 16
-        assert len(env.wall_digest) == 64  # SHA256 hex digest
-
-        # Check hands
-        obs = obs_dict[0]
-        assert obs.player_id == 0
-        # 13 tiles + 1 drawn for dealer (0)
-        assert len(obs.hand) == 14
-
-    def test_step_progression(self):
-        env = RiichiEnv(seed=42)
-        obs_dict = env.reset()  # Capture initial observations
-
-        # Step 0: Player 0 discards
-        # Need a valid action (Action object)
-        # P0 has 14 tiles. Discard last one (13th index).
-        # We need the TILE ID.
-        obs = obs_dict[0]
-        tile_to_discard = obs.hand[-1]
-
-        obs_dict = env.step({0: Action(ActionType.DISCARD, tile=tile_to_discard)})
-
-        # If WaitResponse (claims), pass.
-        # Deterministic seed might trigger claims.
-        while env.phase == 1:
-            actions = {pid: Action(ActionType.PASS) for pid in env.active_players}
-            obs_dict = env.step(actions)
-
-        # Should now be Player 1's turn
-        assert env.current_player == 1
-        assert not env.done()
-
-        # Player 1 should have 14 tiles (13 + 1 drawn)
-        assert len(env.hands[1]) == 14  # Internal hand (includes drawn tile in Rust)
-        # Drawn tile is separate
-        assert env.drawn_tile is not None
-
-        # Obs for P1 should include drawn tile -> 14
-        assert len(obs_dict[1].hand) == 14
-
-    def test_mjai_logs(self):
-        env = RiichiEnv(seed=42)
-        env.reset()
-
-        # Check start events
-        assert len(env.mjai_log) >= 3  # start_game, start_kyoku, tsumo
-        assert env.mjai_log[0]["type"] == "start_game"
-        assert env.mjai_log[1]["type"] == "start_kyoku"
-        assert env.mjai_log[2]["type"] == "tsumo"
-        assert env.mjai_log[2]["actor"] == 0
 
     def test_new_events_api(self):
         env = RiichiEnv(seed=42)

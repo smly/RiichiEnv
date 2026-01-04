@@ -2158,11 +2158,57 @@ impl RiichiEnv {
         self.mjai_log.push(start_kyoku.to_string());
     }
 
+    fn _filter_mjai_log(&self, pid: u8, log: &[String]) -> Vec<String> {
+        log.iter()
+            .map(|s| {
+                if let Ok(mut v) = serde_json::from_str::<Value>(s) {
+                    if let Some(obj) = v.as_object_mut() {
+                        if let Some(type_val) = obj.get("type").and_then(|t| t.as_str()) {
+                            match type_val {
+                                "start_kyoku" => {
+                                    if let Some(tehais) =
+                                        obj.get_mut("tehais").and_then(|t| t.as_array_mut())
+                                    {
+                                        for (i, hand_val) in tehais.iter_mut().enumerate() {
+                                            if i != pid as usize {
+                                                if let Some(hand_arr) = hand_val.as_array() {
+                                                    let len = hand_arr.len();
+                                                    *hand_val = serde_json::Value::Array(vec![
+                                                        serde_json::Value::String("?".to_string());
+                                                        len
+                                                    ]);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                "tsumo" => {
+                                    if let Some(actor) = obj.get("actor").and_then(|a| a.as_u64()) {
+                                        if actor != pid as u64 && obj.contains_key("pai") {
+                                            obj.insert(
+                                                "pai".to_string(),
+                                                serde_json::Value::String("?".to_string()),
+                                            );
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    v.to_string()
+                } else {
+                    s.clone()
+                }
+            })
+            .collect()
+    }
+
     fn _get_obs(&self, pid: u8) -> Observation {
         Observation {
             player_id: pid,
             hand: self.hands[pid as usize].clone(),
-            events_json: self.mjai_log.clone(),
+            events_json: self._filter_mjai_log(pid, &self.mjai_log),
             prev_events_size: self.player_event_counts[pid as usize],
             legal_actions: self._get_legal_actions_internal(pid),
         }
