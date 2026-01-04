@@ -16,6 +16,19 @@ cd riichienv
 uv sync --dev
 ```
 
+## Pre-commit
+
+```bash
+❯ cd riichienv
+❯ uv run pre-commit run --config ../.pre-commit-config.yaml
+rustfmt..............................................(no files to check)Skipped
+clippy...............................................(no files to check)Skipped
+ruff-check...........................................(no files to check)Skipped
+ty-check.............................................(no files to check)Skipped
+pytest...............................................(no files to check)Skipped
+ruff-format..........................................(no files to check)Skipped
+```
+
 ## Rust Development
 
 ### Compilation Check
