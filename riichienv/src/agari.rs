@@ -209,6 +209,7 @@ fn decompose(hand: &mut Hand, start_idx: usize) -> bool {
     if hand.counts[i] >= 3 {
         hand.counts[i] -= 3;
         if decompose(hand, i) {
+            hand.counts[i] += 3; // backtrack even on success
             return true;
         }
         hand.counts[i] += 3; // backtrack
@@ -229,6 +230,9 @@ fn decompose(hand: &mut Hand, start_idx: usize) -> bool {
                 hand.counts[i + 2] -= 1;
                 if decompose(hand, i) {
                     // Stay at i, might have more runs
+                    hand.counts[i] += 1;
+                    hand.counts[i + 1] += 1;
+                    hand.counts[i + 2] += 1;
                     return true;
                 }
                 // backtrack
