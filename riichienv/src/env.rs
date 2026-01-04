@@ -375,6 +375,7 @@ pub struct RiichiEnv {
     pub round_end_scores: Option<[i32; 4]>,
 
     pub mjai_log: Vec<String>,
+    pub mjai_log_per_player: [Vec<String>; 4],
     #[pyo3(get)]
     pub player_event_counts: [usize; 4],
 
@@ -440,7 +441,7 @@ impl RiichiEnv {
                     "reason".to_string(),
                     Value::String("nagashimangan".to_string()),
                 );
-                self.mjai_log.push(Value::Object(ev).to_string());
+                self._push_mjai_event(Value::Object(ev));
             } else {
                 let num_tp = tenpai.iter().filter(|&&t| t).count();
                 if (1..=3).contains(&num_tp) {
@@ -458,7 +459,7 @@ impl RiichiEnv {
         let mut ev = serde_json::Map::new();
         ev.insert("type".to_string(), Value::String("ryukyoku".to_string()));
         ev.insert("reason".to_string(), Value::String(reason.to_string()));
-        self.mjai_log.push(Value::Object(ev).to_string());
+        self._push_mjai_event(Value::Object(ev));
 
         let mut is_renchan = false;
         if reason == "exhaustive_draw" {
@@ -527,7 +528,7 @@ impl RiichiEnv {
         if self._is_game_over() {
             let mut ev = serde_json::Map::new();
             ev.insert("type".to_string(), Value::String("end_game".to_string()));
-            self.mjai_log.push(Value::Object(ev).to_string());
+            self._push_mjai_event(Value::Object(ev));
             self.is_done = true;
         } else {
             self.needs_initialize_next_round = true;
@@ -542,12 +543,12 @@ impl RiichiEnv {
         self.round_end_scores = Some(self.scores); // Set round end scores for verification
         let mut ev = serde_json::Map::new();
         ev.insert("type".to_string(), Value::String("end_kyoku".to_string()));
-        self.mjai_log.push(Value::Object(ev).to_string());
+        self._push_mjai_event(Value::Object(ev));
 
         if self._is_game_over() {
             let mut ev = serde_json::Map::new();
             ev.insert("type".to_string(), Value::String("end_game".to_string()));
-            self.mjai_log.push(Value::Object(ev).to_string());
+            self._push_mjai_event(Value::Object(ev));
             self.is_done = true;
         } else {
             self.needs_initialize_next_round = true;
@@ -657,7 +658,7 @@ impl RiichiEnv {
             );
             ev.insert("actor".to_string(), Value::Number(p.into()));
             ev.insert("deltas".to_string(), serde_json::to_value(deltas).unwrap());
-            self.mjai_log.push(Value::Object(ev).to_string());
+            self._push_mjai_event(Value::Object(ev));
 
             self.riichi_pending_acceptance = None;
         }
@@ -715,6 +716,7 @@ impl RiichiEnv {
             last_agari_results: HashMap::new(),
             round_end_scores: None,
             mjai_log: Vec::new(),
+            mjai_log_per_player: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             player_event_counts: [0; 4],
             round_wind: round_wind.unwrap_or(0),
             ippatsu_cycle: [false; 4],
@@ -755,7 +757,7 @@ impl RiichiEnv {
             start_game.insert("type".to_string(), Value::String("start_game".to_string()));
             start_game.insert("id".to_string(), Value::Number(0.into()));
             // names skipped for brevity
-            self.mjai_log.push(Value::Object(start_game).to_string());
+            self._push_mjai_event(Value::Object(start_game));
         }
 
         self.agari_results = HashMap::new();
@@ -1060,7 +1062,7 @@ impl RiichiEnv {
                         Value::Number(self.current_player.into()),
                     );
                     ev.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
-                    self.mjai_log.push(Value::Object(ev).to_string());
+                    self._push_mjai_event(Value::Object(ev));
                 } else {
                     // Should have triggered ryukyoku?
                 }
@@ -1085,14 +1087,14 @@ impl RiichiEnv {
 
             // If WaitAct
             if self.phase == Phase::WaitAct {
-                if self.mjai_mode {
-                    println!(
-                        "DEBUG RUST: step START. pid={} melds[{}].len={}",
-                        self.current_player,
-                        self.current_player,
-                        self.melds[self.current_player as usize].len()
-                    );
-                }
+                // if self.mjai_mode {
+                //     println!(
+                //         "DEBUG RUST: step START. pid={} melds[{}].len={}",
+                //         self.current_player,
+                //         self.current_player,
+                //         self.melds[self.current_player as usize].len()
+                //     );
+                // }
                 if let Some(act) = actions.get(&self.current_player) {
                     if act.action_type == ActionType::Discard {
                         let is_tsumogiri = act.tile == self.drawn_tile;
@@ -1167,7 +1169,7 @@ impl RiichiEnv {
                             Value::Array(vec![])
                         };
                         ev.insert("ura_markers".to_string(), uras);
-                        self.mjai_log.push(Value::Object(ev).to_string());
+                        self._push_mjai_event(Value::Object(ev));
 
                         let mut agaris = HashMap::new();
                         agaris.insert(winner, agari);
@@ -1257,7 +1259,7 @@ impl RiichiEnv {
                                 .map(|&t| Value::String(tid_to_mjai(t)))
                                 .collect();
                             ev.insert("consumed".to_string(), Value::Array(consumed_mjai));
-                            self.mjai_log.push(Value::Object(ev).to_string());
+                            self._push_mjai_event(Value::Object(ev));
 
                             self.melds[p_usize][m_idx] = m;
 
@@ -1377,7 +1379,7 @@ impl RiichiEnv {
                                         .collect(),
                                 ),
                             );
-                            self.mjai_log.push(Value::Object(ev).to_string());
+                            self._push_mjai_event(Value::Object(ev));
 
                             self._reveal_kan_dora();
                             self._check_midway_draws();
@@ -1402,7 +1404,7 @@ impl RiichiEnv {
                             "actor".to_string(),
                             Value::Number(self.current_player.into()),
                         );
-                        self.mjai_log.push(Value::Object(ev).to_string());
+                        self._push_mjai_event(Value::Object(ev));
                         return self.get_obs_py(py, Some(vec![self.current_player]));
                     }
 
@@ -1513,7 +1515,7 @@ impl RiichiEnv {
                             Value::Array(vec![])
                         };
                         ev.insert("ura_markers".to_string(), uras);
-                        self.mjai_log.push(Value::Object(ev).to_string());
+                        self._push_mjai_event(Value::Object(ev));
 
                         agaris.insert(winner, agari);
                     }
@@ -1700,7 +1702,7 @@ impl RiichiEnv {
                                         .collect(),
                                 ),
                             );
-                            self.mjai_log.push(Value::Object(ev).to_string());
+                            self._push_mjai_event(Value::Object(ev));
 
                             self._reveal_kan_dora();
                             self._check_midway_draws();
@@ -1756,7 +1758,7 @@ impl RiichiEnv {
                                         .collect(),
                                 ),
                             );
-                            self.mjai_log.push(Value::Object(ev).to_string());
+                            self._push_mjai_event(Value::Object(ev));
 
                             self._reveal_kan_dora();
                             self._check_midway_draws();
@@ -1788,7 +1790,7 @@ impl RiichiEnv {
                         Value::String("reach_accepted".to_string()),
                     );
                     ev.insert("actor".to_string(), Value::Number(discarder.into()));
-                    self.mjai_log.push(Value::Object(ev).to_string());
+                    self._push_mjai_event(Value::Object(ev));
                 }
 
                 self.current_player = (discarder + 1) % 4;
@@ -1858,7 +1860,7 @@ impl RiichiEnv {
         ev.insert("actor".to_string(), Value::Number(pid.into()));
         ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
         ev.insert("tsumogiri".to_string(), Value::Bool(tsumogiri));
-        self.mjai_log.push(Value::Object(ev).to_string());
+        self._push_mjai_event(Value::Object(ev));
 
         self.nagashi_eligible[pid as usize] &= is_terminal_tile(tile);
 
@@ -1885,7 +1887,7 @@ impl RiichiEnv {
                     Value::String("reach_accepted".to_string()),
                 );
                 ev.insert("actor".to_string(), Value::Number(pid.into()));
-                self.mjai_log.push(Value::Object(ev).to_string());
+                self._push_mjai_event(Value::Object(ev));
             }
 
             self.current_player = (pid + 1) % 4;
@@ -2248,15 +2250,15 @@ impl RiichiEnv {
         }
 
         if let Some(mut w) = wall {
-            println!(
-                "DEBUG RUST: _initialize_round wall provided. First 34 tiles BEFORE reversal: {:?}",
-                &w[0..34]
-            );
+            // println!(
+            //     "DEBUG RUST: _initialize_round wall provided. First 34 tiles BEFORE reversal: {:?}",
+            //     &w[0..34]
+            // );
             w.reverse();
-            println!(
-                "DEBUG RUST: _initialize_round wall reversed. First 34 tiles (drawing order): {:?}",
-                &w[0..34]
-            );
+            // println!(
+            //     "DEBUG RUST: _initialize_round wall reversed. First 34 tiles (drawing order): {:?}",
+            //     &w[0..34]
+            // );
             self.wall = w;
         } else {
             let mut w: Vec<u8> = (0..136).collect();
@@ -2269,10 +2271,10 @@ impl RiichiEnv {
             self.wall = w;
         }
 
-        println!(
-            "DEBUG RUST: Clearing Melds in _initialize_round. Melds len: {}",
-            self.melds[0].len()
-        );
+        // println!(
+        //     "DEBUG RUST: Clearing Melds in _initialize_round. Melds len: {}",
+        //     self.melds[0].len()
+        // );
         self.dora_indicators = vec![self.wall[5]];
 
         // Generate Salt
@@ -2329,10 +2331,10 @@ impl RiichiEnv {
 
         for pid in 0..4 {
             self.hands[pid].sort();
-            println!(
-                "DEBUG RUST: Initial hand player {} : {:?}",
-                pid, self.hands[pid]
-            );
+            // println!(
+            //     "DEBUG RUST: Initial hand player {} : {:?}",
+            //     pid, self.hands[pid]
+            // );
         }
 
         self.current_player = self.oya;
@@ -2361,60 +2363,73 @@ impl RiichiEnv {
             "tehais": tehais,
             "scores": self.scores
         });
-        self.mjai_log.push(start_kyoku.to_string());
+        self._push_mjai_event(start_kyoku);
     }
 
-    fn _filter_mjai_log(&self, pid: u8, log: &[String]) -> Vec<String> {
-        log.iter()
-            .map(|s| {
-                if let Ok(mut v) = serde_json::from_str::<Value>(s) {
-                    if let Some(obj) = v.as_object_mut() {
-                        if let Some(type_val) = obj.get("type").and_then(|t| t.as_str()) {
-                            match type_val {
-                                "start_kyoku" => {
-                                    if let Some(tehais) =
-                                        obj.get_mut("tehais").and_then(|t| t.as_array_mut())
-                                    {
-                                        for (i, hand_val) in tehais.iter_mut().enumerate() {
-                                            if i != pid as usize {
-                                                if let Some(hand_arr) = hand_val.as_array() {
-                                                    let len = hand_arr.len();
-                                                    *hand_val = serde_json::Value::Array(vec![
-                                                        serde_json::Value::String("?".to_string());
-                                                        len
-                                                    ]);
-                                                }
-                                            }
-                                        }
+    fn _filter_mjai_event(&self, pid: u8, v: &Value) -> Value {
+        let mut v = v.clone();
+        if let Some(obj) = v.as_object_mut() {
+            if let Some(type_val) = obj.get("type").and_then(|t| t.as_str()) {
+                match type_val {
+                    "start_kyoku" => {
+                        if let Some(tehais) = obj.get_mut("tehais").and_then(|t| t.as_array_mut()) {
+                            for (i, hand_val) in tehais.iter_mut().enumerate() {
+                                if i != pid as usize {
+                                    if let Some(hand_arr) = hand_val.as_array() {
+                                        let len = hand_arr.len();
+                                        *hand_val = serde_json::Value::Array(vec![
+                                            serde_json::Value::String("?".to_string());
+                                            len
+                                        ]);
                                     }
                                 }
-                                "tsumo" => {
-                                    if let Some(actor) = obj.get("actor").and_then(|a| a.as_u64()) {
-                                        if actor != pid as u64 && obj.contains_key("pai") {
-                                            obj.insert(
-                                                "pai".to_string(),
-                                                serde_json::Value::String("?".to_string()),
-                                            );
-                                        }
-                                    }
-                                }
-                                _ => {}
                             }
                         }
                     }
-                    v.to_string()
-                } else {
-                    s.clone()
+                    "tsumo" => {
+                        if let Some(actor) = obj.get("actor").and_then(|a| a.as_u64()) {
+                            if actor != pid as u64 && obj.contains_key("pai") {
+                                obj.insert(
+                                    "pai".to_string(),
+                                    serde_json::Value::String("?".to_string()),
+                                );
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-            })
-            .collect()
+            }
+        }
+        v
+    }
+
+    fn _push_mjai_event(&mut self, ev: Value) {
+        if !self.mjai_mode {
+            return;
+        }
+        let s = ev.to_string();
+        self.mjai_log.push(s.clone());
+
+        let type_str = ev.get("type").and_then(|t| t.as_str());
+        let needs_filter = matches!(type_str, Some("start_kyoku") | Some("tsumo"));
+
+        if needs_filter {
+            for p in 0..4 {
+                let filtered = self._filter_mjai_event(p as u8, &ev);
+                self.mjai_log_per_player[p].push(filtered.to_string());
+            }
+        } else {
+            for p in 0..4 {
+                self.mjai_log_per_player[p].push(s.clone());
+            }
+        }
     }
 
     fn _get_obs(&self, pid: u8) -> Observation {
         Observation {
             player_id: pid,
             hand: self.hands[pid as usize].clone(),
-            events_json: self._filter_mjai_log(pid, &self.mjai_log),
+            events_json: self.mjai_log_per_player[pid as usize].clone(),
             prev_events_size: self.player_event_counts[pid as usize],
             legal_actions: self._get_legal_actions_internal(pid),
         }
@@ -2672,14 +2687,14 @@ impl RiichiEnv {
     }
 
     fn _execute_claim(&mut self, pid: u8, action: Action, from_pid: Option<u8>) -> PyResult<()> {
-        if self.mjai_mode {
-            println!(
-                "DEBUG RUST: _execute_claim START pid={} action={:?} current_melds_len={}",
-                pid,
-                action.action_type,
-                self.melds[pid as usize].len()
-            );
-        }
+        // if self.mjai_mode {
+        //     println!(
+        //         "DEBUG RUST: _execute_claim START pid={} action={:?} current_melds_len={}",
+        //         pid,
+        //         action.action_type,
+        //         self.melds[pid as usize].len()
+        //     );
+        // }
         use serde_json::Value; // Added use statement for Value
         self.ippatsu_cycle = [false; 4]; // Any claim breaks Ippatsu for everyone
         let hand = &mut self.hands[pid as usize];
@@ -2749,7 +2764,7 @@ impl RiichiEnv {
                         "consumed".to_string(),
                         serde_json::to_value(old_cons).unwrap(),
                     );
-                    self.mjai_log.push(Value::Object(ev).to_string());
+                    self._push_mjai_event(Value::Object(ev));
 
                     self.pending_kan_dora_count += 1;
                     return Ok(());
@@ -2876,7 +2891,7 @@ impl RiichiEnv {
                 "consumed".to_string(),
                 serde_json::to_value(cons_str).unwrap(),
             );
-            self.mjai_log.push(Value::Object(ev).to_string());
+            self._push_mjai_event(Value::Object(ev));
 
             if action.action_type == ActionType::Daiminkan
                 || action.action_type == ActionType::Ankan
