@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::parser::tid_to_mjai;
 use crate::types::{Agari, Conditions, Meld, MeldType, Wind};
+use crate::yaku;
 use sha2::Digest;
 
 // --- Enums ---
@@ -123,6 +124,17 @@ impl Action {
         }
 
         Ok(Value::Object(data).to_string())
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Action(type={:?}, tile={:?}, consume_tiles={:?})",
+            self.action_type, self.tile, self.consume_tiles
+        )
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
     }
 }
 
@@ -1191,6 +1203,21 @@ impl RiichiEnv {
                                 if i == pid {
                                     continue;
                                 }
+                                // Enhanced Check (Furiten)
+                                let hand = &self.hands[i as usize];
+                                let melds = &self.melds[i as usize];
+                                let calc = crate::agari_calculator::AgariCalculator::new(
+                                    hand.clone(),
+                                    melds.clone(),
+                                );
+                                if calc
+                                    .get_waits()
+                                    .iter()
+                                    .any(|&w| self.discards[i as usize].iter().any(|&d| d / 4 == w))
+                                {
+                                    continue;
+                                }
+
                                 if self._check_ron(i, tile, pid) {
                                     chankan_ronners.push(i);
                                 }
@@ -1260,25 +1287,49 @@ impl RiichiEnv {
                         if indices.len() >= 4 {
                             // Check Chankan (Kokushi)
                             let mut chankan_ronners = Vec::new();
-                            // Note: Kokushi Chankan is rare.
-                            // We need to pass a flag to check_ron?
-                            // Or assume chankan=true in check_ron implies "Is this chankan valid?"
-                            // Standard check_ron doesn't know it's Ankan vs Kakan.
-                            // We will assume _check_ron returns true if Agari.
-                            // Checking Kokushi inside check_ron is implicit if hand structure matches.
-                            // However, strictly only Kokushi can Ron Ankan.
-                            // We should verify Yaku contains Kokushi (ID 42/43) results or similar.
-                            // But for now, we trigger WaitResponse if ANY ron.
-                            // Refinement: Ideally filter `chankan_ronners` for Kokushi only?
-
                             for i in 0..4 {
                                 if i == pid {
                                     continue;
                                 }
-                                // Temporarily treat tile as discard?
-                                // If _check_ron treats tile as Ron target.
-                                if self._check_ron(i, tile, pid) {
-                                    // TODO: Strict rule check (Kokushi)
+                                // Kokushi Check (Ankan Chankan restriction)
+                                let melds = &self.melds[i as usize];
+                                if !melds.is_empty() {
+                                    continue;
+                                }
+
+                                let hand = &self.hands[i as usize];
+                                let calc = crate::agari_calculator::AgariCalculator::new(
+                                    hand.clone(),
+                                    melds.clone(),
+                                );
+
+                                // Furiten Check
+                                if calc
+                                    .get_waits()
+                                    .iter()
+                                    .any(|&w| self.discards[i as usize].iter().any(|&d| d / 4 == w))
+                                {
+                                    continue;
+                                }
+
+                                // Agari check with Kokushi constraint
+                                let cond = Conditions {
+                                    chankan: true,
+                                    player_wind: Wind::from((i + 4 - self.oya) % 4),
+                                    round_wind: Wind::from(self.round_wind),
+                                    ..Default::default()
+                                };
+                                let agari = calc.calc(
+                                    tile,
+                                    self.dora_indicators.clone(),
+                                    vec![],
+                                    Some(cond),
+                                );
+
+                                if agari.agari
+                                    && (agari.yaku.contains(&yaku::ID_KOKUSHI)
+                                        || agari.yaku.contains(&yaku::ID_KOKUSHI_13))
+                                {
                                     chankan_ronners.push(i);
                                 }
                             }
@@ -1860,8 +1911,26 @@ impl RiichiEnv {
                 continue;
             }
 
-            let is_furiten = self.discards[pid as usize].contains(&tile);
-            if is_furiten {
+            // Enhanced Furiten Check (Genbutsu + General Furiten)
+            // 1. Simple check: Is the tile ITSELF in discards? (Genbutsu)
+            if self.discards[pid as usize].contains(&tile) {
+                continue;
+            }
+
+            // 2. Exact Furiten Check: Is ANY wait tile in discards?
+            let hand = &self.hands[pid as usize];
+            let melds = &self.melds[pid as usize];
+            let calc = crate::agari_calculator::AgariCalculator::new(hand.clone(), melds.clone());
+            let waits = calc.get_waits();
+            if waits.is_empty() {
+                continue; // Not Tenpai -> Cannot Ron logic
+            }
+
+            let is_strictly_furiten = waits
+                .iter()
+                .any(|&w| self.discards[pid as usize].iter().any(|&d| d / 4 == w));
+
+            if is_strictly_furiten {
                 continue;
             }
 
