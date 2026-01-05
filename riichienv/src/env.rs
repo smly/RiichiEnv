@@ -1220,12 +1220,34 @@ impl RiichiEnv {
                                     continue;
                                 }
 
-                                if self._check_ron(i, tile, pid) {
+                                if self._check_ron(i, tile, pid, true) {
                                     chankan_ronners.push(i);
                                 }
                             }
 
                             if !chankan_ronners.is_empty() {
+                                // Log Kakan Event IMMEDIATELY so Ronners can see it
+                                let mut ev = serde_json::Map::new();
+                                ev.insert("type".to_string(), Value::String("kakan".to_string()));
+                                ev.insert("actor".to_string(), Value::Number(pid.into()));
+                                ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
+                                // Consumed: Original Pon tiles (from meld or act?)
+                                // act.consume_tiles usually has 3 tiles for Kakan?
+                                // Actually Kakan consumes 1 tile from hand + 2 from Pon?
+                                // Standard MJAI Kakan 'consumed' field lists the 3 tiles of the Pon?
+                                // Or the 3 tiles involved?
+                                // Looking at Block D (Line 1255): It serves `m.tiles` (taken 3).
+                                // `m` is the meld.
+                                let m_curr = &self.melds[p_usize][m_idx];
+                                let consumed_mjai: Vec<Value> = m_curr
+                                    .tiles
+                                    .iter()
+                                    .take(3)
+                                    .map(|&t| Value::String(tid_to_mjai(t)))
+                                    .collect();
+                                ev.insert("consumed".to_string(), Value::Array(consumed_mjai));
+                                self._push_mjai_event(Value::Object(ev));
+
                                 self.pending_kan = Some((pid, act.clone()));
                                 self.phase = Phase::WaitResponse;
                                 self.active_players = chankan_ronners;
@@ -1337,6 +1359,25 @@ impl RiichiEnv {
                             }
 
                             if !chankan_ronners.is_empty() {
+                                // Log Ankan Event IMMEDIATELY
+                                let mut consumed: Vec<u8> =
+                                    indices.iter().map(|&i| self.hands[p_usize][i]).collect();
+                                consumed.sort();
+
+                                let mut ev = serde_json::Map::new();
+                                ev.insert("type".to_string(), Value::String("ankan".to_string()));
+                                ev.insert("actor".to_string(), Value::Number(pid.into()));
+                                ev.insert(
+                                    "consumed".to_string(),
+                                    Value::Array(
+                                        consumed
+                                            .iter()
+                                            .map(|&t| Value::String(tid_to_mjai(t)))
+                                            .collect(),
+                                    ),
+                                );
+                                self._push_mjai_event(Value::Object(ev));
+
                                 self.pending_kan = Some((pid, act.clone()));
                                 self.phase = Phase::WaitResponse;
                                 self.active_players = chankan_ronners;
@@ -1579,7 +1620,7 @@ impl RiichiEnv {
                             if is_furiten {
                                 continue;
                             }
-                            if self._check_ron(pid, tile, claimer) {
+                            if self._check_ron(pid, tile, claimer, false) {
                                 chankan_ronners.push(pid);
                             }
                         }
@@ -1687,22 +1728,22 @@ impl RiichiEnv {
                             self.needs_tsumo = true;
                             self.active_players = vec![];
 
-                            // Log Kakan
-                            let mut ev = serde_json::Map::new();
-                            ev.insert("type".to_string(), Value::String("kakan".to_string()));
-                            ev.insert("actor".to_string(), Value::Number(pid.into()));
-                            ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
-                            ev.insert(
-                                "consumed".to_string(),
-                                Value::Array(
-                                    act.consume_tiles
-                                        .iter()
-                                        .take(3)
-                                        .map(|&t| Value::String(tid_to_mjai(t)))
-                                        .collect(),
-                                ),
-                            );
-                            self._push_mjai_event(Value::Object(ev));
+                            // Log Kakan - ALREADY LOGGED IN CHANKAN CHECK
+                            // let mut ev = serde_json::Map::new();
+                            // ev.insert("type".to_string(), Value::String("kakan".to_string()));
+                            // ev.insert("actor".to_string(), Value::Number(pid.into()));
+                            // ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
+                            // ev.insert(
+                            //     "consumed".to_string(),
+                            //     Value::Array(
+                            //         act.consume_tiles
+                            //             .iter()
+                            //             .take(3)
+                            //             .map(|&t| Value::String(tid_to_mjai(t)))
+                            //             .collect(),
+                            //     ),
+                            // );
+                            // self._push_mjai_event(Value::Object(ev));
 
                             self._reveal_kan_dora();
                             self._check_midway_draws();
@@ -1745,20 +1786,20 @@ impl RiichiEnv {
                             self.needs_tsumo = true;
                             self.active_players = vec![];
 
-                            // Log Ankan
-                            let mut ev = serde_json::Map::new();
-                            ev.insert("type".to_string(), Value::String("ankan".to_string()));
-                            ev.insert("actor".to_string(), Value::Number(pid.into()));
-                            ev.insert(
-                                "consumed".to_string(),
-                                Value::Array(
-                                    consumed
-                                        .iter()
-                                        .map(|&t| Value::String(tid_to_mjai(t)))
-                                        .collect(),
-                                ),
-                            );
-                            self._push_mjai_event(Value::Object(ev));
+                            // Log Ankan - ALREADY LOGGED IN CHANKAN CHECK
+                            // let mut ev = serde_json::Map::new();
+                            // ev.insert("type".to_string(), Value::String("ankan".to_string()));
+                            // ev.insert("actor".to_string(), Value::Number(pid.into()));
+                            // ev.insert(
+                            //     "consumed".to_string(),
+                            //     Value::Array(
+                            //         consumed
+                            //             .iter()
+                            //             .map(|&t| Value::String(tid_to_mjai(t)))
+                            //             .collect(),
+                            //     ),
+                            // );
+                            // self._push_mjai_event(Value::Object(ev));
 
                             self._reveal_kan_dora();
                             self._check_midway_draws();
@@ -1936,7 +1977,7 @@ impl RiichiEnv {
                 continue;
             }
 
-            if self._check_ron(pid, tile, discarded_pid) {
+            if self._check_ron(pid, tile, discarded_pid, false) {
                 self.current_claims
                     .entry(pid)
                     .or_default()
@@ -2181,7 +2222,7 @@ impl RiichiEnv {
         }
     }
 
-    fn _check_ron(&self, pid: u8, tile: u8, _discarded_pid: u8) -> bool {
+    fn _check_ron(&self, pid: u8, tile: u8, _discarded_pid: u8, is_chankan: bool) -> bool {
         let hand = &self.hands[pid as usize];
         let melds = &self.melds[pid as usize];
 
@@ -2192,7 +2233,7 @@ impl RiichiEnv {
             ippatsu: self.ippatsu_cycle[pid as usize],
             player_wind: Wind::from((pid + 4 - self.oya) % 4),
             round_wind: Wind::from(self.round_wind),
-            chankan: false,
+            chankan: is_chankan,
             haitei: false,
             houtei: self.wall.len() <= 14,
             rinshan: false,

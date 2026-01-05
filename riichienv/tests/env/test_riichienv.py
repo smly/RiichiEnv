@@ -534,3 +534,45 @@ class TestRiichiEnv:
         assert {8, 16} in consumed_sets
         assert {17, 20} in consumed_sets
         assert {16, 20} in consumed_sets
+
+    def test_ron_claim(self) -> None:
+        env = RiichiEnv(seed=42)
+        env.reset()
+
+        # Setup P0 discards
+        # P1 tenpai for 1m
+
+        # 1m,1m,1m (0,1,2), 2m,2m,2m (4,5,6), 3m,3m,3m (8,9,10), 4m,4m,4m (12,13,14), 5m (16)
+        # Wait 5m.
+        p1_hand = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 16]
+        h = env.hands
+        h[1] = p1_hand
+        env.hands = h
+
+        env.active_players = [0]
+        env.current_player = 0
+
+        # P0 Discards 5m (ID 17, matches pair for 5m)
+        tile_5m_target = 17
+        h = env.hands
+        h[0] = [tile_5m_target] + list(range(40, 40 + 13))
+        h[0].sort()
+        env.hands = h
+
+        obs_dict = env.step({0: Action(ActionType.Discard, tile=tile_5m_target)})
+
+        assert env.phase == Phase.WaitResponse
+        assert env.active_players == [1]
+        assert list(obs_dict.keys()) == [1]
+
+        # P1 Legal Ron
+        obs = obs_dict[1]
+        ron = [a for a in obs.legal_actions() if a.type == ActionType.Ron]
+        assert len(ron) == 1
+
+        # Execute Ron
+        env.step({1: ron[0]})
+
+        # Should log Hora (A single Ron doesn't necessarily end the game)
+        ev_types = [ev["type"] for ev in env.mjai_log[-3:]]
+        assert "hora" in ev_types

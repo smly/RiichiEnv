@@ -31,6 +31,12 @@ ruff-format..............................................................Passed
 
 ## Rust Development
 
+### Setup Rust Environment
+
+```bash
+❯ curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
+```
+
 ### Compilation Check
 To check if the Rust code compiles:
 ```bash

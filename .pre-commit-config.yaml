@@ -34,7 +34,7 @@ repos:
         pass_filenames: false
       - id: pytest
         name: pytest
-        entry: cd riichienv && uv run pytest
+        entry: uv run --directory riichienv pytest
         language: system
         types: [python]
         pass_filenames: false
