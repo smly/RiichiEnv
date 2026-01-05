@@ -16,7 +16,6 @@ from ._riichienv import (  # type: ignore
 )
 from .action import Action, ActionType
 
-# from .env import RiichiEnv
 from .game_mode import GameType
 from .hand import Agari, AgariCalculator, Conditions
 

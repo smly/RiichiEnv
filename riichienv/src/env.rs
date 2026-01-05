@@ -375,6 +375,8 @@ pub struct RiichiEnv {
     pub last_agari_results: HashMap<u8, Agari>,
     #[pyo3(get, set)]
     pub round_end_scores: Option<[i32; 4]>,
+    #[pyo3(get)]
+    pub forbidden_discards: [Vec<u8>; 4],
 
     pub mjai_log: Vec<String>,
     pub mjai_log_per_player: [Vec<String>; 4],
@@ -534,7 +536,7 @@ impl RiichiEnv {
             self.is_done = true;
         } else {
             self.needs_initialize_next_round = true;
-            self.pending_oya_won = true;
+            self.pending_oya_won = winners.contains(&self.oya);
             self.pending_is_draw = false;
         }
         self.phase = Phase::WaitAct; // Reset phase to prevent re-triggering
@@ -725,6 +727,7 @@ impl RiichiEnv {
             game_type,
             mjai_mode,
             seed,
+            forbidden_discards: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
         }
     }
 
@@ -1207,6 +1210,12 @@ impl RiichiEnv {
                                 if i == pid {
                                     continue;
                                 }
+                                // Check missed agari (Temporary Furiten)
+                                if self.missed_agari_doujun[i as usize]
+                                    || self.missed_agari_riichi[i as usize]
+                                {
+                                    continue;
+                                }
                                 // Enhanced Check (Furiten)
                                 let hand = &self.hands[i as usize];
                                 let melds = &self.melds[i as usize];
@@ -1315,6 +1324,12 @@ impl RiichiEnv {
                             let mut chankan_ronners = Vec::new();
                             for i in 0..4 {
                                 if i == pid {
+                                    continue;
+                                }
+                                // Check missed agari (Temporary Furiten)
+                                if self.missed_agari_doujun[i as usize]
+                                    || self.missed_agari_riichi[i as usize]
+                                {
                                     continue;
                                 }
                                 // Kokushi Check (Ankan Chankan restriction)
@@ -1883,7 +1898,8 @@ impl RiichiEnv {
 impl RiichiEnv {
     fn _perform_discard(&mut self, pid: u8, tile: u8, is_tsumogiri: bool) {
         self.is_rinshan_flag = false; // Clear Rinshan flag on discard
-        self.ippatsu_cycle[pid as usize] = false; // Discard ends your Ippatsu chance (until you declare Riichi again)
+        self.ippatsu_cycle[pid as usize] = false; // Discard ends your Ippatsu chance
+        self.forbidden_discards[pid as usize].clear();
         let tsumogiri = is_tsumogiri;
         // Simplified Discard Logic (14 tiles hand)
         if let Some(pos) = self.hands[pid as usize].iter().position(|&t| t == tile) {
@@ -1924,6 +1940,11 @@ impl RiichiEnv {
                 self.riichi_sticks += 1;
                 self.ippatsu_cycle[pid as usize] = true; // Start Ippatsu cycle
 
+                // Check for Double Riichi
+                if self.is_first_turn && self.discards[pid as usize].len() == 1 && self.melds.iter().all(|m| m.is_empty()) {
+                     self.double_riichi_declared[pid as usize] = true;
+                }
+
                 let mut ev = serde_json::Map::new();
                 ev.insert(
                     "type".to_string(),
@@ -1948,6 +1969,21 @@ impl RiichiEnv {
             if pid == discarded_pid {
                 continue;
             }
+            if self.riichi_declared[pid as usize] || self.double_riichi_declared[pid as usize] || self.riichi_stage[pid as usize] {
+                // Riichi logic: Can only Ron (checked later? No, usually cannot call unless Ron allowed. But Ron IS allowed in Riichi).
+                // Wait, Ron is allowed in Riichi.
+                // But this check skips?
+                // Line 1970 says: continue.
+                // Wait! If I am in Riichi, I CAN Ron.
+                // Does this line block Ron?
+                // Standard code:
+                // if self.riichi_declared... { continue; }
+                // This would BLOCK Ron for Riichi players!
+                // Wait, let's check code logic.
+                // Lines 1968-1970 (original):
+                // if self.riichi_declared... continue.
+            }
+            // Wait, checking original code again.
             if self.is_done {
                 continue;
             }
@@ -2001,12 +2037,11 @@ impl RiichiEnv {
                 if pid == discarded_pid {
                     continue;
                 }
-                if self.riichi_declared[pid as usize] {
+                if self.riichi_declared[pid as usize] || self.double_riichi_declared[pid as usize] || self.riichi_stage[pid as usize] {
                     continue;
                 }
 
                 let hand = &self.hands[pid as usize];
-                // DEBUG
                 // println!("PID {} checking claims for tile {}. Hand: {:?}", pid, tile, hand);
                 let count = hand.iter().filter(|&&t| t / 4 == tile / 4).count();
                 // println!("Count: {}", count);
@@ -2092,7 +2127,8 @@ impl RiichiEnv {
 
             // 3. Chi (Only next player)
             let next_pid = (discarded_pid + 1) % 4;
-            if !self.riichi_declared[next_pid as usize] && tile < 108 {
+            // println!("DEBUG RUST: next_pid={} riichi_declared={}", next_pid, self.riichi_declared[next_pid as usize]);
+            if !self.riichi_declared[next_pid as usize] && !self.double_riichi_declared[next_pid as usize] && !self.riichi_stage[next_pid as usize] && tile < 108 {
                 let hand = &self.hands[next_pid as usize];
                 let t_type = tile / 4;
                 let suit = t_type / 9;
@@ -2137,10 +2173,13 @@ impl RiichiEnv {
 
                     for &t1 in &distinct1 {
                         for &t2 in &distinct2 {
-                            self.current_claims
-                                .entry(next_pid)
-                                .or_default()
-                                .push(Action::new(ActionType::Chi, Some(tile), vec![t1, t2]));
+                            let consumed = vec![t1, t2];
+                            if self._is_kuikae_valid(&self.hands[next_pid as usize], tile, &consumed) {
+                                self.current_claims
+                                    .entry(next_pid)
+                                    .or_default()
+                                    .push(Action::new(ActionType::Chi, Some(tile), consumed));
+                            }
                         }
                     }
                 }
@@ -2175,10 +2214,13 @@ impl RiichiEnv {
 
                     for &t1 in &distinct1 {
                         for &t2 in &distinct2 {
-                            self.current_claims
-                                .entry(next_pid)
-                                .or_default()
-                                .push(Action::new(ActionType::Chi, Some(tile), vec![t1, t2]));
+                            let consumed = vec![t1, t2];
+                            if self._is_kuikae_valid(&self.hands[next_pid as usize], tile, &consumed) {
+                                self.current_claims
+                                    .entry(next_pid)
+                                    .or_default()
+                                    .push(Action::new(ActionType::Chi, Some(tile), consumed));
+                            }
                         }
                     }
                 }
@@ -2213,10 +2255,13 @@ impl RiichiEnv {
 
                     for &t1 in &distinct1 {
                         for &t2 in &distinct2 {
-                            self.current_claims
-                                .entry(next_pid)
-                                .or_default()
-                                .push(Action::new(ActionType::Chi, Some(tile), vec![t1, t2]));
+                            let consumed = vec![t1, t2];
+                            if self._is_kuikae_valid(&self.hands[next_pid as usize], tile, &consumed) {
+                                self.current_claims
+                                    .entry(next_pid)
+                                    .or_default()
+                                    .push(Action::new(ActionType::Chi, Some(tile), consumed));
+                            }
                         }
                     }
                 }
@@ -2352,6 +2397,7 @@ impl RiichiEnv {
 
         for i in 0..4 {
             self.hands[i] = Vec::new();
+            self.forbidden_discards[i] = Vec::new();
         }
 
         // 4-4-4-1 pattern
@@ -2555,6 +2601,43 @@ impl RiichiEnv {
         deltas
     }
 
+    // Helper to check valid discards under Kuikae rules
+    fn _is_kuikae_valid(&self, hand: &[u8], tile: u8, consumed: &[u8]) -> bool {
+        let mut sim_hand = hand.to_vec();
+        for &c in consumed {
+            if let Some(pos) = sim_hand.iter().position(|&t| t == c) {
+                sim_hand.swap_remove(pos);
+            }
+        }
+        
+        let called_kv = tile / 4;
+        let mut forbidden_kvs = Vec::new();
+        forbidden_kvs.push(called_kv); // Rule 1: Cannot discard same tile
+        
+        // Rule 2: Suji-gui (Eating-Swap)
+        // Check if called + consumed form a sequence
+        let mut full_set_kvs = vec![called_kv];
+        for &c in consumed {
+            full_set_kvs.push(c / 4);
+        }
+        full_set_kvs.sort();
+        
+        if full_set_kvs.len() == 3 && full_set_kvs[2] == full_set_kvs[1] + 1 && full_set_kvs[1] == full_set_kvs[0] + 1 {
+            let min = full_set_kvs[0];
+            let max = full_set_kvs[2];
+            let num_min = min % 9;
+            
+            if called_kv == min && num_min <= 5 {
+                forbidden_kvs.push(max + 1);
+            } else if called_kv == max && num_min >= 1 {
+                 forbidden_kvs.push(min - 1);
+            }
+        }
+        
+        // Check if any legal discard remains
+        sim_hand.iter().any(|&t| !forbidden_kvs.contains(&(t / 4)))
+    }
+
     fn _get_legal_actions_internal(&self, pid: u8) -> Vec<Action> {
         let mut actions = Vec::new();
         let hand = &self.hands[pid as usize];
@@ -2670,6 +2753,9 @@ impl RiichiEnv {
 
             // 2. Discards
             for &t in &h14 {
+                if self.forbidden_discards[pid as usize].contains(&(t / 4)) {
+                    continue;
+                }
                 actions.push(Action::new(ActionType::Discard, Some(t), vec![]));
                 // Optimize: only unique tiles? Python does all.
             }
@@ -2807,9 +2893,32 @@ impl RiichiEnv {
         match action.action_type {
             ActionType::Chi => {
                 m_type = MeldType::Chi;
+                if let Some(called) = action.tile {
+                    let called_kv = called / 4;
+                    // Forbid the same tile
+                    self.forbidden_discards[pid as usize].push(called_kv);
+
+                    let mut full_set_kvs: Vec<u8> = vec![called_kv];
+                    for &c in &action.consume_tiles {
+                        full_set_kvs.push(c / 4);
+                    }
+                    full_set_kvs.sort();
+                    if full_set_kvs.len() == 3 {
+                        let min = full_set_kvs[0];
+                        let max = full_set_kvs[2];
+                        if called_kv == min && min % 9 <= 5 {
+                            self.forbidden_discards[pid as usize].push(max + 1);
+                        } else if called_kv == max && min % 9 >= 1 {
+                            self.forbidden_discards[pid as usize].push(min - 1);
+                        }
+                    }
+                }
             }
             ActionType::Pon => {
                 m_type = MeldType::Peng;
+                if let Some(called) = action.tile {
+                    self.forbidden_discards[pid as usize].push(called / 4);
+                }
             }
             ActionType::Daiminkan => {
                 m_type = MeldType::Gang;

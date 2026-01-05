@@ -1,7 +1,6 @@
 import random
 
-from riichienv.action import Action
-from riichienv.env import Observation
+from riichienv import Action, Observation
 
 
 class RandomAgent:
