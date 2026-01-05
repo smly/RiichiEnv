@@ -8,9 +8,11 @@ export class Renderer {
     constructor(container: HTMLElement) {
         this.container = container;
 
+        let style = document.getElementById('riichienv-viewer-style') as HTMLStyleElement;
+
         // Inject styles if not present
-        if (!document.getElementById('riichienv-viewer-style')) {
-            const style = document.createElement('style');
+        if (!style) {
+            style = document.createElement('style');
             style.id = 'riichienv-viewer-style';
             style.textContent = `
                 .mahjong-board svg { width: 100%; height: 100%; display: block; }
@@ -36,15 +38,14 @@ export class Renderer {
                 }
                 .tile-fg { z-index: 2; }
             `;
-            // Append to head to be shared or container? Helper to append to container is safer for encapsulation
-            // But checking ID implies global. 
-            // Let's append to container but class-scope check?
-            // User might have multiple viewers. Styles should be global or scoped.
-            // Using ID implies global.
-            // Let's stick to container-scoped but robust.
-            this.container.appendChild(style);
-            this.styleElement = style;
+            // Append to head if we want robust global styling, or container.
+            // Using ID suggests global uniqueness.
+            // Let's assume container is attached to document or will be.
+            // But if we use getElementById, we assume it's in the document.
+            // If we are mounting multiple viewers, they share styles.
+            document.head.appendChild(style);
         }
+        this.styleElement = style;
     }
 
     getTileHtml(tileStr: string): string {

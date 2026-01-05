@@ -38,6 +38,21 @@ export class GameState {
         this.current = this.initialState();
     }
 
+    // Returns list of indices where new rounds start
+    getKyokuCheckpoints(): { index: number, round: number, honba: number }[] {
+        const checkpoints: { index: number, round: number, honba: number }[] = [];
+        this.events.forEach((e, i) => {
+            if (e.type === 'start_kyoku') {
+                checkpoints.push({
+                    index: i,
+                    round: (e.kyoku || 1) - 1,
+                    honba: e.honba || 0
+                });
+            }
+        });
+        return checkpoints;
+    }
+
     initialState(): BoardState {
         return {
             players: Array(4).fill(0).map(() => ({

@@ -48,6 +48,34 @@ export class Viewer {
     }
 
     initControls() {
+        // Kyoku Select
+        const select = document.createElement('select');
+        select.style.padding = '5px';
+        select.style.marginRight = '10px';
+
+        const checkpoints = this.gameState.getKyokuCheckpoints();
+        // Option 0: Start
+        const startOpt = document.createElement('option');
+        startOpt.value = '0';
+        startOpt.text = 'Start';
+        select.appendChild(startOpt);
+
+        checkpoints.forEach((cp) => {
+            const opt = document.createElement('option');
+            opt.value = cp.index.toString();
+            // formatRound is public on Renderer? Yes.
+            opt.text = `${this.renderer.formatRound(cp.round)} - ${cp.honba} Honba`;
+            select.appendChild(opt);
+        });
+
+        select.addEventListener('change', () => {
+            const idx = parseInt(select.value);
+            this.gameState.jumpTo(idx);
+            this.update();
+        });
+        this.kyokuSelect = select;
+        this.controlPanel.appendChild(select);
+
         const btnStyle = "padding: 5px 10px; cursor: pointer;";
         const createBtn = (lbl: string, cb: () => void) => {
             const b = document.createElement('button');
@@ -91,10 +119,27 @@ export class Viewer {
     }
 
     slider!: HTMLInputElement;
+    kyokuSelect!: HTMLSelectElement;
 
     update() {
         this.renderer.render(this.gameState.current);
         this.slider.value = String(this.gameState.cursor);
+
+        // Sync Kyoku Select
+        // Find the index in checkpoints that is closest <= cursor
+        const checkpoints = this.gameState.getKyokuCheckpoints();
+        // Assuming checkpoints are sorted by index
+        let activeCpIndex = 0;
+        for (let i = 0; i < checkpoints.length; i++) {
+            if (checkpoints[i].index <= this.gameState.cursor) {
+                activeCpIndex = i;
+            } else {
+                break;
+            }
+        }
+        if (checkpoints.length > 0) {
+            this.kyokuSelect.value = checkpoints[activeCpIndex].index.toString();
+        }
     }
 }
 
