@@ -1,5 +1,6 @@
 import riichienv.convert as cvt
-from riichienv import RiichiEnv
+
+from .helper import helper_setup_env
 
 
 class TestPaishan:
@@ -22,8 +23,7 @@ class TestPaishan:
     def test_env_init_from_paishan(self):
         """Verify RiichiEnv extracts Dora from Paishan wall."""
         paishan_wall = list(range(136))
-        env = RiichiEnv()
-        env.reset(wall=paishan_wall)
+        env = helper_setup_env(wall=paishan_wall)
 
         # Check Dora
         assert len(env.dora_indicators) == 1
@@ -44,9 +44,8 @@ class TestPaishan:
             "9m8s4z6z2z1s4s2m3m8s3p1m7s8m2s1p2m6s1z9p3z8p6z5z2p2z2z1m7p4p7s6z6z6s5p8m9m3p2p3s7s7p6p2s9p6m1p5p1z6p2p4m7m5z9s2s4p5s0s4m3z8m1s"
             "2z6m7m0m6s1p8s8m8p4z1s0p9p4s4m2p7z8p"
         )
-        env = RiichiEnv()
         paishan_wall = cvt.paishan_to_wall(paishan_wall_str)
-        env.reset(wall=paishan_wall)
+        env = helper_setup_env(wall=paishan_wall)
 
         assert len(env.dora_indicators) == 1
         assert cvt.tid_to_mpsz(env.dora_indicators[0]) == "4s"
@@ -65,8 +64,7 @@ class TestPaishan:
     def test_kan_dora_reveal(self):
         """Verify Kan Dora reveal logic."""
         paishan_wall = list(range(136))
-        env = RiichiEnv()
-        env.reset(wall=paishan_wall)
+        env = helper_setup_env(wall=paishan_wall)
 
         # Initial: wall[4] (131).
         assert len(env.dora_indicators) == 1

@@ -213,7 +213,7 @@ class TestChankan:
         assert ankan[0].tile in [0, 1, 2, 3]
         assert sorted(ankan[0].consume_tiles) == [0, 1, 2, 3]
 
-    def test_ankan_generation_riichi(self):
+    def test_ankan_generation_riichi(self) -> None:
         """
         Verify that ANKAN action is generated even after Riichi declaration.
         """
@@ -237,3 +237,59 @@ class TestChankan:
         assert len(ankan) > 0
         assert ankan[0].tile == 0  # In Riichi, must be the drawn tile (or equivalent type)
         assert sorted(ankan[0].consume_tiles) == [0, 1, 2, 3]
+
+    def test_chankan_stale_claims_repro(self) -> None:
+        """
+        Reproduce Match 27 Step 267 inconsistency.
+        P2 discards 7p (60) -> P0 has Pon offer with 61, 62.
+        All pass.
+        P3 tsutmos 6p (59), kakans 59. (P3 has Pon meld 56, 57, 58).
+        P0 has 6p sequence wait (4p-5p).
+        P0 should have Ron (Chankan) offer on 59.
+        """
+        # 4p: 48, 49, 50, 51
+        # 5p: 52, 53, 54, 55
+        # 6p: 56, 57, 58, 59
+        # 7p: 60, 61, 62, 63
+        env = helper_setup_env(
+            hands=[
+                [4, 5, 6, 8, 9, 10, 12, 13, 14, 61, 62, 49, 53],
+                [],
+                [],
+                [],
+            ],
+            melds=[
+                [],
+                [],
+                [],
+                [Meld(MeldType.Peng, [56, 57, 58], True)],
+            ],
+            discards=[[60], [], [], []],
+            current_player=2,
+            phase=Phase.WaitAct,
+        )
+
+        # 1. P2 discards 7p (63). (P0 has 61, 62).
+        # Wait, P2 discard 7p (63). P0 (61, 62) should have Pon.
+        obs = env.step({2: Action(ActionType.Discard, 63)})
+        assert 0 in obs
+        print("Step 1: P0 has Pon offer on 7p")
+
+        # 2. All pass.
+        env.step({0: Action(ActionType.PASS), 1: Action(ActionType.PASS), 3: Action(ActionType.PASS)})
+        assert env.current_player == 3
+        print("Step 2: All passed, now P3 turn")
+
+        # 3. P3 draws 6p (59) and kakans.
+        env.drawn_tile = 59
+        h3 = env.hands
+        h3[3] = [59]
+        env.hands = h3
+
+        obs = env.step({3: Action(ActionType.Kakan, 59, [56, 57, 58])})
+
+        assert 0 in obs, f"P0 should be active for Chankan. Phase: {env.phase}, Active: {env.active_players}"
+        action_types = [a.action_type for a in obs[0].legal_actions()]
+        print(f"P0 legal actions: {action_types}")
+
+        assert ActionType.Ron in action_types, f"P0 should have Ron offered. Actions: {action_types}"

@@ -1,79 +1,74 @@
 import pytest
 
-from riichienv import Action, ActionType, RiichiEnv
-from riichienv._riichienv import Meld, MeldType
+from riichienv import Action, ActionType, Meld, MeldType
+
+from .env.helper import helper_setup_env
 
 
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_sufuurenta():
-    env = RiichiEnv()
-    env.reset()
-
-    # Wind tiles (East) for 4 players
-    # TIDs for East: 108, 109, 110, 111
+    # Wind tiles (East) for 4 players: 108, 109, 110, 111
     tiles = [108, 109, 110, 111]
-
-    # Set hands to scattered tiles to prevent any claims
-    # Using 1, 4, 7 for each suit.
     scattered = [0, 4, 8, 36, 40, 44, 72, 76, 80, 112, 116, 120, 124]
+
+    env = helper_setup_env(
+        hands=[scattered[:] for _ in range(4)],
+        wall=list(range(136)),
+    )
 
     for i in range(4):
         p = env.current_player
-        for j in range(4):
-            env.hands[j] = scattered[:]
         # Put the wind tile in hand and discard it
-        env.hands[p][0] = tiles[i]
+        h = env.hands
+        h[p][0] = tiles[i]
+        env.hands = h
         env.drawn_tile = tiles[i]
-        env.step({p: Action(ActionType.DISCARD, tile=tiles[i])})
+        env.step({p: Action(ActionType.Discard, tile=tiles[i])})
         if i < 3:
-            assert not env.is_done
+            assert not env.done()
 
-    assert env.is_done
+    assert env.done()
     assert any(e["reason"] == "sufuurenta" for e in env.mjai_log if e["type"] == "ryukyoku")
 
 
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_suurechi():
-    env = RiichiEnv()
-    env.reset()
-
-    # Ensure no Ron potential
     scattered = [0, 4, 8, 36, 40, 44, 72, 76, 80, 112, 116, 120, 124]
-    for i in range(4):
-        env.hands[i] = scattered[:]
+
+    env = helper_setup_env(
+        hands=[scattered[:] for _ in range(4)],
+        riichi_declared=[True, True, False, False],
+        current_player=1,
+        drawn_tile=100,
+        wall=list(range(136)),
+    )
 
     p = env.current_player
-    env.riichi_declared[p] = True
-    env.current_player = (env.current_player + 1) % 4
+    env.step({p: Action(ActionType.Discard, tile=100)})
 
-    p = env.current_player
-    env.riichi_declared[p] = True
-
-    env.hands[p] = scattered[:]
-    env.drawn_tile = 100
-    env.step({p: Action(ActionType.DISCARD, tile=100)})
-
-    assert env.is_done
+    assert env.done()
     assert any(e["reason"] == "suurechi" for e in env.mjai_log if e["type"] == "ryukyoku")
 
 
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_suukansansen():
-    env = RiichiEnv()
-    env.reset()
-
-    # Ensure no Ron potential
     scattered = [0, 4, 8, 36, 40, 44, 72, 76, 80, 112, 116, 120, 124]
-    for i in range(4):
-        env.hands[i] = scattered[:]
 
-    env.melds[0] = [Meld(MeldType.Angang, [0, 1, 2, 3], False), Meld(MeldType.Angang, [4, 5, 6, 7], False)]
-    env.melds[1] = [Meld(MeldType.Angang, [8, 9, 10, 11], False), Meld(MeldType.Angang, [12, 13, 14, 15], False)]
+    env = helper_setup_env(
+        hands=[scattered[:] for _ in range(4)],
+        melds=[
+            [Meld(MeldType.Angang, [0, 1, 2, 3], False), Meld(MeldType.Angang, [4, 5, 6, 7], False)],
+            [Meld(MeldType.Angang, [8, 9, 10, 11], False), Meld(MeldType.Angang, [12, 13, 14, 15], False)],
+            [],
+            [],
+        ],
+        current_player=1,
+        drawn_tile=108,
+        wall=list(range(136)),
+    )
 
     p = env.current_player
-    env.hands[p] = scattered[:]
-    env.drawn_tile = 108
-    env.step({p: Action(ActionType.DISCARD, tile=108)})
+    env.step({p: Action(ActionType.Discard, tile=108)})
 
-    assert env.is_done
+    assert env.done()
     assert any(e["reason"] == "suukansansen" for e in env.mjai_log if e["type"] == "ryukyoku")

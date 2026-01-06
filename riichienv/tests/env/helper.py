@@ -12,10 +12,15 @@ def helper_setup_env(
     needs_tsumo: bool = False,
     drawn_tile: int | None = None,
     wall: list[int] | None = None,
+    discards: list[list[int]] | None = None,
+    riichi_declared: list[bool] | None = None,
+    points: list[int] | None = None,
+    oya: int | None = None,
+    round_wind: int | None = None,
     mjai_log: list[dict] | None = None,
 ) -> RiichiEnv:
     env = RiichiEnv(seed=seed, game_type=game_type)
-    env.reset()
+    env.reset(wall=wall)
 
     if hands is not None:
         for player_id in range(4):
@@ -42,8 +47,16 @@ def helper_setup_env(
         env.needs_tsumo = needs_tsumo
     if drawn_tile is not None:
         env.drawn_tile = drawn_tile
-    if wall is not None:
-        env.wall = wall
+    if discards is not None:
+        env.discards = discards
+    if riichi_declared is not None:
+        env.riichi_declared = riichi_declared
+    if points is not None:
+        env.points = points
+    if oya is not None:
+        env.oya = oya
+    if round_wind is not None:
+        env.round_wind = round_wind
     if mjai_log is not None:
         env.mjai_log = mjai_log
 

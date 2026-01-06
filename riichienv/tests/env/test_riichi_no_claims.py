@@ -1,25 +1,21 @@
-from riichienv import Action, ActionType, Phase, RiichiEnv
+from riichienv import Action, ActionType, Phase
 
-
-def setup_env_with_wall():
-    env = RiichiEnv()
-    # Initialize wall with enough tiles to allow claims (> 14)
-    env.wall = list(range(136))
-    return env
+from .helper import helper_setup_env
 
 
 def test_no_chi_during_riichi():
-    env = setup_env_with_wall()
-    h2 = [76, 80, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
-    env.hands = [[0] * 13, [0] * 13, h2, [0] * 13]
+    h = [[0] * 13 for _ in range(4)]
+    h[2] = [76, 80, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
 
-    rd = [False, False, True, False]
-    env.riichi_declared = rd
-
-    env.phase = Phase.WaitAct
-    env.current_player = 1
-    env.drawn_tile = 72  # 1s
-    env.needs_tsumo = False
+    env = helper_setup_env(
+        hands=h,
+        riichi_declared=[False, False, True, False],
+        current_player=1,
+        drawn_tile=72,  # 1s
+        phase=Phase.WaitAct,
+        needs_tsumo=False,
+        wall=list(range(136)),
+    )
 
     action = Action(ActionType.Discard, 72, [])
     obs_dict = env.step({1: action})
@@ -36,16 +32,18 @@ def test_no_chi_during_riichi():
 
 
 def test_chi_offered_when_not_in_riichi():
-    env = setup_env_with_wall()
-    h2 = [76, 80, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
-    env.hands = [[0] * 13, [0] * 13, h2, [0] * 13]
+    h = [[0] * 13 for _ in range(4)]
+    h[2] = [76, 80, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
 
-    env.riichi_declared = [False, False, False, False]
-
-    env.phase = Phase.WaitAct
-    env.current_player = 1
-    env.drawn_tile = 72  # 1s
-    env.needs_tsumo = False
+    env = helper_setup_env(
+        hands=h,
+        riichi_declared=[False, False, False, False],
+        current_player=1,
+        drawn_tile=72,  # 1s
+        phase=Phase.WaitAct,
+        needs_tsumo=False,
+        wall=list(range(136)),
+    )
 
     action = Action(ActionType.Discard, 72, [])
     obs_dict = env.step({1: action})
@@ -59,17 +57,18 @@ def test_chi_offered_when_not_in_riichi():
 
 
 def test_no_pon_during_riichi():
-    env = setup_env_with_wall()
-    h2 = [76, 77, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
-    env.hands = [[0] * 13, [0] * 13, h2, [0] * 13]
+    h = [[0] * 13 for _ in range(4)]
+    h[2] = [76, 77, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
 
-    rd = [False, False, True, False]
-    env.riichi_declared = rd
-
-    env.phase = Phase.WaitAct
-    env.current_player = 1
-    env.drawn_tile = 78  # 2s (76, 77, 78, 79 are all 2s)
-    env.needs_tsumo = False
+    env = helper_setup_env(
+        hands=h,
+        riichi_declared=[False, False, True, False],
+        current_player=1,
+        drawn_tile=78,  # 2s (76, 77, 78, 79 are all 2s)
+        phase=Phase.WaitAct,
+        needs_tsumo=False,
+        wall=list(range(136)),
+    )
 
     action = Action(ActionType.Discard, 78, [])
     obs_dict = env.step({1: action})

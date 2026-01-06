@@ -1,37 +1,27 @@
 import pytest
 
-from riichienv import Action, ActionType, Phase, RiichiEnv
+from riichienv import Action, ActionType, Phase
 
-
-def setup_env_with_wall():
-    env = RiichiEnv()
-    # Initialize wall with enough tiles to allow claims
-    env.wall = list(range(136))
-    return env
+from ..helper import helper_setup_env
 
 
 @pytest.mark.skip(
     reason="Rust implementation lacks lookahead to prevent Call leading to no legal discard (Kuikae deadlock)"
 )
 def test_kuikae_suji_chi():
-    env = setup_env_with_wall()
-    env.reset()
-
+    h = [[0] * 13 for _ in range(4)]
     # Setup P2 hand: 2s 3s 4s 4s (Indices: 79, 82, 85, 86)
-    # We need to be careful with tile IDs.
-    # 2s: 76, 77, 78, 79
-    # 3s: 80, 81, 82, 83
-    # 4s: 84, 85, 86, 87
+    # Junk: 0*9 tiles = 13.
+    h[2] = [79, 82, 85, 86] + [0] * 9
 
-    h2 = [79, 82, 85, 86]
-    # Fill with junk to makes 13 tiles
-    h2 += [0] * 9
-    hands = env.hands
-    hands[2] = h2
-    env.hands = hands
+    env = helper_setup_env(
+        hands=h,
+        current_player=1,
+        phase=Phase.WaitAct,
+        needs_tsumo=False,
+        wall=list(range(136)),
+    )
 
-    env.phase = Phase.WaitAct
-    env.current_player = 1
     # P1 discards 1s (72).
     discard_tile = 72
     action_discard = Action(ActionType.Discard, discard_tile, [])
@@ -46,53 +36,32 @@ def test_kuikae_suji_chi():
     # 1s 2s 3s Chi involves consuming 2s + 3s.
     chi_action = None
     for a in actions:
-        if a.type == ActionType.Chi:
-            # Check consumed tiles. Should include 2s and 3s.
-            # a.consume_tiles is a list of tile IDs.
-            # We look for a set that matches 2s and 3s.
+        if a.action_type == ActionType.Chi:
             ct = a.consume_tiles
-            # Convert to simplified type/value for easier checking?
-            # 79//4 = 19 (2s), 82//4 = 20 (3s).
             if len(ct) == 2 and (ct[0] // 4 in [19, 20]) and (ct[1] // 4 in [19, 20]):
                 chi_action = a
                 break
 
-    print(f"DEBUG: Actions offered to P2: {[(a.type, a.consume_tiles) for a in actions]}")
+    print(f"DEBUG: Actions offered to P2: {[(a.action_type, a.consume_tiles) for a in actions]}")
     assert chi_action is None, "Chi (1s-2s-3s) should NOT be offered due to Kuikae (results in dead-end)"
-
-    if chi_action is None:
-        print("SUCCESS: Chi was correctly withheld.")
-    else:
-        print("FAILURE: Chi was offered.")
 
 
 def test_kuikae_discard_restriction():
-    env = RiichiEnv()
-    env.reset()
-
-    # Clean setup
-    hands = env.hands
-
+    h = [[100] * 13 for _ in range(4)]
     # P2 Hand: 2s(79), 3s(82), 4s(85), 7p(60) -- plus junk to make 13
-    # We want P2 to have exactly these critical tiles.
-    # 2s, 3s, 4s are needed for the sequence and forbidden check.
-    # 7p is the legal safe discard.
     base_hand = [79, 82, 85, 60]
     junk = [0, 1, 2, 3, 4, 5, 6, 7, 8]  # 9 tiles. Total 13.
-    # Ensure junk doesn't interfere (0-8 are 1m..3m)
-    h2 = base_hand + junk
-    hands[2] = h2
+    h[2] = base_hand + junk
 
-    # Clear others to prevent Ron/claims
-    hands[0] = [100] * 13  # Avoid 1s/4s interaction
-    hands[1] = [100] * 13
-    hands[3] = [100] * 13
-    env.hands = hands
+    env = helper_setup_env(
+        hands=h,
+        current_player=1,
+        phase=Phase.WaitAct,
+        needs_tsumo=False,
+        wall=list(range(136)),
+    )
 
-    env.phase = Phase.WaitAct
-    env.current_player = 1
-
-    # P1 discards 1s (72 is 1s index 0).
+    # P1 discards 1s (72).
     discard_tile = 72
     obs = env.step({1: Action(ActionType.Discard, discard_tile, [])})
 
@@ -112,9 +81,6 @@ def test_kuikae_discard_restriction():
     assert chi_action is not None, "Chi should be offered (valid because 7p is legal)"
 
     # Execute Chi
-    # P2 consumes 79, 82. + 72 (called).
-    # Hand becomes 4s(85), 7p(60) + junk.
-    # Forbidden: 4s(85).
     obs2 = env.step({2: chi_action})
 
     # P2 should be active (Discard phase)
@@ -127,11 +93,9 @@ def test_kuikae_discard_restriction():
     for a in discard_actions:
         if a.action_type == ActionType.Discard:
             t = a.tile
-            # 85 is 4s (index 21 * 4 + 1)
-            # Actually 85 / 4 = 21.
-            if t // 4 == 21:
+            if t // 4 == 21:  # 4s
                 can_discard_4s = True
-            if t // 4 == 15:  # 60 / 4 = 15 (7p)
+            if t // 4 == 15:  # 7p
                 can_discard_7p = True
 
     assert can_discard_7p, "Should be able to discard 7p"
