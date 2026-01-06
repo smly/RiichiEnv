@@ -9,7 +9,13 @@
         "**/*.so": true,
         "**/*.pyd": true,
         "**/*.pyo": true,
-        "**/*.dylib": true
+        "**/*.dylib": true,
+        "**/node_modules": true,
+        "**/.ipynb_checkpoints": true,
+        "**/.python-version": true,
+        "**/dist": true,
+        "**/build": true,
+        "**/target": true
     },
     "python.languageServer": "None",
     "ty.importStrategy": "fromEnvironment",

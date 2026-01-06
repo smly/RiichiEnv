@@ -16,7 +16,8 @@ const YAKU_MAP: { [key: number]: string } = {
 
 export class Renderer {
     container: HTMLElement;
-    private styleElement: HTMLStyleElement;
+    private boardElement: HTMLElement | null = null;
+    private styleElement: HTMLStyleElement | null = null;
     viewpoint: number = 0;
 
     constructor(container: HTMLElement) {
@@ -27,6 +28,20 @@ export class Renderer {
             style = document.createElement('style');
             style.id = 'riichienv-viewer-style';
             style.textContent = `
+                .mahjong-board {
+                    position: relative;
+                    width: 100%;
+                    aspect-ratio: 1/1;
+                    max-width: 900px;
+                    margin: 0 auto;
+                    background-color: #2d5a27;
+                    border-radius: 12px;
+                    overflow: hidden;
+                    font-size: 14px;
+                    color: white;
+                    font-family: sans-serif;
+                    box-sizing: border-box;
+                }
                 .mahjong-board svg { width: 100%; height: 100%; display: block; }
                 .mahjong-board .center-info svg { width: auto; height: 100%; }
                 
@@ -44,11 +59,19 @@ export class Renderer {
                 }
                 .tile-bg { 
                     z-index: 1; 
-                    background-color: #fdfdfd; 
                     border-radius: 4px;
                     box-shadow: 1px 1px 2px rgba(0,0,0,0.3);
                 }
-                .tile-fg { z-index: 2; }
+                .tile-fg { 
+                    z-index: 2; 
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .tile-fg svg {
+                    width: 90% !important;
+                    height: 90% !important;
+                }
                 
                 .active-player-highlight {
                     box-shadow: 0 0 20px 5px rgba(255, 230, 0, 0.4);
@@ -132,21 +155,20 @@ export class Renderer {
                 }
 
                 .debug-panel {
-                    position: fixed;
-                    bottom: 10px;
-                    right: 10px;
-                    background: rgba(0,0,0,0.8);
+                    background: #222;
                     color: #0f0;
                     font-family: monospace;
                     padding: 10px;
                     border-radius: 4px;
                     font-size: 11px;
-                    max-width: 300px;
-                    max-height: 200px;
+                    width: 100%;
+                    min-height: 100px;
+                    max-height: 250px;
                     overflow: auto;
-                    z-index: 1000;
-                    pointer-events: none;
+                    margin-top: 10px;
                     white-space: pre-wrap;
+                    box-sizing: border-box;
+                    border: 1px solid #444;
                 }
 
                 @keyframes popIn {
@@ -180,27 +202,15 @@ export class Renderer {
         `;
     }
 
-    render(state: BoardState) {
-        // Clear container
-        this.container.innerHTML = '';
-
-        // Main board layout
-        const board = document.createElement('div');
-        board.className = 'mahjong-board';
-        Object.assign(board.style, {
-            position: 'relative',
-            width: '100%',
-            aspectRatio: '1/1',
-            maxWidth: '900px',
-            margin: '0 auto',
-            backgroundColor: '#2d5a27',
-            borderRadius: '12px',
-            overflow: 'hidden',
-            fontSize: '14px',
-            color: 'white',
-            fontFamily: 'sans-serif',
-            boxSizing: 'border-box'
-        });
+    render(state: BoardState, debugPanel?: HTMLElement) {
+        // Reuse board element to prevent flickering
+        if (!this.boardElement) {
+            this.boardElement = document.createElement('div');
+            this.boardElement.className = 'mahjong-board';
+            this.container.appendChild(this.boardElement);
+        }
+        const board = this.boardElement;
+        board.innerHTML = '';
 
         // Center Info
         const center = document.createElement('div');
@@ -364,16 +374,24 @@ export class Renderer {
                 riverDiv.appendChild(cell);
             });
 
-            // Hand
-            const handDiv = document.createElement('div');
-            handDiv.style.display = 'flex';
-            handDiv.style.alignItems = 'flex-end';
-            handDiv.style.marginTop = '15px';
-            handDiv.style.height = '56px';
+            // Hand & Melds Area
+            const handArea = document.createElement('div');
+            Object.assign(handArea.style, {
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-end',
+                marginTop: '15px',
+                width: '580px',
+                height: '56px',
+                position: 'relative'
+            });
 
+            // Closed Hand
             const tilesDiv = document.createElement('div');
             Object.assign(tilesDiv.style, {
-                display: 'flex', width: '570px', height: '56px', justifyContent: 'flex-start'
+                display: 'flex',
+                alignItems: 'flex-end',
+                justifyContent: 'flex-start'
             });
 
             const totalTiles = p.hand.length + p.melds.length * 3;
@@ -383,34 +401,39 @@ export class Renderer {
                 const tDiv = document.createElement('div');
                 tDiv.style.width = '40px'; tDiv.style.height = '56px';
                 tDiv.innerHTML = this.getTileHtml(t);
-                if (hasTsumo && idx === p.hand.length - 1) tDiv.style.marginLeft = '10px';
+                if (hasTsumo && idx === p.hand.length - 1) tDiv.style.marginLeft = '12px';
                 tilesDiv.appendChild(tDiv);
             });
-            handDiv.appendChild(tilesDiv);
+            handArea.appendChild(tilesDiv);
 
-            // Melds
+            // Melds (Furo)
+            const meldsDiv = document.createElement('div');
+            Object.assign(meldsDiv.style, {
+                display: 'flex',
+                flexDirection: 'row-reverse',
+                gap: '8px',
+                alignItems: 'flex-end'
+            });
+
             if (p.melds.length > 0) {
-                const meldsDiv = document.createElement('div');
-                meldsDiv.style.display = 'flex';
-                meldsDiv.style.gap = '8px';
-                meldsDiv.style.marginLeft = '10px';
                 p.melds.forEach(m => {
                     const mGroup = document.createElement('div');
                     mGroup.style.display = 'flex';
+                    mGroup.style.marginLeft = '10px';
                     m.tiles.forEach(t => {
                         const mtDiv = document.createElement('div');
-                        mtDiv.style.width = '34px'; mtDiv.style.height = '46px';
+                        mtDiv.style.width = '30px'; mtDiv.style.height = '42px';
                         mtDiv.innerHTML = this.getTileHtml(t);
                         mGroup.appendChild(mtDiv);
                     });
                     meldsDiv.appendChild(mGroup);
                 });
-                handDiv.appendChild(meldsDiv);
             }
+            handArea.appendChild(meldsDiv);
 
             pDiv.appendChild(infoDiv);
             pDiv.appendChild(riverDiv);
-            pDiv.appendChild(handDiv);
+            pDiv.appendChild(handArea);
             wrapper.appendChild(pDiv);
             board.appendChild(wrapper);
         });
@@ -460,14 +483,13 @@ export class Renderer {
             board.appendChild(modal);
         }
 
-        // Debug Panel
-        const debug = document.createElement('div');
-        debug.className = 'debug-panel';
-        const lastEvStr = state.lastEvent ? JSON.stringify(state.lastEvent) : 'null';
-        debug.textContent = `Event: ${state.eventIndex} / ${state.totalEvents}\nLast Event:\n${lastEvStr}`;
-        board.appendChild(debug);
-
-        this.container.appendChild(board);
+        if (debugPanel) {
+            const lastEvStr = state.lastEvent ? JSON.stringify(state.lastEvent, null, 2) : 'null';
+            const text = `Event: ${state.eventIndex} / ${state.totalEvents}\nLast Event:\n${lastEvStr}`;
+            if (debugPanel.textContent !== text) {
+                debugPanel.textContent = text;
+            }
+        }
     }
 
     formatRound(r: number) {

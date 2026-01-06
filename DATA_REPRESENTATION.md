@@ -7,9 +7,11 @@ Three representation formats:
 
 ### Examples
 
-* **TID**: 108, 53, 52
-* **MPSZ**: 1z, 5p, 0p
-* **MJAI**: E, 5p, 5pr
+| name | TID | MPSZ | MJAI |
+|------|-----|------|------|
+| 1 Man | `0`,`1`,`2`,`3` | `1m` | `1m` |
+| 5 Man Aka | `16` | `0m` | `5mr` |
+| Ton | `108` | `1z` | `E` |
 
 **Note**: In RiichiEnv, we use **TID** as the internal representation. MJAI string is primarily used for user interfaces where distinct tiles of the same type are not distinguished.
 
@@ -28,6 +30,15 @@ Available in `riichienv.convert`:
 *   **MPSZ (str) ↔ MJAI (str)**
     *   `mpsz_to_mjai(mpsz_str: str) -> str`
     *   `mjai_to_mpsz(mjai_str: str) -> str`
+
+```python
+>> import riichienv.convert as cvt
+>> cvt.mpsz_to_tid("1z")
+108
+
+>> from riichienv import parse_hand
+>> parse_hand("123m406m789m777z")
+```
 
 #### List Conversions
 

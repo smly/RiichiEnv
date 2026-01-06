@@ -1,5 +1,7 @@
+import base64
 import copy
 import functools
+import gzip
 import json
 import os
 import traceback
@@ -13,8 +15,33 @@ from riichienv import convert as cvt
 
 
 @functools.lru_cache(maxsize=1)
+def _get_viewer_js_compressed_base64() -> str:
+    """Returns the Gzipped JS content as a base64 string for efficient notebook injection."""
+    p_gz = os.path.join(os.path.dirname(__file__), "assets", "viewer.js.gz")
+    if os.path.exists(p_gz):
+        with open(p_gz, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+
+    # Fallback to compressing on the fly if .gz is missing but .js exists
+    p = os.path.join(os.path.dirname(__file__), "assets", "viewer.js")
+    if os.path.exists(p):
+        with open(p, "rb") as f:
+            data = f.read()
+            compressed = gzip.compress(data)
+            return base64.b64encode(compressed).decode("utf-8")
+
+    return ""
+
+
+@functools.lru_cache(maxsize=1)
 def _get_viewer_js() -> str:
     # Logic to read the JS file
+    # Check for .gz first
+    p_gz = os.path.join(os.path.dirname(__file__), "assets", "viewer.js.gz")
+    if os.path.exists(p_gz):
+        with gzip.open(p_gz, "rt", encoding="utf-8") as f:
+            return f.read()
+
     p = os.path.join(os.path.dirname(__file__), "assets", "viewer.js")
     if not os.path.exists(p):
         return "console.error('RiichiEnv Viewer JS not found. Please build tools/replay-visualizer first.');"
@@ -339,7 +366,11 @@ class Replay:
 
         unique_id = f"riichienv-viewer-{uuid.uuid4()}"
         log_json = json.dumps(enriched_log)
-        viewer_js = _get_viewer_js()
+        viewer_js_b64 = _get_viewer_js_compressed_base64()
+
+        if not viewer_js_b64:
+            # Fallback if no assets found
+            return HTML(f'<div id="{unique_id}">Error: Viewer assets not found.</div>')
 
         html_content = f"""
         <div id="{unique_id}" style="width: 100%; min-height: 600px; border: 1px solid #ddd;">
@@ -349,16 +380,42 @@ class Replay:
         </div>
         <script>
         (function() {{
-            {viewer_js}
+            const runViewer = (jsCode) => {{
+                try {{
+                    if (jsCode) {{
+                        const script = document.createElement('script');
+                        script.text = jsCode;
+                        document.head.appendChild(script);
+                    }}
 
-            const logData = {log_json};
+                    const logData = {log_json};
+                    if (window.RiichiEnvViewer) {{
+                        new window.RiichiEnvViewer("{unique_id}", logData);
+                    }} else {{
+                        throw new Error("RiichiEnvViewer global not found after injection");
+                    }}
+                }} catch (e) {{
+                    console.error("RiichiEnv Viewer Error:", e);
+                    document.getElementById("{unique_id}").innerHTML = "Error: " + e.message;
+                }}
+            }};
 
-            // Wait for DOM or just run if deferred
             if (window.RiichiEnvViewer) {{
-                new window.RiichiEnvViewer("{unique_id}", logData);
+                runViewer("");
             }} else {{
-                console.error("RiichiEnvViewer global not found");
-                document.getElementById("{unique_id}").innerHTML = "Error: Viewer JS failed to load.";
+                const b64Data = "{viewer_js_b64}";
+                const compressed = Uint8Array.from(atob(b64Data), c => c.charCodeAt(0));
+
+                if (window.DecompressionStream) {{
+                    const ds = new DecompressionStream('gzip');
+                    const decompressedStream = new Response(compressed).body.pipeThrough(ds);
+                    new Response(decompressedStream).text().then(runViewer).catch(e => {{
+                        document.getElementById("{unique_id}").innerHTML = "Error decompressing: " + e.message;
+                    }});
+                }} else {{
+                    const err = "Error: Browser too old (DecompressionStream missing).";
+                    document.getElementById("{unique_id}").innerHTML = err;
+                }}
             }}
         }})();
         </script>

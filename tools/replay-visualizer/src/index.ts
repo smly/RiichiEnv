@@ -11,6 +11,7 @@ export class Viewer {
 
     kyokuSelect!: HTMLSelectElement;
     viewpointSelect!: HTMLSelectElement;
+    debugPanel!: HTMLElement;
     // slider!: HTMLInputElement; // Removed
 
     constructor(containerId: string, log: MjaiEvent[]) {
@@ -21,14 +22,24 @@ export class Viewer {
 
         // Setup DOM Structure
         this.container.innerHTML = '';
+        Object.assign(this.container.style, {
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            width: '100%',
+            maxWidth: '1000px',
+            margin: '0 auto',
+            backgroundColor: '#f8f8f8',
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            paddingBottom: '20px'
+        });
+
         const viewArea = document.createElement('div');
         viewArea.id = `${containerId}-board`;
         Object.assign(viewArea.style, {
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'flex-start', // Align top so it doesn't jump vertically
             width: '100%',
-            overflow: 'auto' // Allow scroll if too small
+            aspectRatio: '1/1'
         });
         this.container.appendChild(viewArea);
 
@@ -43,6 +54,10 @@ export class Viewer {
             borderRadius: '4px'
         });
         this.container.appendChild(this.controlPanel);
+
+        this.debugPanel = document.createElement('div');
+        this.debugPanel.className = 'debug-panel';
+        this.container.appendChild(this.debugPanel);
 
         this.gameState = new GameState(log);
         this.renderer = new Renderer(viewArea);
@@ -178,7 +193,7 @@ export class Viewer {
     }
 
     update() {
-        this.renderer.render(this.gameState.current);
+        this.renderer.render(this.gameState.current, this.debugPanel);
 
         // Sync Kyoku Select
         const checkpoints = this.gameState.getKyokuCheckpoints();
