@@ -7,6 +7,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.15"
 dependencies = [
     "pyyaml>=6.0.3",
+    "ipython",
 ]
 
 [build-system]

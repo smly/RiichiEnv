@@ -1,0 +1,15 @@
+{
+  "name": "riichienv-replay-visualizer",
+  "version": "0.1.0",
+  "description": "Standalone replay viewer for RiichiEnv",
+  "scripts": {
+    "build": "node scripts/gen_tiles.js && esbuild src/index.ts --bundle --minify --outfile=dist/viewer.js --format=iife --global-name=RiichiEnvViewer",
+    "watch": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --global-name=RiichiEnvViewer --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.19.0",
+    "typescript": "^5.3.0"
+  },
+  "author": "",
+  "license": "MIT"
+}
