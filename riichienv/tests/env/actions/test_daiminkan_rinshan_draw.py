@@ -1,6 +1,5 @@
 import riichienv.convert as cvt
-from riichienv import RiichiEnv
-from riichienv.action import Action, ActionType
+from riichienv import Action, ActionType, Phase, RiichiEnv
 
 
 class TestDaiminkan:
@@ -29,7 +28,7 @@ class TestDaiminkan:
 
         env.current_player = p0
         env.active_players = [p0]
-        env.phase = 0  # WaitAct (though step handles transitions)
+        env.phase = Phase.WaitAct
         # Ensure P0 has the tile to discard
         # Hand size must be 14 (13+1) for discard
 
@@ -44,7 +43,7 @@ class TestDaiminkan:
         env.hands = h
 
         # P0 Discards
-        env.step({p0: Action(ActionType.DISCARD, tile=discard_tile)})
+        env.step({p0: Action(ActionType.Discard, tile=discard_tile)})
 
         # P1 Should have legal action DAIMINKAN
         obs = env.get_observations([p1])[p1]
@@ -75,5 +74,3 @@ class TestDaiminkan:
         assert last_event["type"] == "tsumo"
         assert last_event["actor"] == p1
         assert last_event["pai"] == cvt.tid_to_mjai(env.drawn_tile)
-
-        print(">> Verified Daiminkan triggered Rinshan draw:", env.drawn_tile)

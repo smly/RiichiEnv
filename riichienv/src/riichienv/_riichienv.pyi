@@ -1,3 +1,4 @@
+from enum import IntEnum
 from typing import Any
 
 class Wind:
@@ -15,10 +16,9 @@ class MeldType:
     Addgang: MeldType
     def __int__(self) -> int: ...
 
-class Phase:
-    WaitAct: Phase
-    WaitResponse: Phase
-    def __int__(self) -> int: ...
+class Phase(IntEnum):
+    WaitAct = 0
+    WaitResponse = 1
 
 class ActionType:
     Discard: ActionType

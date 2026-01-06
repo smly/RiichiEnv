@@ -1,5 +1,4 @@
-from riichienv import Phase, RiichiEnv
-from riichienv.action import Action, ActionType
+from riichienv import Action, ActionType, Phase, RiichiEnv
 
 
 def test_riichi_pass_action():

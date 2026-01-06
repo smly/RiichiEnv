@@ -1,5 +1,4 @@
-from riichienv import Meld, MeldType, Phase, RiichiEnv, convert
-from riichienv.action import Action, ActionType
+from riichienv import Action, ActionType, Meld, MeldType, Phase, RiichiEnv, convert, parse_hand
 
 
 class TestChankan:
@@ -12,13 +11,14 @@ class TestChankan:
         env.reset()
 
         # Player 0: Performs KAKAN of 1m
-        m1_tiles = [0, 1, 2]
         h = env.hands
-        h[0] = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]  # Unrelated
+        h[0] = list(parse_hand("02346789m01234p")[0])
         env.hands = h
+
         m = env.melds
-        m[0] = [Meld(MeldType.Peng, tiles=m1_tiles, opened=True)]
+        m[0] = [Meld(MeldType.Peng, tiles=[0, 1, 2], opened=True)]
         env.melds = m
+
         env.drawn_tile = 3  # The 4th 1m
 
         # Player 1: Waits for 1m, has Red Dragon Pon for Yaku
@@ -26,18 +26,7 @@ class TestChankan:
         # Wait: 1m (Shanpon wait or similar)
         # Actually let's make it easy: 2m, 3m in hand, wait is 1m, 4m (Ryanmen).
         h = env.hands
-        h[1] = [
-            convert.mpsz_to_tid("2m"),
-            convert.mpsz_to_tid("3m"),
-            convert.mpsz_to_tid("1p"),
-            convert.mpsz_to_tid("1p"),
-            convert.mpsz_to_tid("2p"),
-            convert.mpsz_to_tid("2p"),
-            convert.mpsz_to_tid("3p"),
-            convert.mpsz_to_tid("3p"),
-            convert.mpsz_to_tid("4p"),
-            convert.mpsz_to_tid("4p"),
-        ]
+        h[1] = list(parse_hand("23m11223344p")[0])
         env.hands = h
         # 10 tiles + 3 in meld = 13.
         m = env.melds

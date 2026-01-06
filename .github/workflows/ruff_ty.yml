@@ -30,4 +30,3 @@ jobs:
       run: |
         cd riichienv
         uv run ty check
-

@@ -78,3 +78,7 @@ exclude = ["scripts", "tests"]
 
 [tool.importlinter]
 root_packages = ["riichienv"]
+
+[tool.ty.environment]
+python = "./.venv"
+root = ["./src"]
