@@ -10,37 +10,37 @@ repos:
     hooks:
       - id: rustfmt
         name: rustfmt
-        entry: cargo fmt --manifest-path riichienv/Cargo.toml --all -- --check
+        entry: cargo fmt --manifest-path ./Cargo.toml --all -- --check
         language: system
         types: [rust]
         pass_filenames: false
       - id: clippy
         name: clippy
-        entry: env PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo clippy --manifest-path riichienv/Cargo.toml --all-targets --all-features -- -D warnings
+        entry: env PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo clippy --manifest-path ./Cargo.toml --all-targets --all-features -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false
       - id: ruff-check
         name: ruff-check
-        entry: uv run --directory riichienv ruff check . --fix
+        entry: uv run ruff check . --fix
         language: system
         types: [python]
         pass_filenames: false
       - id: ty-check
         name: ty-check
-        entry: uv run --directory riichienv ty check
+        entry: uv run ty check
         language: system
         types: [python]
         pass_filenames: false
       - id: pytest
         name: pytest
-        entry: uv run --directory riichienv pytest
+        entry: uv run pytest
         language: system
         types: [python]
         pass_filenames: false
       - id: ruff-format
         name: ruff-format
-        entry: uv run --directory riichienv ruff format .
+        entry: uv run ruff format .
         language: system
         types: [python]
         pass_filenames: false

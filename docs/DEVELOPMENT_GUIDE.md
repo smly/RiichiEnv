@@ -12,15 +12,13 @@ Ensure you have the following tools installed:
 
 Install development dependencies:
 ```bash
-cd riichienv
 uv sync --dev
 ```
 
 ## Pre-commit
 
 ```bash
-❯ cd riichienv
-❯ uv run pre-commit run --config ../.pre-commit-config.yaml
+❯ uv run pre-commit run --config .pre-commit-config.yaml
 rustfmt..................................................................Passed
 clippy...................................................................Passed
 ruff-check...............................................................Passed
@@ -40,35 +38,30 @@ ruff-format..............................................................Passed
 ### Compilation Check
 To check if the Rust code compiles:
 ```bash
-cd riichienv
 cargo check
 ```
 
 ### Formatting
 We use `rustfmt`. To format Rust code:
 ```bash
-cd riichienv
 cargo fmt
 ```
 
 ### Linting
 We use `clippy`. To run Rust linters:
 ```bash
-cd riichienv
 cargo clippy
 ```
 
 ### Unit Tests
 To run Rust unit tests:
 ```bash
-cd riichienv
 cargo test
 ```
 
 ### Build
 To build the Python extension (install into `.venv`):
 ```bash
-cd riichienv
 uv run maturin develop
 # For release build (optimized):
 uv run maturin develop --release
@@ -80,14 +73,12 @@ uv run maturin develop --release
 Run the Python test suite using `pytest`:
 
 ```bash
-cd riichienv
 uv run pytest
 ```
 
 ### Formatting
 We use `ruff` for formatting.
 ```bash
-cd riichienv
 uv run ruff format .
 ```
 
@@ -96,7 +87,6 @@ We use `ruff` for linting and `ty` for type checking.
 
 Run Linter:
 ```bash
-cd riichienv
 uv run ruff check .
 # To automatically fix fixable errors:
 uv run ruff check --fix .
@@ -104,7 +94,6 @@ uv run ruff check --fix .
 
 Run Type Checker:
 ```bash
-cd riichienv
 uv run ty check
 ```
 
@@ -114,11 +103,9 @@ To run the Agari calculation benchmark (performance verification):
 
 ```bash
 # Build riichienv in release mode first
-cd riichienv
 uv run maturin develop --release
 
 # Run benchmark from benchmark project
-cd ../benchmark
 uv sync  # Install dependencies (riichienv, mahjong)
 uv run agari
 ```
