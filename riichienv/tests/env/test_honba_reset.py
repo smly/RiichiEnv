@@ -66,7 +66,7 @@ def test_honba_increment_on_oya_win():
     env.needs_tsumo = False
     env.phase = Phase.WaitAct
 
-    env.step({0: Action(ActionType.Tsumo, None, [])})
+    env.step({0: Action(ActionType.Tsumo)})
 
     # Trigger initialization
     env.step({})

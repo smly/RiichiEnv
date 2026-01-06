@@ -45,21 +45,18 @@ pip install riichienv
 
 ## 🚀 Usage
 
-- [X] TODO: Support four-player single round game
-- [X] TODO: Support four-player tonpuu game with red dragons
-- [X] TODO: Support four-player hanchan game with red dragons
 - [ ] TODO: Support four-player hanchan game without red dragons
 - [ ] TODO: Support three-player game rules
 - [ ] TODO: Example codes for reinforcement learning
 
-### Single Round Game
+### Gym-like API
 
 ```python
 from riichienv import RiichiEnv, GameType
 from riichienv.agents import RandomAgent
 
 agent = RandomAgent()
-env = RiichiEnv(game_type=GameType.FOUR_PLAYER_IKKYOKU)
+env = RiichiEnv()
 obs_dict = env.reset()
 while not env.done():
     actions = {player_id: agent.act(obs)
@@ -70,24 +67,29 @@ scores, points, ranks = env.scores(), env.points(), env.ranks()
 print(scores, points, ranks)
 ```
 
-### Hanchan Game
+### Various Game Rules
 
-一般的なオンライン麻雀ルールと共通。喰アリ赤ルール。
+`game_type` キーワード引数にルールセット名を与えることでルールを切り替えることができます。
+最終的に12種類のゲームルールをプリセットとして定義して提供する予定です。
+将来的には飛び終了や1翻縛り、責任払いの無効など、細かいルールをカスタマイズすることができるようにする予定です。
 
-* 喰い断：あり、後付け：あり、飛び：あり
-* 西入サドンデスルール。必要持ち点30000点
-* 1翻縛り
-* 大三元と小四喜のみパオ（責任払い）あり
-* フリテンリーチあり
+| Rule | Players | Rounds | Red Dragons | Available |
+|------|---------|--------|-------------|-----------|
+| `4p-red-single` | 4 | Single | True | ✅️ (Default) |
+| `4p-red-half` | 4 | Half | True | ✅️ |
+| `4p-red-east` | 4 | East | True | ✅️ |
+| `3p-red-single` | 3 | Single | True | not yet |
+| `3p-red-half` | 3 | Half | True | not yet |
+| `3p-red-east` | 3 | East | True | not yet |
 
-`RiichiEnv` の引数 `game_type` を指定することでゲームのルールを切り替え可能。
+例えば4人半荘赤ドラありのルールの場合、以下のように指定します。
 
 ```python
 from riichienv import RiichiEnv, GameType
 from riichienv.agents import RandomAgent
 
 agent = RandomAgent()
-env = RiichiEnv(game_type=GameType.FOUR_PLAYER_HANCHAN)
+env = RiichiEnv(game_type="4p-red-half")
 obs_dict = env.reset()
 while not env.done():
     actions = {player_id: agent.act(obs)
@@ -125,7 +127,7 @@ class MortalAgent:
         assert action is not None, f"No response despite legal actions: {obs.legal_actions()}"
         return action
 
-env = RiichiEnv(game_type=GameType.FOUR_PLAYER_HANCHAN, mjai_mode=True)
+env = RiichiEnv(game_type="4p-red-half", mjai_mode=True)
 agents = {pid: MortalAgent(pid) for pid in range(4)}
 obs_dict = env.reset()
 while not env.done():
