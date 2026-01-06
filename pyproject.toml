@@ -77,7 +77,7 @@ testpaths = ["tests"]
 norecursedirs = ["trunk"]
 
 [tool.ty.src]
-exclude = ["scripts", "tests", "demos", "tools"]
+exclude = ["scripts", "tests", "demos", "tools", "test_verifier_daiminkan.py"]
 
 [tool.importlinter]
 root_packages = ["riichienv"]
