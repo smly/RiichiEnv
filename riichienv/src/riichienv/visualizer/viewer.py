@@ -31,7 +31,7 @@ class MetadataInjector:
         self.round_wind = 0  # 0: East, 1: South, etc.
         self.bakaze_map = {"E": 0, "S": 1, "W": 2, "N": 3}
         self.oya = 0
-        self.riichi_delcared = [False] * 4
+        self.riichi_declared = [False] * 4
         self.tile_counts = {}  # To track unique IDs for string tiles
         self.kyoku_results = []
         self.last_tile: str | None = None
@@ -94,7 +94,7 @@ class MetadataInjector:
                 self.dora_markers = [self._get_tid(ev["dora_marker"])]
                 self.round_wind = self.bakaze_map.get(ev.get("bakaze", "E"), 0)
                 self.oya = ev.get("oya", 0)
-                self.riichi_delcared = [False] * 4
+                self.riichi_declared = [False] * 4
                 self.hands = {0: [], 1: [], 2: [], 3: []}
                 self.melds = {0: [], 1: [], 2: [], 3: []}
                 self.kyoku_results = []
@@ -136,7 +136,7 @@ class MetadataInjector:
                     ev["meta"]["waits"] = waits
 
                 if ev.get("reach"):
-                    self.riichi_delcared[actor] = True
+                    self.riichi_declared[actor] = True
                     self.ippatsu_eligible[actor] = True
 
                 # If anyone discards, first round might be over
@@ -250,7 +250,7 @@ class MetadataInjector:
 
                 cond = Conditions(
                     tsumo=is_tsumo,
-                    riichi=self.riichi_delcared[actor],
+                    riichi=self.riichi_declared[actor],
                     ippatsu=self.ippatsu_eligible[actor],
                     rinshan=self.is_rinshan if is_tsumo else False,
                     chankan=self.is_chankan if not is_tsumo else False,
