@@ -5,8 +5,7 @@ agent = RandomAgent()
 env = RiichiEnv(game_type="4p-red-half")
 obs_dict = env.reset()
 while not env.done():
-    actions = {player_id: agent.act(obs)
-               for player_id, obs in obs_dict.items()}
+    actions = {player_id: agent.act(obs) for player_id, obs in obs_dict.items()}
     obs_dict = env.step(actions)
 
 scores, points, ranks = env.scores(), env.points(), env.ranks()
