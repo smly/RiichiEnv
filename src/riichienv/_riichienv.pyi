@@ -193,7 +193,7 @@ class RiichiEnv:
     melds: list[list[Meld]]
     missed_agari_doujun: list[bool]
     missed_agari_riichi: list[bool]
-    mjai_mode: bool
+    skip_mjai_logging: bool  # If True, disables MJAI event logging for performance.
     nagashi_eligible: list[bool]
     needs_initialize_next_round: bool
     pending_is_draw: bool
@@ -217,7 +217,7 @@ class RiichiEnv:
     def __init__(
         self,
         game_type: int | str | None = None,
-        mjai_mode: bool = True,
+        skip_mjai_logging: bool = False,  # If True, disables MJAI logging (required for visualizer).
         seed: int | None = None,
         round_wind: int | None = None,
     ): ...

@@ -166,7 +166,7 @@ class MortalAgent:
         assert action is not None, "Mortal must return a legal action"
         return action
 
-env = RiichiEnv(game_type="4p-red-half", mjai_mode=True)
+env = RiichiEnv(game_type="4p-red-half")
 agents = {pid: MortalAgent(pid) for pid in range(4)}
 obs_dict = env.reset()
 while not env.done():
@@ -216,6 +216,7 @@ For more architectural details and contribution guidelines, see [CONTRIBUTING.md
 - [ ] Add support for more game rules.
 - [ ] Add example codes for training agents.
 - [ ] Add high-level mahjong domain API for training agents.
+- [ ] Optimize training performance (e.g., `skip_mjai_logging`, `batch_act`, etc.).
 - [ ] Add interface for batch training.
 - [ ] Add arena mode for evaluating agents.
 

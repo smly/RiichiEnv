@@ -3,7 +3,7 @@ from riichienv import Action, ActionType, Meld, MeldType, RiichiEnv
 
 def test_kyushu_kyuhai():
     # Use YON_IKKYOKU (0) to ensure game ends after one kyoku
-    env = RiichiEnv(game_type=0, mjai_mode=True)
+    env = RiichiEnv(game_type=0, skip_mjai_logging=False)
     env.reset()
 
     # Setup player 0 with 9 unique terminals/honors
@@ -44,7 +44,7 @@ def test_kyushu_kyuhai():
 
 
 def test_kyushu_kyuhai_not_available_after_meld():
-    env = RiichiEnv(mjai_mode=True)
+    env = RiichiEnv(skip_mjai_logging=False)
     env.reset()
 
     terminal_tids = [0, 8 * 4, 9 * 4, 17 * 4, 18 * 4, 26 * 4, 27 * 4, 28 * 4, 29 * 4]
