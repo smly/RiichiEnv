@@ -204,11 +204,11 @@ Standardize between various tile formats (136-tile, MPSZ, MJAI) and easily parse
 
 ```
 
-See [DATA_REPRESENTATION.md](DATA_REPRESENTATION.md) for more details.
+See [DATA_REPRESENTATION.md](docs/DATA_REPRESENTATION.md) for more details.
 
 ## 🛠 Development
 
-For more architectural details and contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md) and [DEVELOPMENT.md](DEVELOPMENT.md).
+For more architectural details and contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md) and [DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md).
 
 ## Further Development Plan
 
