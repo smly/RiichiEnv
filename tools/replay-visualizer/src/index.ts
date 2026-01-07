@@ -6,10 +6,8 @@ export class Viewer {
     gameState: GameState;
     renderer: Renderer;
     container: HTMLElement;
-    controlPanel: HTMLElement;
     log: MjaiEvent[];
 
-    kyokuSelect!: HTMLSelectElement;
     debugPanel!: HTMLElement;
     // slider!: HTMLInputElement; // Removed
 
@@ -43,18 +41,6 @@ export class Viewer {
         });
         this.container.appendChild(viewArea);
 
-        this.controlPanel = document.createElement('div');
-        Object.assign(this.controlPanel.style, {
-            display: 'flex',
-            gap: '10px',
-            justifyContent: 'center',
-            marginTop: '10px',
-            padding: '10px',
-            backgroundColor: '#f0f0f0',
-            borderRadius: '4px'
-        });
-        this.container.appendChild(this.controlPanel);
-
         this.debugPanel = document.createElement('div');
         this.debugPanel.className = 'debug-panel';
         viewArea.appendChild(this.debugPanel); // Append to board area for overlay
@@ -85,7 +71,13 @@ export class Viewer {
             }
         };
 
-        this.initControls();
+        this.update();
+
+        // Handle Center Click -> Show Round Selector
+        this.renderer.onCenterClick = () => {
+            this.showRoundSelector();
+        };
+
         this.update();
 
         // Mouse Wheel Navigation
@@ -97,126 +89,94 @@ export class Viewer {
                 if (this.gameState.stepBackward()) this.update();
             }
         }, { passive: false });
+
+        // Responsive Scaling
+        if ('ResizeObserver' in window) {
+            const ro = new ResizeObserver(entries => {
+                for (const entry of entries) {
+                    this.renderer.resize(entry.contentRect.width);
+                }
+            });
+            ro.observe(viewArea);
+        } else {
+            // Fallback for very old browsers
+            window.addEventListener('resize', () => {
+                this.renderer.resize(viewArea.clientWidth);
+            });
+            setTimeout(() => this.renderer.resize(viewArea.clientWidth), 0);
+        }
     }
 
-    initControls() {
-        this.controlPanel.innerHTML = '';
-        this.controlPanel.style.flexDirection = 'column';
-        this.controlPanel.style.alignItems = 'center';
-
-        const rowStyle = "display: flex; gap: 10px; align-items: center; justify-content: center; margin-bottom: 8px; flex-wrap: wrap;";
-        const btnStyle = "padding: 6px 12px; cursor: pointer; border: 1px solid #ccc; background: white; border-radius: 4px; font-weight: bold; font-family: sans-serif; user-select: none;";
-
-        const createBtn = (lbl: string, cb: () => void, title?: string) => {
-            const b = document.createElement('button');
-            b.textContent = lbl;
-            b.style.cssText = btnStyle;
-            b.onclick = cb;
-            if (title) b.title = title;
-            return b;
+    showRoundSelector() {
+        // Create Modal Overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.onclick = () => {
+            overlay.remove();
         };
 
-        // --- Row 1: Turn Navigation ---
-        const navRow = document.createElement('div');
-        navRow.style.cssText = rowStyle;
+        const content = document.createElement('div');
+        content.className = 'modal-content';
+        content.onclick = (e) => e.stopPropagation();
 
-        const prevTurn = createBtn('<< Turn', () => {
-            this.gameState.stepTurn(false, this.renderer.viewpoint);
-            this.update();
-        }, "Previous Turn (Viewpoint Player)");
+        const title = document.createElement('h3');
+        title.textContent = 'Jump to Round';
+        title.style.marginTop = '0';
+        content.appendChild(title);
 
-        const prevStep = createBtn('< Step', () => {
-            if (this.gameState.stepBackward()) this.update();
-        });
+        const table = document.createElement('table');
+        table.className = 'kyoku-table';
 
-        const nextStep = createBtn('Step >', () => {
-            if (this.gameState.stepForward()) this.update();
-        });
+        // Header
+        const thead = document.createElement('thead');
+        thead.innerHTML = `
+            <tr>
+                <th>Round</th>
+                <th>Honba</th>
+                <th>P0 Score</th>
+                <th>P1 Score</th>
+                <th>P2 Score</th>
+                <th>P3 Score</th>
+            </tr>
+        `;
+        table.appendChild(thead);
 
-        const nextTurn = createBtn('Turn >>', () => {
-            this.gameState.stepTurn(true, this.renderer.viewpoint);
-            this.update();
-        }, "Next Turn (Viewpoint Player)");
-
-        navRow.appendChild(prevTurn);
-        navRow.appendChild(prevStep);
-        navRow.appendChild(nextStep);
-        navRow.appendChild(nextTurn);
-
-        // --- Row 2: Kyoku & Viewpoint ---
-        const metaRow = document.createElement('div');
-        metaRow.style.cssText = rowStyle;
-
-        // Kyoku Select
-        const kyokuSel = document.createElement('select');
-        kyokuSel.style.padding = '5px';
-        kyokuSel.style.borderRadius = '4px';
+        // Body
+        const tbody = document.createElement('tbody');
         const checkpoints = this.gameState.getKyokuCheckpoints();
 
-        const startOpt = document.createElement('option');
-        startOpt.value = '0';
-        startOpt.text = 'Start Game';
-        kyokuSel.appendChild(startOpt);
-
         checkpoints.forEach((cp) => {
-            const opt = document.createElement('option');
-            opt.value = cp.index.toString();
-            opt.text = `${this.renderer.formatRound(cp.round)} - ${cp.honba} Honba`;
-            kyokuSel.appendChild(opt);
-        });
-        kyokuSel.onchange = () => {
-            this.gameState.jumpTo(parseInt(kyokuSel.value));
-            this.update();
-        };
-        this.kyokuSelect = kyokuSel;
-
-        // Prev/Next Kyoku Buttons
-        const prevKyoku = createBtn('Prev Kyoku', () => {
-            let target = 0;
-            for (const cp of checkpoints) {
-                if (cp.index < this.gameState.cursor - 5) {
-                    target = cp.index;
-                } else {
-                    break;
-                }
-            }
-            this.gameState.jumpTo(target);
-            this.update();
-        });
-
-        const nextKyoku = createBtn('Next Kyoku', () => {
-            const nextCp = checkpoints.find(cp => cp.index > this.gameState.cursor);
-            if (nextCp) {
-                this.gameState.jumpTo(nextCp.index);
+            const tr = document.createElement('tr');
+            tr.className = 'kyoku-row';
+            tr.onclick = () => {
+                this.gameState.jumpTo(cp.index);
                 this.update();
-            }
+                overlay.remove();
+            };
+
+            const scores = cp.scores || [0, 0, 0, 0];
+            tr.innerHTML = `
+                <td>${this.renderer.formatRound(cp.round)}</td>
+                <td>${cp.honba}</td>
+                <td>${scores[0]}</td>
+                <td>${scores[1]}</td>
+                <td>${scores[2]}</td>
+                <td>${scores[3]}</td>
+            `;
+            tbody.appendChild(tr);
         });
+        table.appendChild(tbody);
+        content.appendChild(table);
 
-        metaRow.appendChild(prevKyoku);
-        metaRow.appendChild(kyokuSel);
-        metaRow.appendChild(nextKyoku);
+        overlay.appendChild(content);
 
-        this.controlPanel.appendChild(navRow);
-        this.controlPanel.appendChild(metaRow);
+        // Append to viewArea so it sits over the board
+        const viewArea = this.container.querySelector('#' + this.container.id + '-board') || this.container;
+        viewArea.appendChild(overlay);
     }
 
     update() {
         this.renderer.render(this.gameState.current, this.debugPanel);
-
-        // Sync Kyoku Select
-        const checkpoints = this.gameState.getKyokuCheckpoints();
-        // Find checkpoint <= cursor
-        let activeIndex = 0;
-        for (const cp of checkpoints) {
-            if (cp.index <= this.gameState.cursor) {
-                activeIndex = cp.index;
-            } else {
-                break;
-            }
-        }
-        if (this.kyokuSelect) {
-            this.kyokuSelect.value = activeIndex.toString();
-        }
     }
 }
 

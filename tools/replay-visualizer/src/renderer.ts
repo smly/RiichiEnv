@@ -218,6 +218,57 @@ export class Renderer {
                 .active-viewpoint {
                     border: 1px solid #ffd700;
                 }
+                .center-info {
+                    cursor: pointer;
+                    transition: transform 0.2s, background-color 0.2s;
+                }
+                .center-info:hover {
+                    transform: translate(-50%, -50%) scale(1.05) !important;
+                    background-color: #2a4d25 !important;
+                }
+                .modal-overlay {
+                    position: absolute;
+                    top: 0; left: 0;
+                    width: 100%;
+                    height: 100%;
+                    box-sizing: border-box;
+                    background: rgba(0,0,0,0.6);
+                    z-index: 9999;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    transform: none !important; /* Force reset to avoid inheritance issues */
+                }
+                .modal-content {
+                    background: #0d1f0d;
+                    color: #fff;
+                    padding: 20px;
+                    border-radius: 8px;
+                    max-width: 90%;
+                    max-height: 80%;
+                    overflow-y: auto;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.8);
+                    border: 1px solid #2a4d25;
+                }
+                .kyoku-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 14px;
+                }
+                .kyoku-table th, .kyoku-table td {
+                    border: 1px solid #2a4d25;
+                    padding: 8px;
+                    text-align: center;
+                }
+                .kyoku-table th {
+                    background-color: #1a3317;
+                    position: sticky;
+                    top: 0;
+                }
+                .kyoku-row:hover {
+                    background-color: #2a4d25;
+                    cursor: pointer;
+                }
             `;
             document.head.appendChild(style);
         }
@@ -225,6 +276,14 @@ export class Renderer {
     }
 
     onViewpointChange: ((pIdx: number) => void) | null = null;
+    onCenterClick: (() => void) | null = null;
+    private readonly BASE_SIZE = 800;
+
+    resize(width: number) {
+        if (!this.boardElement) return;
+        const scale = width / this.BASE_SIZE;
+        this.boardElement.style.transform = `translate(-50%, -50%) scale(${scale})`;
+    }
 
     getTileHtml(tileStr: string): string {
         if (tileStr === 'back') {
@@ -251,6 +310,15 @@ export class Renderer {
         if (!this.boardElement) {
             this.boardElement = document.createElement('div');
             this.boardElement.className = 'mahjong-board';
+            Object.assign(this.boardElement.style, {
+                width: `${this.BASE_SIZE}px`,
+                height: `${this.BASE_SIZE}px`,
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)', // Initial transform, will be overridden by resize
+                transformOrigin: 'center center'
+            });
             this.container.appendChild(this.boardElement);
         }
         const board = this.boardElement;
@@ -275,6 +343,11 @@ export class Renderer {
             boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
             minWidth: '120px'
         });
+
+        center.onclick = (e) => {
+            e.stopPropagation();
+            if (this.onCenterClick) this.onCenterClick();
+        };
 
         center.innerHTML = `
             <div style="font-size: 1.2em; font-weight: bold; margin-bottom: 5px;">

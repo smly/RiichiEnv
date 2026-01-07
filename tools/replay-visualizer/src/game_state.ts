@@ -70,14 +70,15 @@ export class GameState {
     }
 
     // Returns list of indices where new rounds start
-    getKyokuCheckpoints(): { index: number, round: number, honba: number }[] {
-        const checkpoints: { index: number, round: number, honba: number }[] = [];
+    getKyokuCheckpoints(): { index: number, round: number, honba: number, scores: number[] }[] {
+        const checkpoints: { index: number, round: number, honba: number, scores: number[] }[] = [];
         this.events.forEach((e, i) => {
             if (e.type === 'start_kyoku') {
                 checkpoints.push({
                     index: i,
-                    round: (e.kyoku || 1) - 1,
-                    honba: e.honba || 0
+                    round: this.getRoundIndex(e),
+                    honba: e.honba || 0,
+                    scores: e.scores || [25000, 25000, 25000, 25000]
                 });
             }
         });
@@ -170,12 +171,22 @@ export class GameState {
         this.current = this.initialState();
     }
 
+    private getRoundIndex(e: MjaiEvent): number {
+        const kyoku = (e.kyoku || 1) - 1;
+        const bakaze = e.bakaze || 'E';
+        let offset = 0;
+        if (bakaze === 'S') offset = 4;
+        else if (bakaze === 'W') offset = 8;
+        else if (bakaze === 'N') offset = 12;
+        return offset + kyoku;
+    }
+
     processEvent(e: MjaiEvent) {
         switch (e.type) {
             case 'start_game':
                 break;
             case 'start_kyoku':
-                this.current.round = (e.kyoku || 1) - 1;
+                this.current.round = this.getRoundIndex(e);
                 this.current.honba = e.honba || 0;
                 this.current.kyotaku = e.kyotaku || 0;
                 this.current.doraMarkers = [e.dora_marker];
