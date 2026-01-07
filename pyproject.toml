@@ -1,10 +1,24 @@
 [project]
 name = "riichienv"
 version = "0.1.0"
+authors = [
+    { name="Kohei Ozaki", email="19337+smly@users.noreply.github.com" },
+]
 description = "A High-Performance Research Environment for Riichi Mahjong"
 readme = "README.md"
 # PyO3 0.27 supports Python 3.14
 requires-python = ">=3.10,<3.15"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
+[project.urls]
+Homepage = "https://github.com/smly/RiichiEnv"
+Issues = "https://github.com/smly/RiichiEnv/issues"
+
 dependencies = [
     "pyyaml>=6.0.3",
     "ipython",
