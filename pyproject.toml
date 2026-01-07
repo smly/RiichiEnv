@@ -1,6 +1,6 @@
 [project]
 name = "riichienv"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
     { name="Kohei Ozaki", email="19337+smly@users.noreply.github.com" },
 ]

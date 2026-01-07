@@ -21,8 +21,6 @@ jobs:
           - runner: ubuntu-latest
             target: aarch64
           - runner: ubuntu-latest
-            target: armv7
-          - runner: ubuntu-latest
             target: s390x
           - runner: ubuntu-latest
             target: ppc64le
@@ -55,8 +53,6 @@ jobs:
             target: x86
           - runner: ubuntu-latest
             target: aarch64
-          - runner: ubuntu-latest
-            target: armv7
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -107,8 +103,6 @@ jobs:
     strategy:
       matrix:
         platform:
-          - runner: macos-13
-            target: x86_64
           - runner: macos-14
             target: aarch64
     steps:
@@ -165,8 +159,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish to PyPI
         uses: PyO3/maturin-action@v1
-        env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         with:
           command: upload
           args: --non-interactive --skip-existing dist/*

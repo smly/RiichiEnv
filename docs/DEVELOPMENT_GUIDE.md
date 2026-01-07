@@ -137,21 +137,22 @@ This project uses an automated GitHub Actions workflow for releases.
 
 ### 1. Prerequisites
 - You need a PyPI account.
-- **Trusted Publisher Setup**:
-  1. Go to your Project settings on PyPI (or Add a new pending publisher).
-  2. Select **GitHub** as the publisher.
-  3. Enter `pypi` as the **Environment name**.
-  4. The workflow name is `release.yml`, and the job name (optional) can be left blank or set to `release`.
+- **Trusted Publisher Setup** (Recommended, no token needed):
+  1. Go to your [PyPI Publishing settings](https://pypi.org/manage/account/publishing/).
+  2. If the project doesn't exist on PyPI yet, select **Add a new pending publisher**.
+  3. **Project Name**: `riichienv`
+  4. **Owner**: Your GitHub username or organization name.
+  5. **Repository name**: `RiichiEnv`
+  6. **Workflow name**: `release.yml`
+  7. **Environment name**: `pypi`
+  8. Click **Add**.
 
 ### 2. Configure GitHub Settings
-1. **Secrets**:
-   - Go to **Settings** > **Secrets and variables** > **Actions**.
-   - Create a repository secret `PYPI_API_TOKEN` (if using token-based auth) OR ensure your Trusted Publisher setup corresponds to this repo.
-   
-2. **Environments**:
-   - Go to **Settings** > **Environments**.
+1. **Environments**:
+   - Go to your repository **Settings** > **Environments**.
    - Create a new environment named `pypi`.
    - (Optional) Configure "Required reviewers" to require manual approval before publishing.
+   - **Note**: You do *not* need to set `PYPI_API_TOKEN` secret if using Trusted Publisher.
 
 ### 3. Creating a Release
 To publish a new version:
