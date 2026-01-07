@@ -130,3 +130,40 @@ Format: `<type>(<scope>): <subject>`
 - `feat(env): add Kyoku.events serialization`
 - `fix(score): correct ura dora calculation`
 - `docs(readme): update installation instructions`
+
+## Release Process
+
+This project uses an automated GitHub Actions workflow for releases.
+
+### 1. Prerequisites
+- You need a PyPI account.
+- Generate a **Trusted Publisher** token or an API token on PyPI.
+
+### 2. Configure GitHub Secrets
+1. Go to your repository on GitHub.
+2. Navigate to **Settings** > **Secrets and variables** > **Actions**.
+3. Create a new repository secret named `PYPI_API_TOKEN`.
+4. Paste your PyPI API token as the value.
+
+### 3. Creating a Release
+To publish a new version:
+
+1. Update the version number in `pyproject.toml` (e.g., `0.1.0` -> `0.1.1`).
+2. Update the version in `Cargo.toml` (under `[package]` in `native/Cargo.toml`) if necessary, though `maturin` often handles the mismatch or you should keep them in sync.
+3. Commit the changes:
+   ```bash
+   git add pyproject.toml native/Cargo.toml
+   git commit -m "chore: bump version to 0.1.1"
+   git push
+   ```
+4. Create and push a tag starting with `v`:
+   ```bash
+   git tag v0.1.1
+   git push origin v0.1.1
+   ```
+
+The GitHub Actions workflow will automatically:
+- Build wheels for Linux, Windows, and macOS.
+- Create a GitHub Release with the changelog.
+- Upload the binary artifacts to the GitHub Release.
+- Publish the package to PyPI.
