@@ -155,20 +155,40 @@ export class Renderer {
                 }
 
                 .debug-panel {
-                    background: #222;
+                    position: absolute;
+                    top: 10px;
+                    left: 10px;
+                    background: rgba(0, 0, 0, 0.7);
                     color: #0f0;
                     font-family: monospace;
                     padding: 10px;
                     border-radius: 4px;
                     font-size: 11px;
-                    width: 100%;
-                    min-height: 100px;
-                    max-height: 250px;
-                    overflow: auto;
-                    margin-top: 10px;
+                    width: 300px;
+                    max-height: 200px;
+                    overflow-y: scroll;
                     white-space: pre-wrap;
                     box-sizing: border-box;
                     border: 1px solid #444;
+                    z-index: 500;
+                    display: none; /* Hidden by default, toggled by JS */
+                }
+
+                .log-toggle-btn {
+                    position: absolute;
+                    bottom: 10px;
+                    right: 10px;
+                    background: rgba(255, 255, 255, 0.8);
+                    border: 1px solid #999;
+                    border-radius: 4px;
+                    padding: 5px 10px;
+                    cursor: pointer;
+                    font-weight: bold;
+                    z-index: 501;
+                    user-select: none;
+                }
+                .log-toggle-btn:hover {
+                    background: #fff;
                 }
 
                 @keyframes popIn {

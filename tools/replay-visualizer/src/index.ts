@@ -39,7 +39,8 @@ export class Viewer {
         viewArea.id = `${containerId}-board`;
         Object.assign(viewArea.style, {
             width: '100%',
-            aspectRatio: '1/1'
+            aspectRatio: '1/1',
+            position: 'relative' // Needed for overlay positioning
         });
         this.container.appendChild(viewArea);
 
@@ -57,13 +58,38 @@ export class Viewer {
 
         this.debugPanel = document.createElement('div');
         this.debugPanel.className = 'debug-panel';
-        this.container.appendChild(this.debugPanel);
+        viewArea.appendChild(this.debugPanel); // Append to board area for overlay
+
+        // Toggle Button
+        const toggleBtn = document.createElement('div');
+        toggleBtn.className = 'log-toggle-btn';
+        toggleBtn.textContent = 'Show Log';
+        toggleBtn.onclick = () => {
+            if (this.debugPanel.style.display === 'none' || !this.debugPanel.style.display) {
+                this.debugPanel.style.display = 'block';
+                toggleBtn.textContent = 'Hide Log';
+            } else {
+                this.debugPanel.style.display = 'none';
+                toggleBtn.textContent = 'Show Log';
+            }
+        };
+        viewArea.appendChild(toggleBtn);
 
         this.gameState = new GameState(log);
         this.renderer = new Renderer(viewArea);
 
         this.initControls();
         this.update();
+
+        // Mouse Wheel Navigation
+        viewArea.addEventListener('wheel', (e: WheelEvent) => {
+            e.preventDefault();
+            if (e.deltaY > 0) {
+                if (this.gameState.stepForward()) this.update();
+            } else {
+                if (this.gameState.stepBackward()) this.update();
+            }
+        }, { passive: false });
     }
 
     initControls() {

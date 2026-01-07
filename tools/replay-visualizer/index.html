@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RiichiEnv Viewer Dev</title>
+</head>
+<body>
+    <div id="viewer-container" style="width: 100%; min-height: 600px; border: 1px solid #ddd;"></div>
+    
+    <!-- Load the built viewer script -->
+    <script src="dist/viewer.js"></script>
+    
+    <script>
+        async function loadReplay() {
+            try {
+                // Fetch the example log
+                const response = await fetch('example_log_b124_m244_0.jsonl');
+                const text = await response.text();
+                
+                // Parse JSONL
+                const events = text.trim().split('\n').map(line => JSON.parse(line));
+                
+                // Initialize Viewer
+                // The viewer script exposes RiichiEnvViewer globally
+                if (window.RiichiEnvViewer) {
+                    new window.RiichiEnvViewer('viewer-container', events);
+                } else {
+                    console.error('RiichiEnvViewer not found');
+                }
+            } catch (err) {
+                console.error('Failed to load replay:', err);
+                document.body.innerHTML += `<div style="color: red;">Error: ${err.message}</div>`;
+            }
+        }
+
+        loadReplay();
+    </script>
+</body>
+</html>
