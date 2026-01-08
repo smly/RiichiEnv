@@ -800,8 +800,9 @@ impl RiichiEnv {
             skip_mjai_logging,
             seed,
             forbidden_discards: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
-            rule: rule.unwrap_or(crate::rule::GameRule::default()),
+            rule: rule.unwrap_or_default(),
         };
+        #[allow(deprecated)]
         Python::with_gil(|py| env.reset(py, None, None, round_wind, None, None, None, seed))?;
         Ok(env)
     }
