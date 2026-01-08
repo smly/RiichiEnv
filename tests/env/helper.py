@@ -52,12 +52,7 @@ def helper_setup_env(
     if riichi_declared is not None:
         env.riichi_declared = riichi_declared
     if points is not None:
-        # points in helper seems to mean raw scores (tenbou)
         env.set_scores(points)
-
-    # Use set_state for restricted fields
-    # oya, round_wind, honba are restricted.
-    # Check if we have values to set.
     if oya is not None or round_wind is not None:
         env.set_state(oya=oya, round_wind=round_wind)
 

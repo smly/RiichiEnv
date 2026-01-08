@@ -14,7 +14,6 @@ def test_oyayame_tiebreak_extension():
         round_wind=2,  # West
         points=[35000, 35000, 15000, 15000],
     )
-    # env.rule was legacy assignment. StandardGameMode stores logic.
 
     # Verify rank
     # ranks() returns 1-based ranks. [1, 2, 3, 4] means P0 is 1st, P1 is 2nd, etc.
