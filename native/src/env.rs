@@ -343,12 +343,18 @@ pub struct RiichiEnv {
     #[pyo3(get, set)]
     pub pending_kan: Option<(u8, Action)>,
 
+    /// Dealer (oya): Which player (0-3) is currently the dealer
     #[pyo3(get, set)]
     pub oya: u8,
     #[pyo3(get, set)]
     pub honba: u8, // Added
+    /// Round number within current wind (0-3 for rounds 1-4 of East/South/etc.)
+    /// In standard play, this equals oya, but they represent different concepts:
+    /// - oya = which player is dealer
+    /// - kyoku_idx = which round number (e.g., East 1 vs East 2)
     #[pyo3(get, set)]
     pub kyoku_idx: u8,
+    /// Wind round (bakaze): 0=East, 1=South, 2=West, 3=North
     #[pyo3(get, set)]
     pub round_wind: u8,
     // ...
@@ -593,23 +599,35 @@ impl RiichiEnv {
         let mut next_honba = self.honba;
         let mut next_oya = self.oya;
         let mut next_round_wind = self.round_wind;
+        let mut next_kyoku_idx = self.kyoku_idx;
 
         if oya_won {
             // Renchan (Oya Win or Oya Tenpai in Draw)
+            // Dealer stays the same, round number stays the same
             next_honba = next_honba.saturating_add(1);
         } else if is_draw {
             // Ryukyoku, Oya Nontenpai -> Rotate but keep sticks (honba + 1)
             next_honba = next_honba.saturating_add(1);
             next_oya = (next_oya + 1) % 4;
             if next_oya == 0 {
+                // Entering new wind round, reset kyoku_idx
                 next_round_wind += 1;
+                next_kyoku_idx = 0;
+            } else {
+                // Still in same wind, increment kyoku_idx
+                next_kyoku_idx = (next_kyoku_idx + 1) % 4;
             }
         } else {
             // Ko Win -> Rotate, clear honba
             next_honba = 0;
             next_oya = (next_oya + 1) % 4;
             if next_oya == 0 {
+                // Entering new wind round, reset kyoku_idx
                 next_round_wind += 1;
+                next_kyoku_idx = 0;
+            } else {
+                // Still in same wind, increment kyoku_idx
+                next_kyoku_idx = (next_kyoku_idx + 1) % 4;
             }
         }
 
@@ -675,6 +693,7 @@ impl RiichiEnv {
         let next_sticks = self.riichi_sticks;
         self._initialize_round(
             next_oya,
+            next_kyoku_idx,
             next_round_wind,
             next_honba,
             next_sticks,
@@ -917,8 +936,13 @@ impl RiichiEnv {
         self.last_agari_results = HashMap::new();
         self.round_end_scores = None;
 
+        let oya_val = oya.unwrap_or(self.oya);
+        // In standard play, kyoku_idx equals oya for sequential dealer rotation
+        let kyoku_idx_val = oya_val;
+
         self._initialize_round(
-            oya.unwrap_or(self.oya),
+            oya_val,
+            kyoku_idx_val,
             bakaze.unwrap_or(self.round_wind),
             honba.unwrap_or(self.honba),
             kyotaku.unwrap_or(self.riichi_sticks),
@@ -2480,6 +2504,7 @@ impl RiichiEnv {
     fn _initialize_round(
         &mut self,
         oya: u8,
+        kyoku_idx: u8,
         bakaze: u8,
         honba: u8,
         kyotaku: u32,
@@ -2487,7 +2512,10 @@ impl RiichiEnv {
         scores: Option<[i32; 4]>,
     ) {
         self.oya = oya;
-        self.kyoku_idx = oya; // Update kyoku_idx to match oya
+        // Set kyoku_idx explicitly - represents round number within current wind (0-3)
+        // In standard play where dealer rotates sequentially, kyoku_idx equals oya,
+        // but they represent different concepts semantically
+        self.kyoku_idx = kyoku_idx;
         self.honba = honba;
         self.riichi_sticks = kyotaku; // Initialize sticks
         self.round_wind = bakaze;
