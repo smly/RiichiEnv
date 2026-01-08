@@ -293,10 +293,13 @@ impl Observation {
 #[derive(Debug, Clone)]
 pub struct RiichiEnv {
     // Game State
+    #[pyo3(get, set)]
     pub wall: Vec<u8>,
+    #[pyo3(get, set)]
     pub hands: [Vec<u8>; 4],
     #[pyo3(get, set)]
     pub melds: [Vec<Meld>; 4],
+    #[pyo3(get, set)]
     pub discards: [Vec<u8>; 4],
     #[pyo3(get, set)]
     pub current_player: u8,
@@ -312,7 +315,7 @@ pub struct RiichiEnv {
     pub pending_oya_won: bool,
     #[pyo3(get, set)]
     pub pending_is_draw: bool,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub scores: [i32; 4],
     #[pyo3(get, set)]
     pub score_deltas: [i32; 4],
@@ -340,11 +343,11 @@ pub struct RiichiEnv {
     #[pyo3(get, set)]
     pub pending_kan: Option<(u8, Action)>,
 
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub oya: u8,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub honba: u8, // Added
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub kyoku_idx: u8,
     #[pyo3(get)]
     pub round_wind: u8,
@@ -384,7 +387,9 @@ pub struct RiichiEnv {
     pub round_end_scores: Option<[i32; 4]>,
     pub forbidden_discards: [Vec<u8>; 4],
 
+    #[pyo3(get)]
     pub mjai_log: Vec<String>,
+    #[pyo3(get)]
     pub mjai_log_per_player: [Vec<String>; 4],
     #[pyo3(get)]
     pub player_event_counts: [usize; 4],
@@ -401,9 +406,12 @@ pub struct RiichiEnv {
 }
 
 impl RiichiEnv {
-    fn _trigger_ryukyoku(&mut self, reason: &str) {
+    pub(crate) fn _trigger_ryukyoku(&mut self, reason: &str) {
         self._accept_riichi(); // Ensure riichi sticks are collected if pending
         let mut tenpai = [false; 4];
+        let mut final_reason = reason.to_string();
+        let mut nagashi_winners = Vec::new();
+
         if reason == "exhaustive_draw" {
             for (i, tp) in tenpai.iter_mut().enumerate() {
                 let hand = &self.hands[i];
@@ -416,7 +424,6 @@ impl RiichiEnv {
             }
 
             // Nagashi Mangan
-            let mut nagashi_winners = Vec::new();
             for (i, &eligible) in self.nagashi_eligible.iter().enumerate() {
                 if eligible {
                     nagashi_winners.push(i as u8);
@@ -424,6 +431,7 @@ impl RiichiEnv {
             }
 
             if !nagashi_winners.is_empty() {
+                final_reason = "nagashimangan".to_string();
                 for &winner in &nagashi_winners {
                     let is_oya = winner == self.oya;
                     let mut deltas = [0; 4];
@@ -447,13 +455,6 @@ impl RiichiEnv {
                         self.score_deltas[i] += d;
                     }
                 }
-                let mut ev = serde_json::Map::new();
-                ev.insert("type".to_string(), Value::String("ryukyoku".to_string()));
-                ev.insert(
-                    "reason".to_string(),
-                    Value::String("nagashimangan".to_string()),
-                );
-                self._push_mjai_event(Value::Object(ev));
             } else {
                 let num_tp = tenpai.iter().filter(|&&t| t).count();
                 if (1..=3).contains(&num_tp) {
@@ -470,13 +471,17 @@ impl RiichiEnv {
 
         let mut ev = serde_json::Map::new();
         ev.insert("type".to_string(), Value::String("ryukyoku".to_string()));
-        ev.insert("reason".to_string(), Value::String(reason.to_string()));
+        ev.insert("reason".to_string(), Value::String(final_reason.clone()));
         self._push_mjai_event(Value::Object(ev));
 
         let mut is_renchan = false;
-        if reason == "exhaustive_draw" {
+        if final_reason == "exhaustive_draw" {
             is_renchan = tenpai[self.oya as usize];
-        } else if ["kyushu_kyuhai", "suurechi", "suukansansen", "sufuurenta"].contains(&reason) {
+        } else if final_reason == "nagashimangan" {
+            is_renchan = nagashi_winners.contains(&self.oya);
+        } else if ["kyushu_kyuhai", "suurechi", "suukansansen", "sufuurenta"]
+            .contains(&final_reason.as_str())
+        {
             is_renchan = true;
         }
 
@@ -487,19 +492,28 @@ impl RiichiEnv {
         if self.scores.iter().any(|&s| s < 0) {
             return true;
         }
+        let max_score = self.scores.iter().cloned().max().unwrap_or(0);
+
         if self.game_type == 1 || self.game_type == 4 {
             // Tonpu
-            if self.round_wind > 0 {
-                return true;
+            if self.round_wind >= 1 {
+                // If South (1), check if sudden death conditions met (score < 30000).
+                // If West (2), it's over (limit).
+                if self.round_wind > 1 || max_score >= 30000 {
+                    return true;
+                }
             }
         } else if self.game_type == 2 || self.game_type == 5 {
             // Hanchan
-            if self.round_wind > 1 {
-                return true;
+            if self.round_wind >= 2 {
+                // If West (2), check sudden death.
+                // If North (3), it's over (limit).
+                if self.round_wind > 2 || max_score >= 30000 {
+                    return true;
+                }
             }
         } else if self.game_type == 0 || self.game_type == 3 {
             // Ikkyoku (One Round)
-            // If we are checking is_game_over, the kyoku has just ended (or checking bankruptcy).
             // For Ikkyoku, any kyoku end = game over.
             return true;
         }
@@ -551,7 +565,7 @@ impl RiichiEnv {
         self.active_players = vec![];
     }
 
-    fn _end_kyoku_ryukyoku(&mut self, is_renchan: bool, is_draw: bool) {
+    pub(crate) fn _end_kyoku_ryukyoku(&mut self, is_renchan: bool, is_draw: bool) {
         self.round_end_scores = Some(self.scores); // Set round end scores for verification
         let mut ev = serde_json::Map::new();
         ev.insert("type".to_string(), Value::String("end_kyoku".to_string()));
@@ -571,7 +585,7 @@ impl RiichiEnv {
         self.active_players = vec![];
     }
 
-    fn _initialize_next_round(&mut self, oya_won: bool, is_draw: bool) {
+    pub(crate) fn _initialize_next_round(&mut self, oya_won: bool, is_draw: bool) {
         if self.is_done {
             return;
         }
@@ -612,15 +626,23 @@ impl RiichiEnv {
         match self.game_type {
             1 | 4 => {
                 // Tonpusen (Yon, San)
-                if next_round_wind >= 1 {
+                let max_score = self.scores.iter().cloned().max().unwrap_or(0);
+                if next_round_wind >= 1 && (max_score >= 30000 || next_round_wind > 1) {
                     self.is_done = true;
+                    let mut ev = serde_json::Map::new();
+                    ev.insert("type".to_string(), Value::String("end_game".to_string()));
+                    self._push_mjai_event(Value::Object(ev));
                     return;
                 }
             }
             2 | 5 => {
                 // Hanchan (Yon, San)
-                if next_round_wind >= 2 {
+                let max_score = self.scores.iter().cloned().max().unwrap_or(0);
+                if next_round_wind >= 2 && (max_score >= 30000 || next_round_wind > 2) {
                     self.is_done = true;
+                    let mut ev = serde_json::Map::new();
+                    ev.insert("type".to_string(), Value::String("end_game".to_string()));
+                    self._push_mjai_event(Value::Object(ev));
                     return;
                 }
             }
@@ -631,12 +653,19 @@ impl RiichiEnv {
                 // Let's assume end if we transitioned (next_honba == 0 and different oya/wind)
                 // Simplest: Always end after 1 hand for now to be safe.
                 self.is_done = true;
+                let mut ev = serde_json::Map::new();
+                ev.insert("type".to_string(), Value::String("end_game".to_string()));
+                self._push_mjai_event(Value::Object(ev));
                 return;
             }
             _ => {
                 // Unknown, maybe default to Tonpu limit?
                 if next_round_wind >= 1 {
                     self.is_done = true;
+                    // Emit end_game for safety?
+                    let mut ev = serde_json::Map::new();
+                    ev.insert("type".to_string(), Value::String("end_game".to_string()));
+                    self._push_mjai_event(Value::Object(ev));
                     return;
                 }
             }
@@ -791,13 +820,6 @@ impl RiichiEnv {
         ]
     }
 
-    #[setter]
-    fn set_hands(&mut self, hands: [Vec<u32>; 4]) {
-        for (i, h) in hands.iter().enumerate() {
-            self.hands[i] = h.iter().map(|&x| x as u8).collect();
-        }
-    }
-
     #[getter]
     fn get_discards(&self) -> [Vec<u32>; 4] {
         [
@@ -918,6 +940,41 @@ impl RiichiEnv {
             .into_pyobject(py)?
             .unbind()
             .into())
+    }
+
+    pub fn set_scores(&mut self, scores: Vec<i32>) -> PyResult<()> {
+        if scores.len() != 4 {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Scores must be length 4",
+            ));
+        }
+        self.scores.copy_from_slice(&scores);
+        Ok(())
+    }
+
+    #[pyo3(signature = (oya=None, honba=None, kyoku_idx=None, round_wind=None))]
+    pub fn set_state(
+        &mut self,
+        oya: Option<u8>,
+        honba: Option<u8>,
+        kyoku_idx: Option<u8>,
+        round_wind: Option<u8>,
+    ) -> PyResult<()> {
+        if let Some(v) = oya {
+            self.oya = v;
+            self.kyoku_idx = v;
+        }
+        if let Some(v) = honba {
+            self.honba = v;
+        }
+        if let Some(v) = kyoku_idx {
+            self.kyoku_idx = v;
+            self.oya = v;
+        }
+        if let Some(v) = round_wind {
+            self.round_wind = v;
+        }
+        Ok(())
     }
 
     #[pyo3(signature = (players=None))]
@@ -1165,6 +1222,10 @@ impl RiichiEnv {
         while !self.is_done {
             if self.needs_initialize_next_round {
                 self._initialize_next_round(self.pending_oya_won, self.pending_is_draw);
+                if self.is_done {
+                    // Game ended during initialization (e.g. Sudden Death)
+                    return self.get_obs_py(py, Some(self.active_players.clone()));
+                }
             }
             if self.needs_tsumo {
                 // Midway draws logic
@@ -2451,6 +2512,7 @@ impl RiichiEnv {
         scores: Option<[i32; 4]>,
     ) {
         self.oya = oya;
+        self.kyoku_idx = oya; // Update kyoku_idx to match oya
         self.honba = honba;
         self.riichi_sticks = kyotaku; // Initialize sticks
         self.round_wind = bakaze;
@@ -2637,7 +2699,7 @@ impl RiichiEnv {
         v
     }
 
-    fn _push_mjai_event(&mut self, ev: Value) {
+    pub(crate) fn _push_mjai_event(&mut self, ev: Value) {
         if self.skip_mjai_logging {
             return;
         }

@@ -51,6 +51,21 @@ jobs:
       - name: Run ty
         run: uv run --python 3.14 ty check
 
+  rs-test:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.87.0
+
+      - name: Rust Cargo Test
+        run: cargo test --all-targets --all-features
+
   rs-lint:
     name: rustfmt and clippy
     runs-on: ubuntu-latest
