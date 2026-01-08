@@ -83,8 +83,9 @@ export class Renderer {
                     display: flex;
                     flex-direction: column;
                     gap: 2px;
-                    width: auto;
+                    width: 214px; /* Fixed width: 6 * 34px + 5 * 2px = 214px */
                     height: auto;
+                    min-height: 142px; /* Fixed min-height: 3 * 46px + 2 * 2px = 142px */
                     justify-content: start;
                     align-content: start;
                 }
@@ -96,6 +97,33 @@ export class Renderer {
                 .tile-rotated {
                     transform: rotate(90deg) scale(0.9);
                     transform-origin: center center;
+                }
+
+                .center-info {
+                    transition: background-color 0.2s;
+                }
+                .center-info:hover {
+                    background-color: #2a4d25 !important;
+                }
+
+                .player-info-box {
+                    background: rgba(0,0,0,0.6);
+                    padding: 8px;
+                    border-radius: 6px;
+                    color: white;
+                    text-align: center;
+                    min-width: 80px;
+                    z-index: 20;
+                    margin-left: 20px;
+                    transition: background-color 0.2s;
+                    cursor: pointer;
+                }
+                .player-info-box:hover {
+                    background-color: #444 !important;
+                }
+                .active-viewpoint {
+                    border: 2px solid #aaa;
+                    background: rgba(0,0,0,0.8);
                 }
 
                 .call-overlay {
@@ -243,7 +271,8 @@ export class Renderer {
             justifyContent: 'center',
             zIndex: '10',
             boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
-            minWidth: '120px'
+            minWidth: '120px',
+            cursor: 'pointer' // Added cursor pointer
         });
 
         center.onclick = (e) => {
@@ -288,12 +317,9 @@ export class Renderer {
             const pDiv = document.createElement('div');
             Object.assign(pDiv.style, {
                 width: '600px',
-                height: 'auto',
-                minHeight: '220px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                transform: 'translateY(140px)',
+                height: '250px', // Adjusted height to prevent cutoff
+                display: 'block',
+                transform: 'translateY(120px)', // Lifted up
                 transition: 'background-color 0.3s',
                 position: 'relative'
             });
@@ -343,12 +369,18 @@ export class Renderer {
             }
 
             // --- River + Info Container ---
+            // ABSOLUTE POSITIONED RIVER
+            // We use riverRow as the container for the river tiles, absolutely positioned.
             const riverRow = document.createElement('div');
             Object.assign(riverRow.style, {
                 display: 'flex',
                 alignItems: 'flex-start',
                 justifyContent: 'center',
-                marginBottom: '8px'
+                position: 'absolute',
+                top: '10px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: '5'
             });
 
             // River
@@ -364,14 +396,8 @@ export class Renderer {
             });
 
             rows.forEach((rowTiles) => {
-                if (rowTiles.length === 0) return; // Skip empty rows (except maybe we want to keep height? css grid did that. Flex won't unless min-height)
-                // Actually if row 2 is empty but row 3 has something (impossible in normal flow), we might need spacing.
-                // But for valid game states, they fill in order.
-
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'river-row';
-                // Enforce height for consistent look even if row is empty (though we skip empty)
-                // Each tile is 46px high.
                 rowDiv.style.height = '46px';
 
                 rowTiles.forEach(d => {
@@ -394,33 +420,24 @@ export class Renderer {
                 });
                 riverDiv.appendChild(rowDiv);
             });
-
-            // Ensure we have at least 'something' if empty? No, existing code didn't handle that explicitly but grid kept size.
-            // If river is empty, height is 0. Old one was fixed height 142px.
-            // Let's set min-height or just let it grow. User wants layout change.
-            // Be careful about layout shift.
-            // The riverRow.parentNode (pDiv child) was flexible.
-            // Let's explicitly set min-height to match old grid if needed, or just let it adjust.
-            // For now, auto is fine, but we might want to ensure spacing for visual consistency.
-            // Let's rely on flex.
-
             riverRow.appendChild(riverDiv);
+            pDiv.appendChild(riverRow);
 
-            // Info Box (New Overlay)
+            // Info Box (New Overlay) - Anchored to pDiv 
             const infoBox = document.createElement('div');
             infoBox.className = 'player-info-box';
             if (i === this.viewpoint) {
                 infoBox.classList.add('active-viewpoint');
             }
-            // Rotate info box counter to player rotation so it stays upright?
-            // The image shows it upright. Since the whole `pDiv` is rotated, the info box is also rotated.
-            // If we want it upright relative to screen, we need `transform: rotate(-Xdeg)`.
-            // But usually in these viewers, the river is rotated, so the text is also rotated (readable from that seat).
-            // The user image shows "East 1 局" in middle is upright, but players are not.
-            // Oh, the user image is 2D top down?
-            // Actually the image attached shows the info box ("NoName") at bottom right for self.
-            // For others, it's rotated.
-            // So default behavior (rotated with pDiv) is expected.
+
+            // Positioning: Absolute relative to pDiv
+            Object.assign(infoBox.style, {
+                position: 'absolute',
+                top: '10px',
+                left: '50%',
+                transform: 'translateX(120px)',
+                marginLeft: '0'
+            });
 
             const winds = ['E', 'S', 'W', 'N'];
             const windLabel = winds[p.wind];
@@ -443,15 +460,19 @@ export class Renderer {
                 }
             };
 
-            riverRow.appendChild(infoBox);
-
-            pDiv.appendChild(riverRow);
+            pDiv.appendChild(infoBox);
 
             // Riichi Stick (placed below river/info, above hand)
             if (p.riichi) {
                 const stick = document.createElement('div');
                 stick.className = 'riichi-stick';
-                stick.style.marginBottom = '10px';
+                Object.assign(stick.style, {
+                    position: 'absolute',
+                    top: '160px', // Adjusted position
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    marginBottom: '0'
+                });
                 pDiv.appendChild(stick);
             }
 
@@ -461,18 +482,21 @@ export class Renderer {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'flex-end',
-                marginTop: '15px',
                 width: '580px',
                 height: '56px',
-                position: 'relative'
+                position: 'absolute',
+                bottom: '10px',
+                left: '50%',
+                transform: 'translateX(-50%)'
             });
 
-            // Closed Hand
+            // Closed Hand - Anchor Left
             const tilesDiv = document.createElement('div');
             Object.assign(tilesDiv.style, {
                 display: 'flex',
                 alignItems: 'flex-end',
-                justifyContent: 'flex-start'
+                justifyContent: 'flex-start',
+                flexGrow: 1 // Let it take available space but align start
             });
 
             const totalTiles = p.hand.length + p.melds.length * 3;
