@@ -1232,11 +1232,7 @@ impl RiichiEnv {
         py: Python<'py>,
         actions: HashMap<u8, Action>,
     ) -> PyResult<Py<PyAny>> {
-        // println!("DEBUG RUST: step called. is_done={}", self.is_done);
         while !self.is_done {
-            if let Some(_act) = actions.get(&self.current_player) {
-                // println!("DEBUG RUST: Processing action for player {}: {:?}", self.current_player, act);
-            }
             if self.needs_initialize_next_round {
                 self._initialize_next_round(self.pending_oya_won, self.pending_is_draw);
                 if self.is_done {
