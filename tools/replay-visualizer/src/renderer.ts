@@ -73,10 +73,20 @@ export class Renderer {
                     height: 90% !important;
                 }
                 
-                .active-player-highlight {
-                    box-shadow: 0 0 20px 5px rgba(255, 230, 0, 0.4);
-                    background-color: rgba(255, 230, 0, 0.05);
-                    border-radius: 12px;
+                @keyframes blink-yellow {
+                    0% { opacity: 1; }
+                    50% { opacity: 0.4; }
+                    100% { opacity: 1; }
+                }
+
+                .active-player-bar {
+                    height: 4px;
+                    width: 100%;
+                    background-color: #ffd700;
+                    margin-top: 4px;
+                    border-radius: 2px;
+                    animation: blink-yellow 1s infinite;
+                    box-shadow: 0 0 5px #ffd700;
                 }
                 
                 .river-container {
@@ -324,13 +334,9 @@ export class Renderer {
                 position: 'relative'
             });
 
-            // Active player highlighting (border/bg)
-            if (i === state.currentActor) {
-                pDiv.classList.add('active-player-highlight');
-                pDiv.style.padding = '10px';
-            } else {
-                pDiv.style.padding = '10px';
-            }
+            // Active player highlighting - Removed old highlight
+            // New logic adds bar to infoBox below
+            pDiv.style.padding = '10px';
 
             // Call Overlay Logic
             if (state.lastEvent && state.lastEvent.actor === i) {
@@ -451,6 +457,13 @@ export class Renderer {
             `;
             if (p.riichi) {
                 infoBox.innerHTML += '<div style="color:#ff6b6b; font-weight:bold; font-size:0.9em; margin-top:2px;">REACH</div>';
+            }
+
+            // Blinking Bar for Active Player
+            if (i === state.currentActor) {
+                const bar = document.createElement('div');
+                bar.className = 'active-player-bar';
+                infoBox.appendChild(bar);
             }
 
             infoBox.onclick = (e) => {
