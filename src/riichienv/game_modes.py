@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from ._riichienv import RiichiEnv
 
 
-class GameRule(ABC):
+class GameMode(ABC):
     def __init__(self, target_score: int = 30000, max_extension_field: int = 0, tobi: bool = True):
         self.target_score = target_score
         self.max_extension_field = max_extension_field
@@ -47,7 +47,7 @@ class GameRule(ABC):
             }
 
 
-class OneKyokuRule(GameRule):
+class OneKyokuGameMode(GameMode):
     def is_game_over(
         self, env: "RiichiEnv", is_renchan: bool, is_draw: bool = False, is_midway_draw: bool = False
     ) -> bool:
@@ -57,7 +57,7 @@ class OneKyokuRule(GameRule):
         return True
 
 
-class StandardRule(GameRule):
+class StandardGameMode(GameMode):
     def __init__(self, end_field: int, target_score: int, max_extension_field: int, tobi: bool = True):
         super().__init__(target_score, max_extension_field, tobi)
         self.end_field = end_field  # 0: East, 1: South, 2: West
@@ -104,17 +104,17 @@ class StandardRule(GameRule):
         return False
 
 
-class TonpuuRule(StandardRule):
+class TonpuuGameMode(StandardGameMode):
     def __init__(self, target_score: int = 30000, tobi: bool = True):
         super().__init__(end_field=0, target_score=target_score, max_extension_field=1, tobi=tobi)
 
 
-class HanchanRule(StandardRule):
+class HanchanGameMode(StandardGameMode):
     def __init__(self, target_score: int = 30000, tobi: bool = True):
         super().__init__(end_field=1, target_score=target_score, max_extension_field=2, tobi=tobi)
 
 
-class SuddenDeathIkkyokuRule(OneKyokuRule):
+class SuddenDeathIkkyokuGameMode(OneKyokuGameMode):
     def __init__(self, target_score: int = 30000):
         super().__init__(target_score=target_score)
 
@@ -126,15 +126,15 @@ class SuddenDeathIkkyokuRule(OneKyokuRule):
         return False
 
 
-def get_rule(game_type: GameType) -> GameRule:
+def get_game_mode(game_type: GameType) -> GameMode:
     if game_type in [GameType.YON_IKKYOKU, GameType.SAN_IKKYOKU]:
-        return OneKyokuRule(target_score=0, tobi=True)
+        return OneKyokuGameMode(target_score=0, tobi=True)
     elif game_type == GameType.YON_TONPUSEN:
-        return TonpuuRule(tobi=True)
+        return TonpuuGameMode(tobi=True)
     elif game_type == GameType.SAN_TONPUSEN:
-        return TonpuuRule(tobi=False)  # Example: San-nin might have different default
+        return TonpuuGameMode(tobi=False)  # Example: San-nin might have different default
     elif game_type == GameType.YON_HANCHAN:
-        return HanchanRule(tobi=True)
+        return HanchanGameMode(tobi=True)
     elif game_type == GameType.SAN_HANCHAN:
-        return HanchanRule(tobi=False)
-    return OneKyokuRule(target_score=0, tobi=True)
+        return HanchanGameMode(tobi=False)
+    return OneKyokuGameMode(target_score=0, tobi=True)

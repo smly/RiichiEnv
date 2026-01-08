@@ -1,6 +1,19 @@
 from enum import IntEnum
 from typing import Any
 
+class GameRule:
+    allows_ron_on_ankan_for_kokushi_musou: bool
+    is_kokushi_musou_13machi_double: bool
+    def __init__(
+        self,
+        allows_ron_on_ankan_for_kokushi_musou: bool = False,
+        is_kokushi_musou_13machi_double: bool = False,
+    ) -> None: ...
+    @staticmethod
+    def default_tenhou() -> GameRule: ...
+    @staticmethod
+    def default_mjsoul() -> GameRule: ...
+
 class Wind:
     East: Wind
     South: Wind
@@ -216,11 +229,14 @@ class RiichiEnv:
 
     def __init__(
         self,
-        game_type: int | str | None = None,
+        game_mode: str | int | None = None,
         skip_mjai_logging: bool = False,  # If True, disables MJAI logging (required for visualizer).
         seed: int | None = None,
         round_wind: int | None = None,
-    ): ...
+        rule: GameRule | None = None,
+    ) -> None: ...
+    @property
+    def game_mode(self) -> int: ...
     def scores(self) -> list[int]: ...
     def points(self) -> list[int]: ...
     def ranks(self) -> list[int]: ...
@@ -256,6 +272,7 @@ def parse_tile(tile_str: str) -> int: ...
 __all__ = [
     "Action",
     "ActionType",
+    "GameRule",
     "Agari",
     "AgariCalculator",
     "AgariContext",

@@ -3,7 +3,7 @@ from riichienv import Action, ActionType, Phase, RiichiEnv
 
 def test_honba_reset_on_ko_win():
     # Initialize env
-    env = RiichiEnv(game_type="4p-red-half", seed=42)
+    env = RiichiEnv(game_mode="4p-red-half", seed=42)
     env.reset()
 
     # Set initial state: Oya is Player 0, Honba is 5
@@ -48,7 +48,7 @@ def test_honba_reset_on_ko_win():
 
 def test_honba_increment_on_oya_win():
     # Initialize env
-    env = RiichiEnv(game_type="4p-red-half", seed=42)
+    env = RiichiEnv(game_mode="4p-red-half", seed=42)
     env.reset()
 
     # Set initial state: Oya is Player 0, Honba is 5

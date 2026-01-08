@@ -10,6 +10,7 @@ mod yaku;
 mod env;
 mod parser;
 mod replay;
+mod rule;
 
 #[pyfunction]
 fn check_riichi_candidates(tiles_136: Vec<u8>) -> Vec<u32> {
@@ -61,6 +62,7 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<replay::KyokuIterator>()?;
     m.add_class::<replay::AgariContext>()?;
     m.add_class::<replay::AgariContextIterator>()?;
+    m.add_class::<rule::GameRule>()?;
 
     // Env classes
     m.add_class::<env::ActionType>()?;

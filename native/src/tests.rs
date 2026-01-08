@@ -197,10 +197,11 @@ mod unit_tests {
             player_event_counts: [0; 4],
             round_wind: 0,
             ippatsu_cycle: [false; 4],
-            game_type,
+            game_mode: game_type,
             skip_mjai_logging: false,
             seed: None,
             forbidden_discards: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            rule: crate::rule::GameRule::default(),
         }
     }
 

@@ -6,7 +6,7 @@ def test_furiten_ron():
     Test that a player cannot Ron on a tile they have previously discarded (Furiten),
     even if the waiting tile matches.
     """
-    env = RiichiEnv(game_type=GameType.YON_HANCHAN)
+    env = RiichiEnv(game_mode=GameType.YON_HANCHAN)
     env.reset()
 
     # Manually setup state for Player 0
@@ -96,7 +96,7 @@ def test_furiten_ron():
 
 def test_ron_allowed_without_furiten():
     # Counter-test for Furiten test
-    env = RiichiEnv(game_type=GameType.YON_HANCHAN)
+    env = RiichiEnv(game_mode=GameType.YON_HANCHAN)
     env.reset()
 
     player_id = 0

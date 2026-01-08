@@ -396,13 +396,15 @@ pub struct RiichiEnv {
 
     // Config
     #[pyo3(get)]
-    pub game_type: u8,
+    pub game_mode: u8,
     // If true, disables the generation of MJAI-compatible event logs.
     // Enabling this can improve performance for RL training where visualizer data is not needed.
     #[pyo3(get, set)]
     pub skip_mjai_logging: bool,
     #[pyo3(get)]
     pub seed: Option<u64>,
+    #[pyo3(get)]
+    pub rule: crate::rule::GameRule,
 }
 
 impl RiichiEnv {
@@ -494,7 +496,7 @@ impl RiichiEnv {
         }
         let max_score = self.scores.iter().cloned().max().unwrap_or(0);
 
-        if self.game_type == 1 || self.game_type == 4 {
+        if self.game_mode == 1 || self.game_mode == 4 {
             // Tonpu
             if self.round_wind >= 1 {
                 // If South (1), check if sudden death conditions met (score < 30000).
@@ -503,7 +505,7 @@ impl RiichiEnv {
                     return true;
                 }
             }
-        } else if self.game_type == 2 || self.game_type == 5 {
+        } else if self.game_mode == 2 || self.game_mode == 5 {
             // Hanchan
             if self.round_wind >= 2 {
                 // If West (2), check sudden death.
@@ -512,7 +514,7 @@ impl RiichiEnv {
                     return true;
                 }
             }
-        } else if self.game_type == 0 || self.game_type == 3 {
+        } else if self.game_mode == 0 || self.game_mode == 3 {
             // Ikkyoku (One Round)
             // For Ikkyoku, any kyoku end = game over.
             return true;
@@ -623,7 +625,7 @@ impl RiichiEnv {
         // If it was just one kyoku, we might rely on the caller or external config?
         // But let's assume standard behavior:
 
-        match self.game_type {
+        match self.game_mode {
             1 | 4 => {
                 // Tonpusen (Yon, San)
                 let max_score = self.scores.iter().cloned().max().unwrap_or(0);
@@ -713,14 +715,15 @@ fn _tid_to_mjai_hand(hand: &[u8]) -> Vec<String> {
 #[pymethods]
 impl RiichiEnv {
     #[new]
-    #[pyo3(signature = (game_type=None, skip_mjai_logging=false, seed=None, round_wind=None))]
+    #[pyo3(signature = (game_mode=None, skip_mjai_logging=false, seed=None, round_wind=None, rule=None))]
     pub fn new(
-        game_type: Option<Bound<'_, PyAny>>,
+        game_mode: Option<Bound<'_, PyAny>>,
         skip_mjai_logging: bool,
         seed: Option<u64>,
         round_wind: Option<u8>,
+        rule: Option<crate::rule::GameRule>,
     ) -> PyResult<Self> {
-        let gt = if let Some(val) = game_type {
+        let gt = if let Some(val) = game_mode {
             if let Ok(s) = val.extract::<String>() {
                 match s.as_str() {
                     "4p-red-single" => 0,
@@ -731,7 +734,7 @@ impl RiichiEnv {
                     "3p-red-half" => 5,
                     _ => {
                         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                            "Unsupported game_type: {}",
+                            "Unsupported game_mode: {}",
                             s
                         )))
                     }
@@ -740,14 +743,14 @@ impl RiichiEnv {
                 i
             } else {
                 return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                    "game_type must be str or int",
+                    "game_mode must be str or int",
                 ));
             }
         } else {
             0 // Default to 4p-red-single
         };
 
-        Ok(RiichiEnv {
+        let mut env = RiichiEnv {
             wall: Vec::new(),
             hands: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             melds: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
@@ -793,11 +796,14 @@ impl RiichiEnv {
             player_event_counts: [0; 4],
             round_wind: round_wind.unwrap_or(0),
             ippatsu_cycle: [false; 4],
-            game_type: gt,
+            game_mode: gt,
             skip_mjai_logging,
             seed,
             forbidden_discards: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
-        })
+            rule: rule.unwrap_or_default(),
+        };
+        Python::attach(|py| env.reset(py, None, None, round_wind, None, None, None, seed))?;
+        Ok(env)
     }
 
     #[getter]
@@ -896,6 +902,13 @@ impl RiichiEnv {
         if let Some(s) = seed {
             self.seed = Some(s);
         }
+
+        // Reset MJAI log for new game/episode
+        self.mjai_log.clear();
+        for log in self.mjai_log_per_player.iter_mut() {
+            log.clear();
+        }
+        self.player_event_counts = [0; 4];
 
         let initial_scores = if let Some(sc) = scores {
             let mut s = [0; 4];
@@ -1494,56 +1507,60 @@ impl RiichiEnv {
                         if indices.len() >= 4 {
                             // Check Chankan (Kokushi)
                             let mut chankan_ronners = Vec::new();
-                            for i in 0..4 {
-                                if i == pid {
-                                    continue;
-                                }
-                                // Check missed agari (Temporary Furiten)
-                                if self.missed_agari_doujun[i as usize]
-                                    || self.missed_agari_riichi[i as usize]
-                                {
-                                    continue;
-                                }
-                                // Kokushi Check (Ankan Chankan restriction)
-                                let melds = &self.melds[i as usize];
-                                if !melds.is_empty() {
-                                    continue;
-                                }
+                            // If rule allows Ron on Ankan for Kokushi check
+                            // Standard: Tenhou (False), MJSoul (True)
+                            let check_chankan = self.rule.allows_ron_on_ankan_for_kokushi_musou;
 
-                                let hand = &self.hands[i as usize];
-                                let calc = crate::agari_calculator::AgariCalculator::new(
-                                    hand.clone(),
-                                    melds.clone(),
-                                );
+                            if check_chankan {
+                                for i in 0..4 {
+                                    if i == pid {
+                                        continue;
+                                    }
+                                    // Check missed agari (Temporary Furiten)
+                                    if self.missed_agari_doujun[i as usize]
+                                        || self.missed_agari_riichi[i as usize]
+                                    {
+                                        continue;
+                                    }
+                                    // Kokushi Check (Ankan Chankan restriction)
+                                    let melds = &self.melds[i as usize];
+                                    if !melds.is_empty() {
+                                        continue;
+                                    }
 
-                                // Furiten Check
-                                if calc
-                                    .get_waits_u8()
-                                    .iter()
-                                    .any(|&w| self.discards[i as usize].iter().any(|&d| d / 4 == w))
-                                {
-                                    continue;
-                                }
+                                    let hand = &self.hands[i as usize];
+                                    let calc = crate::agari_calculator::AgariCalculator::new(
+                                        hand.clone(),
+                                        melds.clone(),
+                                    );
 
-                                // Agari check with Kokushi constraint
-                                let cond = Conditions {
-                                    chankan: true,
-                                    player_wind: Wind::from((i + 4 - self.oya) % 4),
-                                    round_wind: Wind::from(self.round_wind),
-                                    ..Default::default()
-                                };
-                                let agari = calc.calc(
-                                    tile,
-                                    self.dora_indicators.clone(),
-                                    vec![],
-                                    Some(cond),
-                                );
+                                    // Furiten Check
+                                    if calc.get_waits_u8().iter().any(|&w| {
+                                        self.discards[i as usize].iter().any(|&d| d / 4 == w)
+                                    }) {
+                                        continue;
+                                    }
 
-                                if agari.agari
-                                    && (agari.yaku.contains(&yaku::ID_KOKUSHI)
-                                        || agari.yaku.contains(&yaku::ID_KOKUSHI_13))
-                                {
-                                    chankan_ronners.push(i);
+                                    // Agari check with Kokushi constraint
+                                    let cond = Conditions {
+                                        chankan: true,
+                                        player_wind: Wind::from((i + 4 - self.oya) % 4),
+                                        round_wind: Wind::from(self.round_wind),
+                                        ..Default::default()
+                                    };
+                                    let agari = calc.calc(
+                                        tile,
+                                        self.dora_indicators.clone(),
+                                        vec![],
+                                        Some(cond),
+                                    );
+
+                                    if agari.agari
+                                        && (agari.yaku.contains(&yaku::ID_KOKUSHI)
+                                            || agari.yaku.contains(&yaku::ID_KOKUSHI_13))
+                                    {
+                                        chankan_ronners.push(i);
+                                    }
                                 }
                             }
 

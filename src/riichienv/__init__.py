@@ -1,6 +1,7 @@
 from . import convert
 from ._riichienv import (  # type: ignore
     AgariContext,
+    GameRule,
     Kyoku,
     Meld,
     MeldType,
@@ -42,6 +43,7 @@ __all__ = [
     "Action",
     "ActionType",
     "RiichiEnv",
+    "GameRule",
     "Phase",
     "GameType",
     "Agari",

@@ -7,7 +7,7 @@ from riichienv.game_mode import GameType
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_tonpuu_transitions():
     # Test East 1 -> East 2 transition
-    env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
+    env = RiichiEnv(game_mode=GameType.YON_TONPUSEN)
     env.reset(oya=0, scores=[25000, 25000, 25000, 25000])
 
     # Simulate a transition
@@ -28,7 +28,7 @@ def test_tonpuu_transitions():
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_tonpuu_game_end():
     # Test game ends after East 4 because someone >= 30000
-    env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
+    env = RiichiEnv(game_mode=GameType.YON_TONPUSEN)
     # Start at East 4 (Oya = 3)
     env.reset(oya=3, bakaze=int(Wind.East), scores=[40000, 20000, 20000, 20000])
 
@@ -45,7 +45,7 @@ def test_tonpuu_game_end():
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_tonpuu_sudden_death():
     # Test South entrance if no one >= 30000 at East 4
-    env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
+    env = RiichiEnv(game_mode=GameType.YON_TONPUSEN)
     env.reset(oya=3, bakaze=int(Wind.East), scores=[28000, 24000, 24000, 24000])
 
     for i in range(4):
@@ -62,7 +62,7 @@ def test_tonpuu_sudden_death():
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_tonpuu_v_goal():
     # Test game ends immediately if someone >= 30000 in South (extension)
-    env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
+    env = RiichiEnv(game_mode=GameType.YON_TONPUSEN)
     env.reset(oya=0, bakaze=int(Wind.South), scores=[29000, 28000, 22000, 21000])
 
     # Player 0 (Oya) wins and reaches 30000
@@ -77,7 +77,7 @@ def test_tonpuu_v_goal():
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_oya_agari_yame():
     # Oya top at East 4 ends game
-    env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
+    env = RiichiEnv(game_mode=GameType.YON_TONPUSEN)
     env.reset(oya=3, bakaze=int(Wind.East), scores=[40000, 20000, 20000, 20000])  # Oya is 3, but Player 0 is top
     # Wait, Oya is 3. Let's make Oya 3 top.
     env.reset(oya=3, bakaze=int(Wind.East), scores=[20000, 20000, 20000, 40000])
@@ -92,7 +92,7 @@ def test_oya_agari_yame():
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_hanchan_transitions():
     # East 4 -> South 1
-    env = RiichiEnv(game_type=GameType.YON_HANCHAN)
+    env = RiichiEnv(game_mode=GameType.YON_HANCHAN)
     env.reset(oya=3, bakaze=int(Wind.East), scores=[25000, 25000, 25000, 25000])
 
     for i in range(4):
@@ -107,7 +107,7 @@ def test_hanchan_transitions():
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_tobi():
     # Test game ends if someone's score < 0
-    env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
+    env = RiichiEnv(game_mode=GameType.YON_TONPUSEN)
     env.reset(oya=0, scores=[25000, 25000, 25000, 25000])
 
     # Player 1's score becomes negative
@@ -121,7 +121,7 @@ def test_tobi():
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_one_kyoku_always_ends():
     # Test YON_IKKYOKU always ends after one kyoku
-    env = RiichiEnv(game_type=GameType.YON_IKKYOKU)
+    env = RiichiEnv(game_mode=GameType.YON_IKKYOKU)
     env.reset(oya=0, scores=[25000, 25000, 25000, 25000])
 
     # Even if Oya renchans
@@ -132,7 +132,7 @@ def test_one_kyoku_always_ends():
 @pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_kyotaku_carry_over():
     # Test that riichi sticks are carried over after a draw and awarded on win
-    env = RiichiEnv(game_type=GameType.YON_TONPUSEN)
+    env = RiichiEnv(game_mode=GameType.YON_TONPUSEN)
     env.reset(oya=0, scores=[25000, 25000, 25000, 25000])
 
     # Player 0 (Oya) declares riichi

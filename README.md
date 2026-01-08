@@ -107,41 +107,53 @@ If your agent communicates via the MJAI protocol, you can easily map an MJAI res
 Action(action_type=Discard, tile=Some(1), consume_tiles=[])
 ```
 
-### Supported Game Rules
+### Game Rules and Modes
 
-Switch between different rule sets using the `game_type` keyword argument in the constructor.
+RiichiEnv separates high-level game flow configuration (Mode) from detailed game mechanics (Rules).
 
-> [!NOTE]
-> We plan to provide 12 standard preset rule sets. In the future, we will also allow granular customization (e.g., enabling/disabling red dragons, sudden death, 1-han minimum, etc.).
+*   **Game Mode (`game_mode`)**: Configuration for game length (e.g., East-only, Hanchan), player count, and termination conditions (e.g., Tobi/bust, sudden death).
+*   **Game Rules (`rule`)**: Configuration for specific game mechanics (e.g., handling of Chankan (Robbing the Kan) for Kokushi Musou, Kuitan availability, etc.).
 
-| Rule Set | Players | Duration | Red Dragons | Status |
-|----------|---------|----------|-------------|--------|
-| `4p-red-single` | 4 | Single | Enabled | ✅ Ready (Default) |
-| `4p-red-half` | 4 | Hanchan | Enabled | ✅ Ready |
-| `4p-red-east` | 4 | East | Enabled | ✅ Ready |
-| `3p-red-single` | 3 | Single | Enabled | 🚧 In progress |
-| `3p-red-half` | 3 | Hanchan | Enabled | 🚧 In progress |
-| `3p-red-east` | 3 | East | Enabled | 🚧 In progress |
+#### 1. Game Mode Presets (`game_mode`)
 
-Single round modes like `4p-red-single` do not feature sudden death, and allow you to specify the score situation, wind direction, number of deposit sticks, and other settings.
+You can select a standard game mode using the `game_mode` argument in the constructor. This configures the basic flow of the game.
 
-Example of initializing a four-player half-round game with red dragons:
+| `game_mode` | Players | Mode | Mechanics |
+|---|---|---|---|
+| `4p-red-single` | 4 | Single Round | No sudden death |
+| `4p-red-east` | 4 | East-only (東風; Tonpuu) | Standard (Tenhou rule) |
+| `4p-red-half` | 4 | Hanchan (半荘) | Standard (Tenhou rule) |
+| `3p-red-east` | 3 | East-only (Tonpuu) | 🚧 In progress |
 
 ```python
-from riichienv import RiichiEnv
-from riichienv.agents import RandomAgent
-
-agent = RandomAgent()
-env = RiichiEnv(game_type="4p-red-half")
-obs_dict = env.reset()
-while not env.done():
-    actions = {player_id: agent.act(obs)
-               for player_id, obs in obs_dict.items()}
-    obs_dict = env.step(actions)
-
-scores, points, ranks = env.scores(), env.points(), env.ranks()
-print(scores, points, ranks)
+# Initialize a standard 4-player Hanchan game
+env = RiichiEnv(game_mode="4p-red-half")
 ```
+
+> [!NOTE]
+> We are also planning to implement **"No-Red" rules** (game modes without red 5 tiles), which are often adopted in professional leagues (e.g., M-League's team definitions or other competitive settings).
+
+#### 2. Customizing Game Rules (`GameRule`)
+
+For detailed rule customization, you can pass a `GameRule` object to the `RiichiEnv` constructor. RiichiEnv provides presets for popular platforms (Tenhou, MJSoul) and allows granular configuration.
+
+```python
+from riichienv import RiichiEnv, GameRule
+
+# Example 1: Use MJSoul rules (allows Ron on Ankan for Kokushi Musou)
+rule_mjsoul = GameRule.default_mjsoul()
+env = RiichiEnv(game_mode="4p-red-half", rule=rule_mjsoul)
+
+# Example 2: Fully custom rules based on Tenhou preset
+rule_custom = GameRule.default_tenhou()
+rule_custom.allows_ron_on_ankan_for_kokushi_musou = True  # Enable Kokushi Chankan
+rule_custom.length_of_game_in_rounds = 8  # Force 8 rounds? (Note: Length is mainly controlled by game_mode logic usually)
+
+env = RiichiEnv(game_mode="4p-red-half", rule=rule_custom)
+```
+
+> [!NOTE]
+> Detailed mechanic flags (like `allows_ron_on_ankan_for_kokushi_musou`) are defined in the `GameRule` struct. See `docs/RULES.md` for a full list of configurable options.
 
 ### Compatibility with Mortal
 
@@ -166,7 +178,7 @@ class MortalAgent:
         assert action is not None, "Mortal must return a legal action"
         return action
 
-env = RiichiEnv(game_type="4p-red-half")
+env = RiichiEnv(game_mode="4p-red-half")
 agents = {pid: MortalAgent(pid) for pid in range(4)}
 obs_dict = env.reset()
 while not env.done():

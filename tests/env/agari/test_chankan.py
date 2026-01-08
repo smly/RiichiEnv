@@ -1,4 +1,4 @@
-from riichienv import Action, ActionType, Meld, MeldType, Phase, RiichiEnv, convert, parse_hand
+from riichienv import Action, ActionType, GameRule, Meld, MeldType, Phase, RiichiEnv, convert, parse_hand
 
 from ..helper import helper_setup_env
 
@@ -21,7 +21,7 @@ class TestChankan:
                 [],
                 [],
             ],
-            game_type=0,  # game ends after one hand
+            game_mode=0,  # game ends after one hand
             drawn_tile=3,
             current_player=0,
             phase=Phase.WaitAct,
@@ -58,7 +58,7 @@ class TestChankan:
         """
         Verify that if Chankan is available but PASSed, the game proceeds with Rinshan draw.
         """
-        env = RiichiEnv(seed=42, game_type=1)
+        env = RiichiEnv(seed=42, game_mode=1)
         env.reset()
 
         # Same setup as test_chankan_ron
@@ -111,7 +111,9 @@ class TestChankan:
         """
         Verify that Kokushi Musou can Ron on an ANKAN.
         """
-        env = RiichiEnv(seed=42, game_type=1)
+        rule = GameRule.default_mjsoul()
+
+        env = RiichiEnv(seed=42, game_mode=1, rule=rule)
         env.reset()
 
         # Player 0: Performs ANKAN of 1z (East)
@@ -153,11 +155,47 @@ class TestChankan:
         # Kokushi (ID 42)
         assert 42 in env.agari_results[1].yaku
 
+    def test_kokushi_ankan_ron_tenhou(self):
+        """
+        Verify that Kokushi Musou cannot Ron on an ANKAN under Tenhou rules.
+        """
+        rule = GameRule.default_tenhou()
+
+        env = RiichiEnv(seed=42, game_mode=1, rule=rule)
+        env.reset()
+
+        # Player 0: Performs ANKAN of 1z (East)
+        e_tiles = [108, 109, 110]
+        h = env.hands
+        h[0] = e_tiles + [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 111]
+        env.hands = h
+        env.drawn_tile = 111
+
+        # Player 1: Kokushi Musou waiting for 1z
+        yaochu_mpsz = ["1m", "9m", "1p", "9p", "1s", "9s", "2z", "3z", "4z", "5z", "6z", "7z"]
+        kokushi_tiles = [convert.mpsz_to_tid(m) for m in yaochu_mpsz]
+        # Add a pair (e.g., 1m)
+        kokushi_tiles.append(convert.mpsz_to_tid("1m") + 1)
+        h = env.hands
+        h[1] = sorted(kokushi_tiles)  # 13 tiles, waiting for 1z (108-111)
+        env.hands = h
+
+        env.current_player = 0
+        env.phase = Phase.WaitAct
+        env.active_players = [0]
+
+        # Use tile 111 for Ankan
+        ankan_action = Action(ActionType.ANKAN, tile=111, consume_tiles=[108, 109, 110, 111])
+        env.step({0: ankan_action})
+
+        assert env.phase == Phase.WaitAct
+        assert [0] == env.active_players
+
     def test_non_kokushi_ankan_no_ron(self):
         """
         Verify that non-Kokushi hands cannot Ron on an ANKAN.
         """
-        env = RiichiEnv(seed=42, game_type=1)
+        env = RiichiEnv(seed=42, game_mode=1)
         env.reset()
 
         # Player 0: Performs ANKAN of 1z
