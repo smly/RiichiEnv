@@ -5,7 +5,7 @@ from .env.helper import helper_setup_env
 
 def test_oyayame_tiebreak_extension():
     # end_field=1 (South), target_score=30000, max_extension_field=2 (West)
-    rule = StandardGameMode(end_field=1, target_score=30000, max_extension_field=2)
+    rule = StandardGameMode(target_score=30000, end_field=1, max_extension_field=2)
 
     # --- Scenario 1: Oya (Seat 0) tied for top at West 1 ---
     # At index 0 < index 1, so Seat 0 is Rank 1.
