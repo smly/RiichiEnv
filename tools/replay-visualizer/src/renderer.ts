@@ -154,6 +154,42 @@ export class Renderer {
                     animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
                 }
 
+                .log-toggle-btn {
+                    position: absolute;
+                    bottom: 10px;
+                    left: 10px;
+                    z-index: 100;
+                    padding: 8px 12px;
+                    background: rgba(0,0,0,0.6);
+                    color: white;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    user-select: none;
+                    transition: background-color 0.2s;
+                }
+                .log-toggle-btn:hover {
+                    background: rgba(0,0,0,0.8);
+                }
+
+                .debug-panel {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 150px;
+                    background: rgba(0, 0, 0, 0.85);
+                    color: #0f0;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 13px;
+                    padding: 15px;
+                    overflow-y: auto;
+                    z-index: 200;
+                    display: none; /* Controlled by JS */
+                    box-sizing: border-box;
+                    border-bottom: 1px solid #333;
+                }
+
                 .re-modal-overlay {
                     position: fixed;
                     top: 0; left: 0;
