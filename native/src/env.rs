@@ -903,6 +903,13 @@ impl RiichiEnv {
             self.seed = Some(s);
         }
 
+        // Reset MJAI log for new game/episode
+        self.mjai_log.clear();
+        for log in self.mjai_log_per_player.iter_mut() {
+            log.clear();
+        }
+        self.player_event_counts = [0; 4];
+
         let initial_scores = if let Some(sc) = scores {
             let mut s = [0; 4];
             s.copy_from_slice(&sc[..4]);

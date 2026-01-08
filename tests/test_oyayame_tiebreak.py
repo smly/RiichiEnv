@@ -1,11 +1,8 @@
-import pytest
-
 from riichienv.game_modes import StandardGameMode
 
 from .env.helper import helper_setup_env
 
 
-@pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_oyayame_tiebreak_extension():
     # end_field=1 (South), target_score=30000, max_extension_field=2 (West)
     rule = StandardGameMode(end_field=1, target_score=30000, max_extension_field=2)
@@ -43,7 +40,6 @@ def test_oyayame_tiebreak_extension():
     assert rule.is_game_over(env, is_renchan=True) is False
 
 
-@pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
 def test_oyayame_tiebreak_last_round():
     # Test same logic in South 4 (Last round of standard game)
     rule = StandardGameMode(target_score=30000, end_field=1, max_extension_field=2)
@@ -55,7 +51,6 @@ def test_oyayame_tiebreak_last_round():
         round_wind=1,  # South
         points=[30000, 20000, 20000, 30000],
     )
-    env.rule = rule
 
     assert env.ranks()[0] == 1
     assert env.ranks()[3] == 2
@@ -69,7 +64,6 @@ def test_oyayame_tiebreak_last_round():
         round_wind=1,  # South
         points=[29000, 20000, 21000, 30000],
     )
-    env.rule = rule
 
     assert env.ranks()[3] == 1
     assert rule.is_game_over(env, is_renchan=True) is True

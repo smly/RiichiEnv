@@ -8,7 +8,7 @@ from riichienv import Action, ActionType, Observation, Phase, RiichiEnv
 class TestRiichiEnv:
     def test_initialization(self) -> None:
         env = RiichiEnv(seed=42)
-        assert env.wall == [], "Wall should be empty at the start"
+        assert len(env.wall) > 0, "Wall should be initialized (not empty) after construction"
         obs_dict = env.reset()
 
         # NOTE: 136 total tiles - (13 tiles * 4 players + 1 initial draw) = 83.
