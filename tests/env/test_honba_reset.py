@@ -7,8 +7,8 @@ def test_honba_reset_on_ko_win():
     env.reset()
 
     # Set initial state: Oya is Player 0, Honba is 5
-    env.oya = 0
-    env.honba = 5
+    # Set initial state: Oya is Player 0, Honba is 5
+    env.set_state(oya=0, honba=5)
     # Force a win for Player 1 (Ko/Non-dealer)
     # We can use step() with a Tsumo or Ron, but easier to mimic the end_kyoku logic or induce a win.
 
@@ -53,8 +53,8 @@ def test_honba_increment_on_oya_win():
     env.reset()
 
     # Set initial state: Oya is Player 0, Honba is 5
-    env.oya = 0
-    env.honba = 5
+    # Set initial state: Oya is Player 0, Honba is 5
+    env.set_state(oya=0, honba=5)
 
     # Force a win for Player 0 (Oya)
     env.current_player = 0

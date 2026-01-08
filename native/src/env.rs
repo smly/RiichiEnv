@@ -343,13 +343,13 @@ pub struct RiichiEnv {
     #[pyo3(get, set)]
     pub pending_kan: Option<(u8, Action)>,
 
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub oya: u8,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub honba: u8, // Added
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub kyoku_idx: u8,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub round_wind: u8,
     // ...
     pub dora_indicators: Vec<u8>,
@@ -949,6 +949,31 @@ impl RiichiEnv {
             ));
         }
         self.scores.copy_from_slice(&scores);
+        Ok(())
+    }
+
+    #[pyo3(signature = (oya=None, honba=None, kyoku_idx=None, round_wind=None))]
+    pub fn set_state(
+        &mut self,
+        oya: Option<u8>,
+        honba: Option<u8>,
+        kyoku_idx: Option<u8>,
+        round_wind: Option<u8>,
+    ) -> PyResult<()> {
+        if let Some(v) = oya {
+            self.oya = v;
+            self.kyoku_idx = v;
+        }
+        if let Some(v) = honba {
+            self.honba = v;
+        }
+        if let Some(v) = kyoku_idx {
+            self.kyoku_idx = v;
+            self.oya = v;
+        }
+        if let Some(v) = round_wind {
+            self.round_wind = v;
+        }
         Ok(())
     }
 
