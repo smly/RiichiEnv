@@ -15,9 +15,9 @@ export class InfoRenderer {
         // Positioning: Absolute relative to pDiv
         Object.assign(infoBox.style, {
             position: 'absolute',
-            top: '10px',
+            top: '30px',
             left: '50%',
-            transform: 'translateX(120px)',
+            transform: 'translateX(140px)',
             marginLeft: '0'
         });
 
