@@ -425,3 +425,17 @@ def show_replay(log: list[dict[str, Any]]) -> HTML:
     Start using Replay.from_list(log).show() instead.
     """
     return Replay.from_list(log)
+
+
+def main() -> None:
+    with open("example_log_b124_m244_0.jsonl.bak") as f:
+        log = [json.loads(line) for line in f]
+    injector = MetadataInjector(log)
+    enriched_log = injector.process()
+    with open("example_log_b124_m244_0.jsonl", "w") as f:
+        for line in enriched_log:
+            f.write(json.dumps(line) + "\n")
+
+
+if __name__ == "__main__":
+    main()

@@ -425,6 +425,83 @@ export class GameState {
                     this.current.players.forEach((p, i) => p.score = e.scores[i]);
                 }
                 break;
+
+            case 'end_kyoku':
+                // Enrich results with data from preceding hora events
+                if (e.meta && e.meta.results) {
+                    e.meta.results.forEach((res: any) => {
+                        // 0. Check if pai is already in the result object (non-standard but possible)
+                        if (res.pai) {
+                            res.winningTile = res.pai;
+                        }
+
+                        // 1. Search backwards for matching hora event
+                        // console.log(`[ResultEnricher] Processing result for actor ${res.actor} at cursor ${this.cursor}`);
+
+                        let found = false;
+                        for (let i = this.cursor - 1; i >= 0; i--) {
+                            const prev = this.events[i];
+                            if (prev.type === 'start_kyoku') {
+                                // console.log(`[ResultEnricher] Hit start_kyoku at ${i}, stopping search.`);
+                                break;
+                            }
+
+                            if (prev.type === 'hora') {
+                                // console.log(`[ResultEnricher] Found hora at ${i}: actor=${prev.actor}, pai=${prev.pai}`);
+                                // Use loose equality for actor to handle string/number mismatch
+                                if (prev.actor == res.actor) {
+                                    if (prev.pai) {
+                                        res.winningTile = prev.pai;
+                                        res.uraMarkers = prev.ura_markers;
+                                        found = true;
+                                        break;
+                                    } else {
+                                        // console.warn(`[ResultEnricher] Found hora for actor ${res.actor} but 'pai' is missing! Inferring...`, prev);
+                                        res.uraMarkers = prev.ura_markers; // Still capture ura markers if present
+
+                                        // Inference Logic:
+                                        // If Ron (target != actor), winning tile is last discard of target.
+                                        // If Tsumo (target == actor), winning tile is last tsumo of actor.
+
+                                        const target = prev.target;
+                                        const actor = prev.actor;
+
+                                        // Search backwards from the hora event (index i)
+                                        for (let j = i - 1; j >= 0; j--) {
+                                            const e2 = this.events[j];
+                                            if (e2.type === 'start_kyoku') break;
+
+                                            if (target !== undefined && target !== actor) {
+                                                // Ron: Look for dahai from target
+                                                if (e2.type === 'dahai' && e2.actor == target) {
+                                                    res.winningTile = e2.pai;
+                                                    found = true;
+                                                    // console.log(`[ResultEnricher] Inferred winning tile from dahai: ${e2.pai}`);
+                                                    break;
+                                                }
+                                            } else {
+                                                // Tsumo: Look for tsumo from actor
+                                                if (e2.type === 'tsumo' && e2.actor == actor) {
+                                                    res.winningTile = e2.pai;
+                                                    found = true;
+                                                    // console.log(`[ResultEnricher] Inferred winning tile from tsumo: ${e2.pai}`);
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        if (found) break; // Break outer loop if found
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!found && !res.winningTile) {
+                            console.warn(`[ResultEnricher] Failed to find winning tile for actor ${res.actor}`);
+                        }
+                    });
+                }
+                break;
         }
         this.current.lastEvent = e;
     }
