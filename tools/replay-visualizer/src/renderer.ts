@@ -235,7 +235,7 @@ export class Renderer {
                     text-align: left;
                 }
                 .re-yaku-list { margin: 10px 0; padding-left: 20px; columns: 2; }
-                .re-score-display { iconfont-size: 1.2em; text-align: center; margin-top: 15px; font-weight: bold; background: #333; padding: 5px; border-radius: 4px;}
+                .re-score-display { font-size: 1.2em; text-align: center; margin-top: 15px; font-weight: bold; background: #333; padding: 5px; border-radius: 4px;}
 
                 .re-kyoku-table {
                     width: 100%;

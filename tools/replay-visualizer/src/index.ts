@@ -211,7 +211,7 @@ export class Viewer {
         // Initial call
         setTimeout(() => {
             // Manually trigger resize observer for initial layout
-            const rect = boardWrapper.getBoundingClientRect();
+            boardWrapper.getBoundingClientRect(); // accessing layout properties can flush layout
             resizeObserver.observe(boardWrapper); // Re-observe to trigger
             resizeObserver.disconnect(); // Disconnect to avoid duplicate triggers
             resizeObserver.observe(boardWrapper); // Re-observe for future changes
@@ -220,7 +220,6 @@ export class Viewer {
         // Handle Viewpoint Change from Renderer (Click on Player Info)
         this.renderer.onViewpointChange = (pIdx: number) => {
             if (this.renderer.viewpoint !== pIdx) {
-                this.renderer.viewpoint = pIdx;
                 this.renderer.viewpoint = pIdx;
                 this.update();
             }
