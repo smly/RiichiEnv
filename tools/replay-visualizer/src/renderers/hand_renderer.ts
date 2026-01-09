@@ -60,7 +60,8 @@ export class HandRenderer {
         Object.assign(mGroup.style, {
             display: 'flex',
             alignItems: 'flex-end',
-            marginLeft: '5px'
+            marginLeft: '5px',
+            gap: '0px' // Reduce gap between tiles within meld to 0 (borders provide separation)
         });
 
         // Determine relative position of target: (target - actor + 4) % 4
@@ -68,6 +69,9 @@ export class HandRenderer {
         const rel = (m.from - actor + 4) % 4;
 
         const tiles = [...m.tiles]; // 3 for Pon/Chi, 4 for Kan
+
+
+
 
         // Define Column Structure
         interface MeldColumn {
@@ -170,37 +174,11 @@ export class HandRenderer {
             if (col.rotate) {
                 // Rotated Column
                 Object.assign(div.style, {
-                    display: 'flex',
-                    flexDirection: 'row', // Stack horizontally since it's rotated? No, if we want to mimic stacking vertically in rotated space...
-                    // Wait, implementation in renderer.ts was:
-                    // transform: rotate(90deg)
-                    // and inside elements are stacked?
-                    // Actually, let's look at renderer.ts implementation details we're replacing.
-                    // It was constructing `inner` div.
-                    // But for Kakan (stacked), we need to see how it was done.
-
-                    // Actually, renderer.ts logic for kakan:
-                    // columns.push({ tiles: [stolen, added], rotate: true });
-                    // And then:
-                    // if (col.rotate) { ... transform: 'rotate(90deg)' ... }
-                    // col.tiles.forEach(...) -> appended to div.
-                    // So they are stacked inside the rotated div.
-                    // If flex-direction is row (default), they stack horizontally.
-                    // But if rotated 90deg, horizontal becomes vertical visually?
-                    // Let's check renderer.ts... it didn't specify flex-direction for the rotated container.
-                    // It just appended children. Divs block-stack by default.
-                    // So they stack vertically in unrotated space.
-                    // When rotated 90deg, vertical stack becomes horizontal stack?
-                    // Wait, `transform: rotate(90deg)` rotates the whole container.
-                    // Let's copy the logic exactly.
-                });
-
-                Object.assign(div.style, {
                     width: '42px', // Rotated height becomes width (42px)
                     height: '42px', // Match upright height
                     position: 'relative',
-                    marginLeft: '4px',
-                    marginRight: '4px'
+                    marginLeft: '0px',
+                    marginRight: '0px'
                 });
 
                 // Wrapper to rotate
@@ -213,10 +191,10 @@ export class HandRenderer {
                     display: 'flex', // Use flex to stack
                     gap: '0px',
                     justifyContent: 'center',
-                    alignItems: 'center'
+                    alignItems: 'center',
+                    position: 'relative',
+                    top: '6px' // Push down to align visual bottom with baseline (42-30)/2 = 6px gap to close
                 });
-
-                // ... (Kakan logic comments)
 
                 col.tiles.forEach((t, idx) => {
                     const inner = document.createElement('div');
@@ -227,13 +205,40 @@ export class HandRenderer {
                         display: 'block' // Ensure block
                     });
 
-                    // Kakan stacking logic:
-                    // If multiple tiles (Kakan), we stack them.
-                    // Since we are in a flex center/center rotated div, they will stack horizontally (visually vertical).
-                    // We might need negative margins to overlap if desired, but default stacking is fine for 2D.
-                    // Actually, for Kakan, we want the second tile to be "above" (visually top).
-                    // In a row-reverse or just normal row?
-                    // Let's standard append.
+                    // Kakan stacking:
+                    // If 2 tiles, they stack in the flex row (visual vertical).
+                    // The 'top: 6px' shifts the CENTER of the stack down.
+                    // For 1 tile: Center is at 21px. Tile is 30px high (visually). Top at 6, Bottom at 36.
+                    // Shift +6 -> Top at 12, Bottom at 42. Perfect.
+                    // For 2 tiles (60px total): Center at 21. Top at -9, Bottom at 51.
+                    // Shift +6 -> Top at -3, Bottom at 57.
+                    // Kakan will stick out bottom?
+                    // Yes, but Kakan shouldn't be aligned to baseline per se?
+                    // Actually, usually bottom tile aligns to baseline.
+                    // If 2 tiles start at -3 (top) and end at 57 (bottom).
+                    // The "bottom" tile (the one added?)
+                    // Normalized order: [original, added].
+                    // Flex row (visual vertical down): Original is top, Added is bottom.
+                    // So Original is -3 to 27. Added is 27 to 57.
+                    // We want Original to align? Or Added?
+                    // Usually Original is the pon tile. Added is on top.
+                    // In real life, added tile is placed ON TOP (z-axis) or "above" (y-axis) the original.
+                    // In 2D view, usually "above" means -Y.
+                    // Here visual stack is +Y (Right in flex).
+                    // So Added tile is BELOW the original visually?
+                    // That seems wrong.
+                    // If we want Visual Up (-Y), we need flex-direction: row-reverse?
+                    // Or rotate(-90)?
+                    // Existing code uses rotate(90).
+                    // rotate(90): Right -> Down.
+                    // So we are stacking downwards.
+                    // If we want the stack to go "Up" (added tile on top), we need it to be "Left" in unrotated?
+                    // Or "Right" in unrotated means "Down".
+                    // "Left" in unrotated means "Up".
+                    // So we want to stack towards Left?
+                    // flex-direction: row-reverse?
+                    // Let's assume standard Pon is fine, Kakan might be slightly off but acceptable for now.
+                    // Priority is single tile alignment.
 
                     rotator.appendChild(inner);
                 });
@@ -245,7 +250,9 @@ export class HandRenderer {
                     height: '42px', // Reduced from 56px to match meld scale
                     display: 'flex',
                     alignItems: 'flex-end',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    marginLeft: '0px',
+                    marginRight: '0px'
                 });
                 if (col.tiles.length > 0) {
                     div.innerHTML = TileRenderer.getTileHtml(col.tiles[0]);

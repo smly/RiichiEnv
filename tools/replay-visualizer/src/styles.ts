@@ -12,6 +12,10 @@ export const VIEWER_CSS = `
         color: white;
         font-family: sans-serif;
         box-sizing: border-box;
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
     }
     .mahjong-board svg { width: 100%; height: 100%; display: block; }
     .mahjong-board .center-info svg { width: auto; height: 100%; }
