@@ -256,23 +256,11 @@ export class Viewer {
             if (e.deltaY > 0) {
                 // Scroll Down -> Next Turn (Next Tsumo for Viewpoint)
                 console.log("[Viewer] Jumping to next turn");
-                if (this.gameState.jumpToNextTurn(vp)) {
-                    this.update();
-                } else {
-                    // Fallback: If no more turns for this player, just step forward (e.g. to see Ron/End)
-                    console.log("[Viewer] Next turn not found, stepping forward");
-                    if (this.gameState.stepForward()) this.update();
-                }
+                if (this.gameState.jumpToNextTurn(vp)) this.update();
             } else {
                 // Scroll Up -> Prev Turn (Prev Tsumo for Viewpoint)
                 console.log("[Viewer] Jumping to prev turn");
-                if (this.gameState.jumpToPrevTurn(vp)) {
-                    this.update();
-                } else {
-                    // Fallback
-                    console.log("[Viewer] Prev turn not found, stepping backward");
-                    if (this.gameState.stepBackward()) this.update();
-                }
+                if (this.gameState.jumpToPrevTurn(vp)) this.update();
             }
         }, { passive: false });
     }
