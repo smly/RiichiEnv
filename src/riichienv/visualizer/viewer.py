@@ -370,7 +370,7 @@ class Replay:
         </div>
         <script>
         (function() {{
-            const expectedHash = "{viewer_js_hash}"; 
+            const expectedHash = "{viewer_js_hash}";
 
             const runViewer = (jsCode) => {{
                 try {{
