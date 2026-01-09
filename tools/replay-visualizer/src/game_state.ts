@@ -334,7 +334,6 @@ export class GameState {
                 }
                 break;
 
-            case 'kakan': // Added Kan
             case 'ankan': // Closed Kan
                 if (e.actor !== undefined && e.consumed) {
                     const p = this.current.players[e.actor];
@@ -344,10 +343,44 @@ export class GameState {
                     });
                     p.melds.push({
                         type: e.type,
-                        tiles: e.consumed, // all tiles involved
+                        tiles: e.consumed, // all 4 tiles
                         from: e.actor
                     });
-                    p.waits = undefined; // Clear waits
+                    p.waits = undefined;
+                }
+                break;
+
+            case 'kakan': // Added Kan
+                if (e.actor !== undefined && e.pai && e.consumed) {
+                    const p = this.current.players[e.actor];
+                    // Remove the added tile from hand (usually e.consumed has it, or just e.pai)
+                    // MJAI spec: kakan event has pai (added tile) and consumed (array with just that tile)
+                    const addedTile = e.pai;
+
+                    // Remove from hand
+                    const idx = p.hand.indexOf(addedTile);
+                    if (idx >= 0) p.hand.splice(idx, 1);
+
+                    // Find generic version for matching (ignore red/0)
+                    const normalize = (t: string) => t.replace('0', '5').replace('r', '');
+                    const targetNorm = normalize(addedTile);
+
+                    // Find existing Pon
+                    const pon = p.melds.find(m => m.type === 'pon' && normalize(m.tiles[0]) === targetNorm);
+
+                    if (pon) {
+                        pon.type = 'kakan';
+                        pon.tiles.push(addedTile);
+                    } else {
+                        // Fallback: This shouldn't happen in valid logs, but prevent crash
+                        console.warn("[GameState] Kakan: Could not find original Pon for", addedTile);
+                        p.melds.push({
+                            type: 'kakan',
+                            tiles: [addedTile, addedTile, addedTile, addedTile], // Placeholder
+                            from: e.actor
+                        });
+                    }
+                    p.waits = undefined;
                 }
                 break;
 

@@ -399,23 +399,35 @@ export class Renderer {
             pDiv.style.padding = '10px';
 
             // Call Overlay Logic
+            // Call Overlay Logic
+            let showOverlay = false;
+            let label = '';
+
+            // Standard Checks (Actor-based)
             if (state.lastEvent && state.lastEvent.actor === i) {
-                let label = '';
                 const type = state.lastEvent.type;
                 if (['chi', 'pon', 'kan', 'ankan', 'daiminkan', 'kakan', 'reach'].includes(type)) { // Added reach
                     label = type.charAt(0).toUpperCase() + type.slice(1);
                     if (type === 'daiminkan') label = 'Kan';
                     if (type === 'reach') label = 'Reach'; // Ensure capitalization
+                    showOverlay = true;
                 } else if (type === 'hora') {
                     label = (state.lastEvent.target === state.lastEvent.actor) ? 'Tsumo' : 'Ron';
+                    showOverlay = true;
                 }
+            }
 
-                if (label) {
-                    const overlay = document.createElement('div');
-                    overlay.className = 'call-overlay';
-                    overlay.textContent = label;
-                    pDiv.appendChild(overlay);
-                }
+            // Ryukyoku Check (For Viewpoint Player Only)
+            if (state.lastEvent && state.lastEvent.type === 'ryukyoku' && i === this.viewpoint) {
+                label = 'Ryukyoku';
+                showOverlay = true;
+            }
+
+            if (showOverlay && label) {
+                const overlay = document.createElement('div');
+                overlay.className = 'call-overlay';
+                overlay.textContent = label;
+                pDiv.appendChild(overlay);
             }
 
             // ... (Wait Indicator Logic preserved)
@@ -586,7 +598,7 @@ export class Renderer {
                 width: '580px',
                 height: '56px',
                 position: 'absolute',
-                bottom: '10px',
+                bottom: '0px',
                 left: '50%',
                 transform: 'translateX(-50%)'
             });
@@ -617,7 +629,7 @@ export class Renderer {
             Object.assign(meldsDiv.style, {
                 display: 'flex',
                 flexDirection: 'row-reverse',
-                gap: '8px',
+                gap: '2px',
                 alignItems: 'flex-end'
             });
 
@@ -880,7 +892,7 @@ export class Renderer {
                     // Kakan visualization: Usually the added tile is "above" the first one (closer to camera / top of screen).
                     // In 2D: Shift Up (negative Y)?
                     if (idx > 0) {
-                        inner.style.top = '-10px'; // Shift up to show it "on top"
+                        inner.style.top = '-25px'; // Shift up to show it "on top"
                         // Add z-index to ensure it renders on top
                         inner.style.zIndex = '10';
                     }
