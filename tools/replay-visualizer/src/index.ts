@@ -235,17 +235,44 @@ export class Viewer {
         };
 
         // Mouse Wheel Navigation (Turn by Turn)
+        // Mouse Wheel Navigation (Turn by Turn)
+        let lastWheelTime = 0;
+        const WHEEL_THROTTLE_MS = 100; // Limit updates to 10/sec
+
         boardWrapper.addEventListener('wheel', (e) => {
             e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+
+            const now = Date.now();
+            if (now - lastWheelTime < WHEEL_THROTTLE_MS) return;
+            lastWheelTime = now;
+
+            console.log("[Viewer] Wheel event detected", e.deltaY);
+
             // Use current viewpoint for turn navigation
             const vp = this.renderer.viewpoint;
 
             if (e.deltaY > 0) {
                 // Scroll Down -> Next Turn (Next Tsumo for Viewpoint)
-                if (this.gameState.jumpToNextTurn(vp)) this.update();
+                console.log("[Viewer] Jumping to next turn");
+                if (this.gameState.jumpToNextTurn(vp)) {
+                    this.update();
+                } else {
+                    // Fallback: If no more turns for this player, just step forward (e.g. to see Ron/End)
+                    console.log("[Viewer] Next turn not found, stepping forward");
+                    if (this.gameState.stepForward()) this.update();
+                }
             } else {
                 // Scroll Up -> Prev Turn (Prev Tsumo for Viewpoint)
-                if (this.gameState.jumpToPrevTurn(vp)) this.update();
+                console.log("[Viewer] Jumping to prev turn");
+                if (this.gameState.jumpToPrevTurn(vp)) {
+                    this.update();
+                } else {
+                    // Fallback
+                    console.log("[Viewer] Prev turn not found, stepping backward");
+                    if (this.gameState.stepBackward()) this.update();
+                }
             }
         }, { passive: false });
     }

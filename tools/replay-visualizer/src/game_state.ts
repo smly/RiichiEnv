@@ -271,7 +271,10 @@ export class GameState {
             case 'tsumo':
                 if (e.actor !== undefined && e.pai) {
                     this.current.players[e.actor].hand.push(e.pai);
-                    this.current.players[e.actor].hand = sortHand(this.current.players[e.actor].hand);
+                    // Do NOT sort hand here. 
+                    // User wants the drawn tile to be visually separated on the right.
+                    // Renderer separates the LAST tile. So we just push it.
+                    // this.current.players[e.actor].hand = sortHand(this.current.players[e.actor].hand);
                     this.current.currentActor = e.actor;
                 }
                 break;
@@ -349,11 +352,12 @@ export class GameState {
                 break;
 
             case 'reach':
+            case 'reach_accepted': // Handle distinct event type if present
                 if (e.actor !== undefined) {
-                    if (e.step === '1') {
+                    if (e.type === 'reach' && e.step === '1') {
                         this.current.players[e.actor].pendingRiichi = true;
                     }
-                    if (e.step === '2') {
+                    if (e.type === 'reach_accepted' || (e.type === 'reach' && e.step === '2')) {
                         this.current.players[e.actor].riichi = true;
                         this.current.kyotaku += 1;
                         this.current.players[e.actor].score -= 1000;

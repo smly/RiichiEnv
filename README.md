@@ -188,19 +188,6 @@ while not env.done():
 print(env.scores(), env.points(), env.ranks())
 ```
 
-### Agari Calculation
-
-```python
->>> from riichienv import AgariCalculator
->>> import riichienv.convert as cvt
-
->>> ac = AgariCalculator.hand_from_text("111m33p12s111666z")
->>> ac.is_tenpai()
-True
->>> ac.calc(cvt.mpsz_to_tid("3s"))
-Agari(agari=True, yakuman=False, ron_agari=12000, tsumo_agari_oya=0, tsumo_agari_ko=0, yaku=[8, 11, 10, 22], han=5, fu=60)
-```
-
 ### Tile Conversion & Hand Parsing
 
 Standardize between various tile formats (136-tile, MPSZ, MJAI) and easily parse hand strings.
@@ -217,6 +204,19 @@ Standardize between various tile formats (136-tile, MPSZ, MJAI) and easily parse
 ```
 
 See [DATA_REPRESENTATION.md](docs/DATA_REPRESENTATION.md) for more details.
+
+### Agari Calculation
+
+```python
+>>> from riichienv import AgariCalculator
+>>> import riichienv.convert as cvt
+
+>>> ac = AgariCalculator.hand_from_text("111m33p12s111666z")
+>>> ac.is_tenpai()
+True
+>>> ac.calc(cvt.mpsz_to_tid("3s"))
+Agari(agari=True, yakuman=False, ron_agari=12000, tsumo_agari_oya=0, tsumo_agari_ko=0, yaku=[8, 11, 10, 22], han=5, fu=60)
+```
 
 ## 🛠 Development
 

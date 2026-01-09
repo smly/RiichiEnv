@@ -69,8 +69,8 @@ export class Renderer {
                     justify-content: center;
                 }
                 .tile-fg svg {
-                    width: 90% !important;
-                    height: 90% !important;
+                    width: 85% !important;
+                    height: 85% !important;
                 }
                 
                 @keyframes blink-yellow {
@@ -226,7 +226,7 @@ export class Renderer {
                     color: #fff;
                     padding: 20px;
                     border-radius: 8px;
-                    max-width: 560px;
+                    max-width: 540px;
                     max-height: 80%;
                     min-width: 400px;
                     overflow-y: auto;
@@ -402,9 +402,10 @@ export class Renderer {
             if (state.lastEvent && state.lastEvent.actor === i) {
                 let label = '';
                 const type = state.lastEvent.type;
-                if (['chi', 'pon', 'kan', 'ankan', 'daiminkan', 'kakan'].includes(type)) {
+                if (['chi', 'pon', 'kan', 'ankan', 'daiminkan', 'kakan', 'reach'].includes(type)) { // Added reach
                     label = type.charAt(0).toUpperCase() + type.slice(1);
                     if (type === 'daiminkan') label = 'Kan';
+                    if (type === 'reach') label = 'Reach'; // Ensure capitalization
                 } else if (type === 'hora') {
                     label = (state.lastEvent.target === state.lastEvent.actor) ? 'Tsumo' : 'Ron';
                 }
@@ -415,6 +416,43 @@ export class Renderer {
                     overlay.textContent = label;
                     pDiv.appendChild(overlay);
                 }
+            }
+
+            // ... (Wait Indicator Logic preserved)
+
+            // ... (River, InfoBox preserved)
+
+            // Riichi Stick (placed between river/info and center)
+            if (p.riichi) {
+                const stick = document.createElement('div');
+                stick.className = 'riichi-stick';
+                Object.assign(stick.style, {
+                    position: 'absolute',
+                    top: '-15px', // Between river (y=10) and Center info
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: '100px',
+                    height: '8px',
+                    backgroundColor: 'white',
+                    borderRadius: '4px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: '20'
+                });
+
+                // Red Dot
+                const dot = document.createElement('div');
+                Object.assign(dot.style, {
+                    width: '6px',
+                    height: '6px',
+                    backgroundColor: '#d00', // Red
+                    borderRadius: '50%'
+                });
+                stick.appendChild(dot);
+
+                pDiv.appendChild(stick);
             }
 
             // Wait Indicator Logic (Persistent)
@@ -471,6 +509,7 @@ export class Renderer {
                     cell.style.width = '34px';
                     cell.style.height = '46px';
                     cell.style.position = 'relative';
+                    cell.style.flexShrink = '0'; // Prevent shrinking in 3rd row
 
                     if (d.isRiichi) {
                         const inner = document.createElement('div');
@@ -536,18 +575,7 @@ export class Renderer {
             pDiv.appendChild(infoBox);
 
             // Riichi Stick (placed below river/info, above hand)
-            if (p.riichi) {
-                const stick = document.createElement('div');
-                stick.className = 'riichi-stick';
-                Object.assign(stick.style, {
-                    position: 'absolute',
-                    top: '160px', // Adjusted position
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '0'
-                });
-                pDiv.appendChild(stick);
-            }
+
 
             // Hand & Melds Area
             const handArea = document.createElement('div');
@@ -595,16 +623,7 @@ export class Renderer {
 
             if (p.melds.length > 0) {
                 p.melds.forEach(m => {
-                    const mGroup = document.createElement('div');
-                    mGroup.style.display = 'flex';
-                    mGroup.style.marginLeft = '10px';
-                    m.tiles.forEach(t => {
-                        const mtDiv = document.createElement('div');
-                        mtDiv.style.width = '30px'; mtDiv.style.height = '42px';
-                        mtDiv.innerHTML = this.getTileHtml(t);
-                        mGroup.appendChild(mtDiv);
-                    });
-                    meldsDiv.appendChild(mGroup);
+                    this.renderMeld(meldsDiv, m, i);
                 });
             }
             handArea.appendChild(meldsDiv);
@@ -622,7 +641,7 @@ export class Renderer {
             Object.assign(modal.style, {
                 maxHeight: '80vh',
                 overflowY: 'auto',
-                width: '450px'
+                width: '80vh'
             });
 
             let combinedHtml = `<div class="re-modal-title">End Kyoku</div>`;
@@ -666,6 +685,224 @@ export class Renderer {
                 debugPanel.textContent = text;
             }
         }
+    }
+
+    renderMeld(container: HTMLElement, m: { type: string, tiles: string[], from: number }, actor: number) {
+        const mGroup = document.createElement('div');
+        Object.assign(mGroup.style, {
+            display: 'flex',
+            alignItems: 'flex-end',
+            marginLeft: '5px'
+        });
+
+        // Determine relative position of target: (target - actor + 4) % 4
+        // 1: Right, 2: Front, 3: Left
+        const rel = (m.from - actor + 4) % 4;
+
+        // Tiles data in GameState is [...consumed, stolen]
+        // Kakan: [...consumed(3), added] but the "stolen" one from Pon is hidden inside consumed?
+        // Actually, for Kakan, GameState usually gives all 4 tiles.
+        // We need to treat it as: The "stolen" one from original Pon is the one rotated.
+        // The "added" one is stacked on that.
+        // Simplified Logic: 
+        // 1. Identify which slot is rotated based on `rel`.
+        // 2. Identify if it's Kakan -> Stack the last tile on the rotated slot.
+        // 3. Identify if it's Ankan -> All upright.
+
+        const tiles = [...m.tiles]; // 3 for Pon/Chi, 4 for Kan
+
+        // Define Column Structure
+        interface MeldColumn {
+            tiles: string[];
+            rotate: boolean;
+        }
+        let columns: MeldColumn[] = [];
+
+        if (m.type === 'ankan') {
+            // Ankan: [Back, Tile, Tile, Back]
+            tiles.forEach((t, i) => {
+                const tileId = (i === 0 || i === 3) ? 'back' : t;
+                columns.push({ tiles: [tileId], rotate: false });
+            });
+        } else if (m.type === 'kakan') {
+            // 4 tiles. 
+            // Layout depends on `rel` (direction of original Pon).
+            // Usually Kakan preserves the shape of the Pon.
+            // tiles[0..2] are the original Pon (roughly). tiles[3] is the Added tile.
+            // CAUTION: GameState ordering might vary but assuming [...consumed, stolen/added].
+            // Let's assume the standard Pon shape uses the first 3 tiles, and the 4th is added to the rotated one.
+
+            const added = tiles.pop()!;
+            const ponTiles = tiles; // 3 remaining
+
+            // Build Pon columns first
+            // Same logic as Pon/Daiminkan but using `ponTiles`
+            const stolen = ponTiles.pop()!;
+            const consumed = ponTiles; // 2 remaining
+
+            // Reconstruct Pon cols
+            if (rel === 1) { // Right
+                // [c1, c2, stolen(Rot)]
+                consumed.forEach(t => columns.push({ tiles: [t], rotate: false }));
+                columns.push({ tiles: [stolen, added], rotate: true });
+            } else if (rel === 2) { // Front
+                // [c1, stolen(Rot), c2]
+                if (consumed.length >= 2) {
+                    columns.push({ tiles: [consumed[0]], rotate: false });
+                    columns.push({ tiles: [stolen, added], rotate: true });
+                    columns.push({ tiles: [consumed[1]], rotate: false });
+                } else {
+                    // Fallback
+                    consumed.forEach(t => columns.push({ tiles: [t], rotate: false }));
+                    columns.push({ tiles: [stolen, added], rotate: true });
+                }
+            } else if (rel === 3) { // Left
+                // [stolen(Rot), c1, c2]
+                columns.push({ tiles: [stolen, added], rotate: true });
+                consumed.forEach(t => columns.push({ tiles: [t], rotate: false }));
+            } else {
+                // Self (Shouldn't happen)
+                [...consumed, stolen, added].forEach(t => columns.push({ tiles: [t], rotate: false }));
+            }
+        } else if (m.type === 'daiminkan') {
+            // Open Kan (4 tiles). Logic similar to Pon but with 3 consumed + 1 stolen.
+            // Or 4 tiles flat.
+            // User Request for Toimen: 3rd tile rotated. `[t, t, rot, t]`
+            // Deduce Right: `[t, t, t, rot]`?
+            // Deduce Left: `[rot, t, t, t]`?
+            const stolen = tiles.pop()!;
+            const consumed = tiles; // 3 remaining
+
+            if (rel === 1) { // Right
+                // [c1, c2, c3, stolen(Rot)]
+                consumed.forEach(t => columns.push({ tiles: [t], rotate: false }));
+                columns.push({ tiles: [stolen], rotate: true });
+            } else if (rel === 2) { // Front (Toimen)
+                // Request: 3rd from left is rotated.
+                // columns: [c1, c2, stolen, c3]
+                if (consumed.length >= 3) {
+                    columns.push({ tiles: [consumed[0]], rotate: false });
+                    columns.push({ tiles: [consumed[1]], rotate: false });
+                    columns.push({ tiles: [stolen], rotate: true });
+                    columns.push({ tiles: [consumed[2]], rotate: false });
+                } else {
+                    // Fallback
+                    consumed.forEach(t => columns.push({ tiles: [t], rotate: false }));
+                    columns.push({ tiles: [stolen], rotate: true });
+                }
+            } else if (rel === 3) { // Left
+                // [stolen(Rot), c1, c2, c3]
+                columns.push({ tiles: [stolen], rotate: true });
+                consumed.forEach(t => columns.push({ tiles: [t], rotate: false }));
+            } else {
+                [...consumed, stolen].forEach(t => columns.push({ tiles: [t], rotate: false }));
+            }
+
+        } else if (m.type === 'chi') {
+            // Chi: From Left (3). Stolen on Right, Rotated.
+            const stolen = tiles.pop()!;
+            const consumed = tiles;
+            consumed.forEach(t => columns.push({ tiles: [t], rotate: false }));
+            columns.push({ tiles: [stolen], rotate: true });
+        } else {
+            // Pon
+            const stolen = tiles.pop()!;
+            const consumed = tiles;
+            if (rel === 1) { // Right (Shimocha)
+                consumed.forEach(t => columns.push({ tiles: [t], rotate: false }));
+                columns.push({ tiles: [stolen], rotate: true });
+            } else if (rel === 2) { // Front (Toimen)
+                if (consumed.length >= 2) {
+                    columns.push({ tiles: [consumed[0]], rotate: false });
+                    columns.push({ tiles: [stolen], rotate: true });
+                    columns.push({ tiles: [consumed[1]], rotate: false });
+                    for (let i = 2; i < consumed.length; i++) columns.push({ tiles: [consumed[i]], rotate: false });
+                } else {
+                    consumed.forEach(t => columns.push({ tiles: [t], rotate: false }));
+                    columns.push({ tiles: [stolen], rotate: true });
+                }
+            } else if (rel === 3) { // Left (Kamicha)
+                columns.push({ tiles: [stolen], rotate: true });
+                consumed.forEach(t => columns.push({ tiles: [t], rotate: false }));
+            } else {
+                [...consumed, stolen].forEach(t => columns.push({ tiles: [t], rotate: false }));
+            }
+        }
+
+        // Render Columns
+        columns.forEach(col => {
+            const div = document.createElement('div');
+
+            // If rotated, it takes up 42px width. If upright, 30px width.
+            // Height is usually 42px.
+
+            div.style.position = 'relative';
+
+            if (col.rotate) {
+                // Rotated Column
+                div.style.width = '42px';
+                div.style.height = '42px';
+
+                // Render tiles inside. 
+                // Z-index or offset needed for stacking?
+                // Standard Kakan: 2nd tile is placed "above" (closer to camera / top of screen).
+                // In 2D: Shift Up (negative Y)?
+                // Let's just create inner divs for each tile.
+                // Rotation transform: rotate(-90deg).
+                // If 2 tiles, where do they go?
+                // Standard: They align side-by-side (left-right) inside the 42x42 box?
+                // But 42x42 is square.
+                // Total height of 2 stacked simple tiles (side view) is...
+                // Hand tiles are 30x42.
+                // Rotated: 42 wide, 30 high.
+                // If we stack 2: Total height 60? Or do they overlap?
+                // Usually spread slightly.
+
+                // Implementation:
+                // Base tile at centered/standard pos.
+                // Added tile shifted slightly or just next to it.
+                // Since this is 2D CSS, let's just stack them using absolute positioning.
+
+                col.tiles.forEach((t, idx) => {
+                    const inner = document.createElement('div');
+                    inner.innerHTML = this.getTileHtml(t);
+                    Object.assign(inner.style, {
+                        width: '30px',
+                        height: '42px',
+                        transform: 'rotate(-90deg)',
+                        transformOrigin: 'center center',
+                        position: 'absolute',
+                        top: '5px', // Center vertically (42-30)/2 roughly + adjust
+                        left: '6px' // Center horizontally (42-30)/2
+                    });
+
+                    // If stacked (idx > 0), shift it?
+                    // Kakan visualization: Usually the added tile is "above" the first one (closer to camera / top of screen).
+                    // In 2D: Shift Up (negative Y)?
+                    if (idx > 0) {
+                        inner.style.top = '-10px'; // Shift up to show it "on top"
+                        // Add z-index to ensure it renders on top
+                        inner.style.zIndex = '10';
+                    }
+
+                    div.appendChild(inner);
+                });
+
+            } else {
+                // Upright Column
+                div.style.width = '30px';
+                div.style.height = '42px';
+                // Render just the first tile? 
+                // We only support 1 tile per upright column essentially (Ankan/Pon/Chi/Daiminkan-non-rotated parts).
+                // Kakan only stacks on rotated part.
+                if (col.tiles.length > 0) {
+                    div.innerHTML = this.getTileHtml(col.tiles[0]);
+                }
+            }
+            mGroup.appendChild(div);
+        });
+
+        container.appendChild(mGroup);
     }
 
     formatRound(r: number) {
