@@ -10,7 +10,7 @@ from typing import Any
 
 from IPython.display import HTML
 
-from riichienv import AgariCalculator, Conditions, Meld, MeldType
+from riichienv import AgariCalculator, Conditions, Meld, MeldType, Wind
 from riichienv import convert as cvt
 
 
@@ -168,6 +168,12 @@ class MetadataInjector:
 
                 self.turn_count += 1
 
+            elif etype == "reach":
+                assert actor is not None
+                # Set Riichi declared flag immediately on announcement
+                self.riichi_declared[actor] = True
+                self.ippatsu_eligible[actor] = True
+
             elif etype in ["pon", "chi", "daiminkan"]:
                 assert actor is not None
                 # Remove consumed tiles from hand
@@ -265,14 +271,31 @@ class MetadataInjector:
                 # In MJAI, if we are at 'hora' after 'dahai' or 'tsumo', we check ippatsu_eligible
                 # But we need to clear ippatsu_eligible[actor] AFTER their next turn.
 
+                # Double Riichi check
+                is_double_riichi = False
+                if self.riichi_declared[actor] and self.is_first_round_of_kyoku and not self.any_melds_in_kyoku:
+                    is_double_riichi = True
+
+                # Helpers for Wind conversion
+                def get_wind(idx: int) -> Wind:
+                    idx = idx % 4
+                    if idx == 0:
+                        return Wind.East
+                    if idx == 1:
+                        return Wind.South
+                    if idx == 2:
+                        return Wind.West
+                    return Wind.North
+
                 cond = Conditions(
                     tsumo=is_tsumo,
                     riichi=self.riichi_declared[actor],
+                    double_riichi=is_double_riichi,
                     ippatsu=self.ippatsu_eligible[actor],
                     rinshan=self.is_rinshan if is_tsumo else False,
                     chankan=self.is_chankan if not is_tsumo else False,
-                    player_wind=(actor - self.oya + 4) % 4,
-                    round_wind=self.round_wind,
+                    player_wind=get_wind(actor - self.oya),
+                    round_wind=get_wind(self.round_wind),
                     # haitei/houtei based on wall (if we had wall count)
                     # double_riichi if first round and no calls
                 )
@@ -306,21 +329,19 @@ class MetadataInjector:
         return self.events
 
     def _calculate_waits(self, pid: int) -> list[str]:
-        """Iterate all 34 tiles to find agari candidates."""
+        """Use AgariCalculator API to find waits."""
         hand = self.hands[pid]
         melds = self.melds[pid]
-        waits = []
 
-        # Check all 34 tiles
-        for i in range(34):
-            tid = i * 4
-            # We use a dummy condition to check shape validity
-            calc = AgariCalculator(hand, melds)
-            # Use minimal conditions
-            cond = Conditions()
-            res = calc.calc(tid, conditions=cond)
-            if res.agari:
-                waits.append(cvt.tid_to_mjai(tid))
+        calc = AgariCalculator(hand, melds)
+
+        # get_waits returns list of u32 (0-33)
+        wait_tids = calc.get_waits()
+
+        waits = []
+        for t34 in wait_tids:
+            # Convert 34-tile ID to MJAI string (use *4 to get base 136 ID)
+            waits.append(cvt.tid_to_mjai(t34 * 4))
 
         return waits
 
