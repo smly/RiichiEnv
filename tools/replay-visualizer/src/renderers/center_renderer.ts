@@ -1,4 +1,5 @@
 import { TileRenderer } from './tile_renderer';
+import { COLORS } from '../constants';
 
 export class CenterRenderer {
     static renderCenter(
@@ -12,7 +13,7 @@ export class CenterRenderer {
             top: '50%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
-            backgroundColor: '#1a3317',
+            backgroundColor: COLORS.centerInfoBackground,
             padding: '15px',
             borderRadius: '8px',
             display: 'flex',

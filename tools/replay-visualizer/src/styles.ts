@@ -1,3 +1,5 @@
+import { COLORS } from './constants';
+
 export const VIEWER_CSS = `
     .mahjong-board {
         position: relative;
@@ -5,7 +7,7 @@ export const VIEWER_CSS = `
         aspect-ratio: 1/1;
         max-width: 900px;
         margin: 0 auto;
-        background-color: rgb(29, 71, 23);
+        background-color: ${COLORS.boardBackground};
         border-radius: 12px;
         overflow: hidden;
         font-size: 14px;
@@ -88,7 +90,7 @@ export const VIEWER_CSS = `
         transition: background-color 0.2s;
     }
     .center-info:hover {
-        background-color: #2a4d25 !important;
+        background-color: ${COLORS.highlightBoard} !important;
     }
 
     .player-info-box {
@@ -153,9 +155,9 @@ export const VIEWER_CSS = `
         background: rgba(255, 255, 255, 0.2);
     }
     .active-btn {
-        background: #2a4d25 !important;
-        border-color: #4caf50 !important;
-        box-shadow: 0 0 5px #4caf50;
+        background: ${COLORS.modalBackground} !important;
+        border-color: ${COLORS.highlightButton} !important;
+        box-shadow: 0 0 5px ${COLORS.highlightButton};
     }
 
     .debug-panel {
@@ -197,7 +199,7 @@ export const VIEWER_CSS = `
         padding-bottom: 5px; 
     }
     .re-modal-content {
-        background: #0d1f0d;
+        background: ${COLORS.modalBackground};
         color: #fff;
         padding: 20px;
         border-radius: 8px;
@@ -207,7 +209,7 @@ export const VIEWER_CSS = `
         min-width: 400px;
         overflow-y: auto;
         box-shadow: 0 4px 12px rgba(0,0,0,0.8);
-        border: 1px solid #2a4d25;
+        border: 1px solid ${COLORS.tableBorder};
         text-align: left;
     }
     .re-yaku-list { margin: 10px 0; padding-left: 20px; columns: 2; }
@@ -221,20 +223,20 @@ export const VIEWER_CSS = `
         color: white !important;
     }
     .re-kyoku-table th, .re-kyoku-table td {
-        border: 1px solid #2a4d25;
+        border: 1px solid ${COLORS.tableBorder};
         padding: 8px;
         text-align: center;
-        background-color: #0d1f0d !important;
+        background-color: ${COLORS.tableHeaderBackground} !important;
         color: white !important;
     }
     .re-kyoku-table th {
-        background-color: #1a3317 !important;
+        background-color: ${COLORS.tableHeaderBackground} !important;
         position: sticky;
         top: 0;
         color: white !important;
     }
     .re-kyoku-row:hover td {
-        background-color: #2a4d25 !important;
+        background-color: ${COLORS.highlightBoard} !important;
         cursor: pointer;
     }
 `;

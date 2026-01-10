@@ -1,4 +1,5 @@
 import { GameState } from './game_state';
+import { COLORS } from './constants';
 import { Renderer } from './renderer';
 import { MjaiEvent } from './types';
 import { ReplayController } from './controller';
@@ -80,7 +81,7 @@ export class Viewer {
             width: '880px',
             height: '880px',
             position: 'relative',
-            backgroundColor: '#1d4717ff',
+            backgroundColor: COLORS.boardBackground,
             boxShadow: '0 0 20px rgba(0,0,0,0.5)',
             flexShrink: '0'
         });

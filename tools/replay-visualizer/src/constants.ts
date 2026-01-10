@@ -10,3 +10,20 @@ export const YAKU_MAP: { [key: number]: string } = {
     45: "Chuuren Poutou", 47: "Junsei Chuuren Poutou", 48: "Suuankou Tanki", 49: "Kokushi Musou 13-wait",
     50: "Daisuushii"
 };
+
+export const COLORS = {
+    boardBackground: '#39416e',
+    modalBackground: '#0f1744',
+    tableHeaderBackground: '#0f1744',
+    centerInfoBackground: '#0f1744',
+
+    highlightBoard: '#2a3c85',
+    highlightButton: '#2a3c85',
+    activeButtonBg: '#0f1744',
+
+    tableBorder: '#2a3c85',
+    text: '#ffffff',
+    activePlayerBar: '#ffd700',
+
+    riverContainer: '#fff', // Or implicit? Actually river container layout doesn't use color?
+};

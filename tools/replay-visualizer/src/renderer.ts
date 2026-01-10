@@ -68,6 +68,10 @@ export class Renderer {
 
         board.innerHTML = '';
 
+        // Clear any existing modals from container (since we append them to container now)
+        const oldModals = this.container.querySelectorAll('.re-modal-overlay');
+        oldModals.forEach(el => el.remove());
+
         // Center Info
         const center = CenterRenderer.renderCenter(state, this.onCenterClick);
         board.appendChild(center);
@@ -261,7 +265,8 @@ export class Renderer {
                 }
             };
 
-            board.appendChild(modal);
+            // Append to container to cover the whole board area, not just the inner mahjong-board
+            this.container.appendChild(modal);
         }
 
         if (debugPanel) {
