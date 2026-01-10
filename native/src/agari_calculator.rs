@@ -22,7 +22,7 @@ impl AgariCalculator {
     }
     #[new]
     #[pyo3(signature = (tiles_136, melds=vec![]))]
-    pub fn new(tiles_136: Vec<u8>, mut melds: Vec<Meld>) -> Self {
+    pub fn new(tiles_136: Vec<u8>, melds: Vec<Meld>) -> Self {
         let mut aka_dora_count = 0;
         let mut tiles_34 = Vec::with_capacity(tiles_136.len());
 
@@ -36,21 +36,26 @@ impl AgariCalculator {
         let mut full_hand = Hand::new(Some(tiles_34));
         let mut hand = full_hand.clone();
 
-        for meld in &mut melds {
+        // Clone melds to avoid mutating the Python objects passed in
+        let mut internal_melds = Vec::with_capacity(melds.len());
+
+        for meld in &melds {
+            let mut new_meld = meld.clone();
+
             // Reduce Kongs to triplets for agari detection
-            if meld.meld_type == MeldType::Gang
-                || meld.meld_type == MeldType::Angang
-                || meld.meld_type == MeldType::Addgang
+            if new_meld.meld_type == MeldType::Gang
+                || new_meld.meld_type == MeldType::Angang
+                || new_meld.meld_type == MeldType::Addgang
             {
-                let t_34 = meld.tiles[0] / 4;
+                let t_34 = new_meld.tiles[0] / 4;
                 if hand.counts[t_34 as usize] == 4 {
                     hand.counts[t_34 as usize] = 3;
                 }
             }
 
             // Convert meld tiles to 34-tile IDs
-            let mut meld_tiles_34 = Vec::with_capacity(meld.tiles.len());
-            for &t in &meld.tiles {
+            let mut meld_tiles_34 = Vec::with_capacity(new_meld.tiles.len());
+            for &t in &new_meld.tiles {
                 if t == 16 || t == 52 || t == 88 {
                     aka_dora_count += 1;
                 }
@@ -58,16 +63,17 @@ impl AgariCalculator {
                 meld_tiles_34.push(t_34);
                 full_hand.add(t_34);
             }
-            meld.tiles = meld_tiles_34;
-            if meld.meld_type == MeldType::Chi {
-                meld.tiles.sort();
+            new_meld.tiles = meld_tiles_34;
+            if new_meld.meld_type == MeldType::Chi {
+                new_meld.tiles.sort();
             }
+            internal_melds.push(new_meld);
         }
 
         Self {
             hand,
             full_hand,
-            melds,
+            melds: internal_melds,
             aka_dora_count,
         }
     }
