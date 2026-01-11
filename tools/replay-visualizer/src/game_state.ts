@@ -324,7 +324,12 @@ export class GameState {
 
                     // Riichi Logic
                     let isRiichi = false;
-                    if (p.pendingRiichi || e.reach) {
+
+                    // Robust check: If pendingRiichi is true OR current event has reach flag OR immediately following a Reach event
+                    const lastEv = this.current.lastEvent;
+                    const prevWasReach = lastEv && lastEv.type === 'reach' && lastEv.actor === e.actor && (!lastEv.step || lastEv.step === '1' || lastEv.step === 1);
+
+                    if (p.pendingRiichi || e.reach || prevWasReach) {
                         isRiichi = true;
                         p.pendingRiichi = false;
                     }

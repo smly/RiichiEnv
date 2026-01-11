@@ -203,11 +203,20 @@ export class Renderer {
             // Note: After pon/chi/kan, it is their turn but they did NOT draw from wall (they took from river).
             // So we do NOT separate.
             let hasDraw = false;
+            let shouldAnimate = false;
+
             if (state.currentActor === i && state.lastEvent) {
-                if (state.lastEvent.type === 'tsumo' && state.lastEvent.actor === i) {
+                const type = state.lastEvent.type;
+                if (type === 'tsumo' && state.lastEvent.actor === i) {
                     hasDraw = true;
-                } else if (state.lastEvent.type === 'start_kyoku' && state.lastEvent.oya === i) {
+                    shouldAnimate = true;
+                } else if (type === 'start_kyoku' && state.lastEvent.oya === i) {
                     hasDraw = true;
+                    shouldAnimate = false;
+                } else if (type === 'reach' && state.lastEvent.actor === i) {
+                    // During Reach declaration step, keep tile separated but no fly-in animation
+                    hasDraw = true;
+                    shouldAnimate = false;
                 }
             }
 
@@ -219,7 +228,7 @@ export class Renderer {
                 dAnim = state.dahaiAnim;
             }
 
-            const hand = HandRenderer.renderHand(playerState.hand, playerState.melds, i, activeWaits, hasDraw, dAnim);
+            const hand = HandRenderer.renderHand(playerState.hand, playerState.melds, i, activeWaits, hasDraw, dAnim, shouldAnimate);
 
             // HIDE HANDS LOGIC REMOVED
 
