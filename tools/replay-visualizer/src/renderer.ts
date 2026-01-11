@@ -210,9 +210,6 @@ export class Renderer {
                 if (type === 'tsumo' && state.lastEvent.actor === i) {
                     hasDraw = true;
                     shouldAnimate = true;
-                } else if (type === 'start_kyoku' && state.lastEvent.oya === i) {
-                    hasDraw = true;
-                    shouldAnimate = false;
                 } else if (type === 'reach' && state.lastEvent.actor === i) {
                     // During Reach declaration step, keep tile separated but no fly-in animation
                     hasDraw = true;
