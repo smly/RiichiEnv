@@ -34,14 +34,21 @@ export class RiverRenderer {
                 tileWrapper.style.width = '100%';
                 tileWrapper.style.height = '100%';
 
+                // New Inner Content Wrapper for Rotation
+                const tileContent = document.createElement('div');
+                tileContent.style.width = '100%';
+                tileContent.style.height = '100%';
+
                 // Handle Riichi Rotation
                 if (d.isRiichi) {
-                    // Make space for rotated tile
+                    // Make space for rotated tile in cell
                     cell.style.width = '46px';
-                    tileWrapper.className = 'tile-rotated';
+                    // Rotate the inner content, NOT the animating wrapper
+                    tileContent.className = 'tile-rotated';
                 }
 
-                tileWrapper.innerHTML = TileRenderer.getTileHtml(d.tile);
+                tileContent.innerHTML = TileRenderer.getTileHtml(d.tile);
+                tileWrapper.appendChild(tileContent);
                 cell.appendChild(tileWrapper);
 
                 if (d.isTsumogiri) cell.style.filter = 'brightness(0.7)';
