@@ -301,15 +301,15 @@ export class Viewer {
             };
         }
 
-        console.log("[Viewer] Calling first update()");
-        this.update();
-
         // Handle Center Click -> Show Round Selector
         if (!this.isFrozen) {
             this.renderer.onCenterClick = () => {
                 this.showRoundSelector();
             };
         }
+
+        console.log("[Viewer] Calling first update()");
+        this.update();
     }
 
     showRoundSelector() {
