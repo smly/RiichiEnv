@@ -5,8 +5,6 @@
 
 **Accelerating Reproducible Mahjong Research**
 
-<br />
-
 [![CI](https://github.com/smly/RiichiEnv/actions/workflows/ci.yml/badge.svg)](https://github.com/smly/RiichiEnv/actions/workflows/ci.yml)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/smly/RiichiEnv/blob/main/demos/replay_demo.ipynb)
 [![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://www.kaggle.com/code/confirm/riichienv-replay-viewer-demo/notebook)
@@ -27,6 +25,10 @@
 * **Mortal Compatibility**: Seamlessly interface with the Mortal Bot using the standard MJAI protocol.
 * **Rule Flexibility**: Support for diverse rule sets, including no-red-dragon variants and three-player mahjong.
 * **Game Visualization**: Integrated replay viewer for Jupyter Notebooks.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/smly/RiichiEnv/main/docs/assets/visualizer1.png" width="35%"> <img src="https://raw.githubusercontent.com/smly/RiichiEnv/main/docs/assets/visualizer2.png" width="35%">
+</div>
 
 ## 📦 Installation
 

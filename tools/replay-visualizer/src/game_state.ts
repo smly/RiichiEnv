@@ -324,10 +324,22 @@ export class GameState {
 
                     // Riichi Logic
                     let isRiichi = false;
-                    if (p.pendingRiichi || e.reach) {
+
+
+                    // Robust check: If pendingRiichi is true OR current event has reach flag OR immediately following a Reach event
+                    const lastEv = this.current.lastEvent;
+                    const prevWasReach = lastEv && lastEv.type === 'reach' && lastEv.actor === e.actor && (!lastEv.step || lastEv.step === '1' || lastEv.step === 1);
+
+                    // Lookahead: If next event is Reach (Step 1), this is the declaration tile
+                    // (Handle cases where Dahai comes BEFORE Reach)
+                    const nextEv = this.events[this.cursor + 1];
+                    const nextIsReach = nextEv && nextEv.type === 'reach' && nextEv.actor === e.actor && (!nextEv.step || nextEv.step === '1' || nextEv.step === 1);
+
+                    if (p.pendingRiichi || e.reach || prevWasReach || nextIsReach) {
                         isRiichi = true;
                         p.pendingRiichi = false;
                     }
+
 
                     p.discards.push({ tile: e.pai, isRiichi, isTsumogiri: !!e.tsumogiri });
                     p.waits = e.meta?.waits;
@@ -423,7 +435,13 @@ export class GameState {
                 if (e.actor !== undefined) {
                     // Treat 'reach' without step as step 1 (declaration)
                     if (e.type === 'reach' && (!e.step || e.step === '1' || e.step === 1)) {
-                        this.current.players[e.actor].pendingRiichi = true;
+                        // Only set pending if we didn't just discard the declaration tile
+                        const lastEv = this.current.lastEvent;
+                        const prevWasDahai = lastEv && lastEv.type === 'dahai' && lastEv.actor === e.actor;
+
+                        if (!prevWasDahai) {
+                            this.current.players[e.actor].pendingRiichi = true;
+                        }
                     }
                     if (e.type === 'reach_accepted' || (e.type === 'reach' && e.step === '2')) {
                         this.current.players[e.actor].riichi = true;

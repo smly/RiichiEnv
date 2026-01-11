@@ -1,7 +1,7 @@
 import { TileRenderer } from './tile_renderer';
 
 export class HandRenderer {
-    static renderHand(hand: string[], melds: any[], playerIndex: number, highlightTiles?: Set<string>, hasDraw?: boolean, dahaiAnim?: { insertIdx: number, tsumogiri: boolean }): HTMLElement {
+    static renderHand(hand: string[], melds: any[], playerIndex: number, highlightTiles?: Set<string>, hasDraw?: boolean, dahaiAnim?: { insertIdx: number, tsumogiri: boolean }, shouldAnimate: boolean = true): HTMLElement {
         // Hand & Melds Area
         const handArea = document.createElement('div');
         Object.assign(handArea.style, {
@@ -39,7 +39,9 @@ export class HandRenderer {
             // Only separate if isSeparated is true AND it's the very last tile of the hand
             if (isSeparated && idx === hand.length - 1) {
                 tDiv.style.marginLeft = '12px';
-                tDiv.classList.add('tsumo-anim');
+                if (shouldAnimate) {
+                    tDiv.classList.add('tsumo-anim');
+                }
             }
 
             // Sort Animation (for Te-dashi)
