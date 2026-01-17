@@ -10,7 +10,7 @@ class TestIllegalActions:
         assert env.current_player == 0
         assert env.phase == Phase.WaitAct
 
-        # P0 attempts to discard a tile they definitely don't have (135, usually Red 5s or Honors depending on representation, but max ID is 135)
+        # P0 attempts to discard a tile they definitely don't have.
         # Standard tile IDs 0-135.
         # Let's ensure P0 doesn't have tile 135.
         p0_hand = env.hands[0]

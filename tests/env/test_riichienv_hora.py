@@ -2,7 +2,7 @@ from riichienv import Action, ActionType, Meld, MeldType, Phase, RiichiEnv
 
 
 class TestRiichiEnv:
-    def test_chankan_ron_detection(self) -> None:
+    def test_chankan_ron_detection(self) -> None:  # noqa: PLR0915
         env = RiichiEnv(seed=42)
         env.reset()
 
@@ -38,9 +38,6 @@ class TestRiichiEnv:
 
         # P0 performs Kakan
         env.needs_tsumo = False
-        print(
-            f"DEBUG: P0 Legals: {[(a.action_type, a.tile, a.consume_tiles) for a in env.get_observations([0])[0].legal_actions()]}"
-        )
         obs_dict = env.step({0: Action(ActionType.Kakan, tile=63)})
 
         # Verify P1 can Ron
