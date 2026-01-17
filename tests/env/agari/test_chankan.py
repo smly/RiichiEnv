@@ -304,7 +304,8 @@ class TestChankan:
         assert 0 in obs
 
         # 2. All pass.
-        env.step({0: Action(ActionType.PASS), 1: Action(ActionType.PASS), 3: Action(ActionType.PASS)})
+        # Strict turn validation requires only active players to act.
+        env.step({pid: Action(ActionType.Pass) for pid in obs.keys()})
         assert env.current_player == 3
 
         # 3. P3 draws 6p (59) and kakans.

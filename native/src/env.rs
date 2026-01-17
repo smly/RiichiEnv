@@ -1285,12 +1285,18 @@ impl RiichiEnv {
 
             for pid in sorted_keys {
                 // Determine if this player interaction is expected
-                if self.phase == Phase::WaitAct {
+                let is_expected = if self.phase == Phase::WaitAct {
                     pid == self.current_player && !self.needs_tsumo
                 } else {
                     // WaitResponse
                     self.active_players.contains(&pid)
                 };
+
+                // If the player is not expected to act in this phase, treat it as an illegal action.
+                if !is_expected {
+                    illegal_actor = Some(pid);
+                    break;
+                }
 
                 let legals = self._get_legal_actions_internal(pid);
                 let action = &actions[&pid];
