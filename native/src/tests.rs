@@ -200,9 +200,27 @@ mod unit_tests {
             game_mode: game_type,
             skip_mjai_logging: false,
             seed: None,
+            hand_index: 0,
             forbidden_discards: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             rule: crate::rule::GameRule::default(),
         }
+    }
+
+    #[test]
+    fn test_seeded_shuffle_changes_between_rounds() {
+        let mut env = create_test_env(2);
+        env.seed = Some(42);
+
+        env._initialize_next_round(true, false);
+        let digest1 = env.wall_digest.clone();
+
+        env._initialize_next_round(true, false);
+        let digest2 = env.wall_digest.clone();
+
+        assert_ne!(
+            digest1, digest2,
+            "Wall digest should differ between rounds when seed is fixed"
+        );
     }
 
     #[test]
