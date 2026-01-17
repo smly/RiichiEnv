@@ -284,7 +284,7 @@ class TestChankan:
             hands=[
                 [4, 5, 6, 8, 9, 10, 12, 13, 14, 61, 62, 49, 53],
                 [],
-                [63],  # P2 has 7p (63)
+                [63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75],
                 [],
             ],
             melds=[
@@ -300,17 +300,13 @@ class TestChankan:
 
         # 1. P2 discards 7p (63). (P0 has 61, 62).
         # Wait, P2 discard 7p (63). P0 (61, 62) should have Pon.
-        obs_dict = env.step({2: Action(ActionType.Discard, 63)})
-        if 0 not in obs_dict:
-            print(f"DEBUG: P0 not in obs. P0 Hand: {env.hands[0]}")
-            # Check if P2 discard 63 was valid?
-            print(f"DEBUG: P2 Hand: {env.hands[2]}")
-            print(f"DEBUG: MJAI LOG: {[x['type'] for x in env.mjai_log[-2:]]}")
-        assert 0 in obs_dict, "Player 0 should be active"
+        obs = env.step({2: Action(ActionType.Discard, 63)})
+        print(">>>", env.mjai_log)
+        assert 0 in obs
         print("Step 1: P0 has Pon offer on 7p")
 
         # 2. All pass.
-        env.step({0: Action(ActionType.PASS), 1: Action(ActionType.PASS), 3: Action(ActionType.PASS)})
+        obs = env.step({0: Action(ActionType.PASS), 1: Action(ActionType.PASS), 3: Action(ActionType.PASS)})
         assert env.current_player == 3
         print("Step 2: All passed, now P3 turn")
 
@@ -321,12 +317,6 @@ class TestChankan:
         env.hands = h3
 
         obs = env.step({3: Action(ActionType.Kakan, 59, [56, 57, 58])})
-
-        if 0 not in obs:
-            # Debugging Illegal Action
-            print(f"DEBUG: MJAI LOG: {[x['type'] for x in env.mjai_log]}")
-            if len(env.mjai_log) >= 2:
-                print(f"DEBUG: REASON: {env.mjai_log[-1].get('reason')}")
 
         assert 0 in obs, f"P0 should be active for Chankan. Phase: {env.phase}, Active: {env.active_players}"
         action_types = [a.action_type for a in obs[0].legal_actions()]
