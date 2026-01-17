@@ -301,4 +301,34 @@ export const VIEWER_CSS = `
         background-color: ${COLORS.highlightBoard} !important;
         cursor: pointer;
     }
+
+    .limit-banner {
+        width: fit-content;
+        margin: 10px auto;
+        padding: 5px 15px;
+        border-radius: 4px;
+        font-weight: bold;
+        text-align: center;
+        color: white;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .limit-mangan { background-color: #d32f2f; } /* Red */
+    .limit-haneman { background-color: #c2185b; } /* Pink */
+    .limit-baiman { background-color: #7b1fa2; } /* Purple */
+    .limit-sanbaiman { background-color: #512da8; } /* Deep Purple */
+    .limit-yakuman { 
+        background: linear-gradient(135deg, #ffd700 0%, #b8860b 100%);
+        color: #000;
+        font-size: 1.4em;
+        padding: 8px 20px;
+        box-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
+        border: 1px solid #fff;
+        animation: shine 2s infinite;
+    }
+    @keyframes shine {
+        0% { filter: brightness(1); }
+        50% { filter: brightness(1.2); }
+        100% { filter: brightness(1); }
+    }
 `;

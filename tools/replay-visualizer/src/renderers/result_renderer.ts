@@ -209,25 +209,26 @@ export class ResultRenderer {
 
             // 4. Yaku List - Updated Style
             if (score.yaku && score.yaku.length > 0) {
+                // Sort by ID ascending
+                score.yaku.sort((a: number, b: number) => a - b);
+                
                 const yakuList = document.createElement('ul');
                 yakuList.className = 're-yaku-list';
                 Object.assign(yakuList.style, {
                     columns: '2',
-                    listStyleType: 'none', // Remove bullets for cleaner look? Or keep. User said "classic font style".
-                    // Let's use serif font, larger size.
+                    listStyleType: 'none', 
                     paddingLeft: '0',
                     margin: '15px 0',
                     columnGap: '40px',
-                    fontFamily: '"Times New Roman", Times, serif', // Classic
-                    fontSize: '1.8em', // Larger
-                    fontWeight: 'bold', // Bold
+                    fontFamily: '"Times New Roman", Times, serif', 
+                    fontSize: '1.8em', 
+                    fontWeight: 'bold', 
                     lineHeight: '1.8'
                 });
 
                 score.yaku.forEach((yId: number) => {
                     const li = document.createElement('li');
                     li.textContent = YAKU_MAP[yId] || `Yaku ${yId}`;
-                    // Add padding or border for "classic" feel?
                     li.style.borderBottom = '1px dotted #555';
                     li.style.marginBottom = '5px';
                     yakuList.appendChild(li);
@@ -235,11 +236,37 @@ export class ResultRenderer {
                 body.appendChild(yakuList);
             }
 
+            // Calculate Limit / Rank
+            const han = score.han;
+            const fu = score.fu;
+            // Check for Yakuman IDs (>= 35)
+            const isYakuman = score.yaku.some((y: number) => y >= 35);
+            const isKazoe = !isYakuman && han >= 13;
+
+            // Apply special styling to content if Yakuman
+            if (isYakuman || isKazoe) {
+                content.classList.add('is-yakuman'); // Helper class for specific borders
+                // Need to ensure we remove it if NEXT page is not yakuman logic?
+                // Since we clear content.innerHTML, but 'is-yakuman' is on content container. 
+                // We should reset classes at start of renderPage.
+            } else {
+                content.classList.remove('is-yakuman');
+            }
+            
+            // Limit Banner
+            const limitInfo = ResultRenderer.getLimitInfo(han, fu, isYakuman, isKazoe);
+            if (limitInfo) {
+                const limitBanner = document.createElement('div');
+                limitBanner.className = `limit-banner ${limitInfo.css}`;
+                limitBanner.textContent = limitInfo.text;
+                body.appendChild(limitBanner);
+            }
+
             // 5. Han / Fu
             const statsRow = document.createElement('div');
             Object.assign(statsRow.style, {
                 display: 'flex',
-                justifyContent: 'space-between', // Or center gap?
+                justifyContent: 'space-between', 
                 marginTop: '15px',
                 fontWeight: 'bold',
                 fontSize: '1.1em',
@@ -407,5 +434,22 @@ export class ResultRenderer {
         btn.appendChild(svg);
 
         return btn;
+    }
+
+    private static getLimitInfo(han: number, fu: number, isYakuman: boolean, isKazoe: boolean): { text: string, css: string } | null {
+        if (isYakuman) return { text: "Yakuman", css: "limit-yakuman" };
+        if (isKazoe) return { text: "Kazoe Yakuman", css: "limit-yakuman" }; // Re-use yakuman style for Kazoe
+        if (han >= 11) return { text: "Sanbaiman", css: "limit-sanbaiman" };
+        if (han >= 8) return { text: "Baiman", css: "limit-baiman" };
+        if (han >= 6) return { text: "Haneman", css: "limit-haneman" };
+        
+        // Mangan Check
+        if (han >= 5) return { text: "Mangan", css: "limit-mangan" };
+        // Kiriage Mangan: 4 han 30 fu is 7700 (not mangan), 4 han 40 fu is Mangan (8000)
+        // 3 Han 70 fu is Mangan (8000)
+        if (han === 4 && fu >= 40) return { text: "Mangan", css: "limit-mangan" };
+        if (han === 3 && fu >= 70) return { text: "Mangan", css: "limit-mangan" };
+
+        return null;
     }
 }
