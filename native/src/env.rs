@@ -1285,7 +1285,7 @@ impl RiichiEnv {
 
             for pid in sorted_keys {
                 // Determine if this player interaction is expected
-                let is_expected = if self.phase == Phase::WaitAct {
+                if self.phase == Phase::WaitAct {
                     pid == self.current_player && !self.needs_tsumo
                 } else {
                     // WaitResponse
