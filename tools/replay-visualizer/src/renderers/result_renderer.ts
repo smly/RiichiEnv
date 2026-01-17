@@ -246,9 +246,7 @@ export class ResultRenderer {
             // Apply special styling to content if Yakuman
             if (isYakuman || isKazoe) {
                 content.classList.add('is-yakuman'); // Helper class for specific borders
-                // Need to ensure we remove it if NEXT page is not yakuman logic?
-                // Since we clear content.innerHTML, but 'is-yakuman' is on content container. 
-                // We should reset classes at start of renderPage.
+
             } else {
                 content.classList.remove('is-yakuman');
             }
