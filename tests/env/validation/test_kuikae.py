@@ -47,7 +47,10 @@ def test_kuikae_suji_chi():
 
 
 def test_kuikae_discard_restriction():
-    h = [[100] * 13 for _ in range(4)]
+    h = [list(range(13)) for _ in range(4)]
+    # P1 discards 72, ensure P1 has 72.
+    h[1] = [72] + list(range(12))  # Ensure P1 has 72
+
     # P2 Hand: 2s(79), 3s(82), 4s(85), 7p(60) -- plus junk to make 13
     base_hand = [79, 82, 85, 60]
     junk = [0, 1, 2, 3, 4, 5, 6, 7, 8]  # 9 tiles. Total 13.

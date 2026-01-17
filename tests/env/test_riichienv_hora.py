@@ -2,7 +2,7 @@ from riichienv import Action, ActionType, Meld, MeldType, Phase, RiichiEnv
 
 
 class TestRiichiEnv:
-    def test_chankan_ron_detection(self) -> None:
+    def test_chankan_ron_detection(self) -> None:  # noqa: PLR0915
         env = RiichiEnv(seed=42)
         env.reset()
 
@@ -37,6 +37,7 @@ class TestRiichiEnv:
         env.phase = Phase.WaitAct
 
         # P0 performs Kakan
+        env.needs_tsumo = False
         obs_dict = env.step({0: Action(ActionType.Kakan, tile=63)})
 
         # Verify P1 can Ron
@@ -55,24 +56,20 @@ class TestRiichiEnv:
         # 3: 槍槓. Should be the ONLY yaku.
         assert env.agari_results[1].yaku == [3]
 
-    def test_round_win_yaku(self) -> None:
-        env = RiichiEnv(seed=42)
-
         # Init Round: South 1. Bakaze=South (1).
         env.reset(bakaze=1, oya=0, honba=0, kyotaku=0)
 
+        # Ensure P2 has tile 33 (9p) for discard
+        h = env.hands
+        h[2] = [33] + list(range(40, 52))  # P2 Hand
+        h[3] = [0, 1, 2, 4, 5, 6, 8, 9, 10, 32]  # P3 Hand (was pid=3)
+        env.hands = h
+
         pid = 3
         # North player in South 1.
-        # Hand (10 tiles): 1m x 3, 2m x 3, 3m x 3, 9p x 1
-        # Tiles: 1m(0,1,2), 2m(4,5,6), 3m(8,9,10), 9p(32)
-        hand = [0, 1, 2, 4, 5, 6, 8, 9, 10, 32]
 
         # Melds (3 tiles): Pon South (112, 113, 114)
         m1 = Meld(MeldType.Peng, [112, 113, 114], True)
-
-        hands = env.hands
-        hands[pid] = hand
-        env.hands = hands
 
         melds = env.melds
         melds[pid] = [m1]
@@ -85,6 +82,7 @@ class TestRiichiEnv:
         env.active_players = [2]
 
         # Step: P2 discards 9p
+        env.needs_tsumo = False
         obs_dict = env.step({2: Action(ActionType.Discard, tile=discard_tile)})
 
         assert pid in obs_dict, "P3 should receive an observation after discard."

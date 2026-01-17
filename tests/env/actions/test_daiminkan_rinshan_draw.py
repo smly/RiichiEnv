@@ -11,17 +11,17 @@ class TestDaiminkan:
         """
         env = helper_setup_env(
             hands=[
-                list(range(13)),
-                list(parse_hand("222s")[0]) + list(range(10)),
+                [75] + list(range(13)),
+                list(parse_hand("111s")[0]) + list(range(10)),
                 [],
                 [],
             ],
             current_player=0,
             active_players=[0],
             phase=Phase.WaitAct,
-            drawn_tile=cvt.mpsz_to_tid("2s"),
+            drawn_tile=75,  # 2s (4th copy). P1 has 72,73,74.
         )
-        obs_dict = env.step({0: Action(ActionType.Discard, tile=cvt.mpsz_to_tid("2s"))})
+        obs_dict = env.step({0: Action(ActionType.Discard, tile=75)})
         assert 1 in obs_dict, "Player 1 should be active"
         assert env.phase == Phase.WaitResponse, f"Phase should be WaitResponse, got {env.phase}"
 
