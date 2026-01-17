@@ -84,11 +84,11 @@ class TestChankan:
         env.phase = Phase.WaitAct
         env.active_players = [0]
 
-        kakan_action = Action(ActionType.KAKAN, tile=3, consume_tiles=[0, 1, 2])
+        kakan_action = Action(ActionType.Kakan, tile=3, consume_tiles=[0, 1, 2])
         env.step({0: kakan_action})
 
         # Player 1 performs PASS
-        env.step({1: Action(ActionType.PASS)})
+        env.step({1: Action(ActionType.Pass)})
 
         # Env should proceed with KAKAN execution and Rinshan Draw for Player 0
         assert env.phase == Phase.WaitAct
@@ -128,7 +128,7 @@ class TestChankan:
         env.active_players = [0]
 
         # Use tile 111 for Ankan
-        ankan_action = Action(ActionType.ANKAN, tile=111, consume_tiles=[108, 109, 110, 111])
+        ankan_action = Action(ActionType.Ankan, tile=111, consume_tiles=[108, 109, 110, 111])
         obs_dict = env.step({0: ankan_action})
 
         # Should transition to WaitResponse for Player 1
@@ -136,7 +136,7 @@ class TestChankan:
         assert 1 in env.active_players
 
         legal_actions = obs_dict[1].legal_actions()
-        ron_actions = [a for a in legal_actions if a.action_type == ActionType.RON]
+        ron_actions = [a for a in legal_actions if a.action_type == ActionType.Ron]
         assert len(ron_actions) > 0
         assert ron_actions[0].tile == 111
 
@@ -237,7 +237,7 @@ class TestChankan:
 
         obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
-        ankan = [a for a in legals if a.action_type == ActionType.ANKAN]
+        ankan = [a for a in legals if a.action_type == ActionType.Ankan]
         assert len(ankan) > 0
         assert ankan[0].tile in [0, 1, 2, 3]
         assert sorted(ankan[0].consume_tiles) == [0, 1, 2, 3]
@@ -262,7 +262,7 @@ class TestChankan:
 
         obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
-        ankan = [a for a in legals if a.action_type == ActionType.ANKAN]
+        ankan = [a for a in legals if a.action_type == ActionType.Ankan]
         assert len(ankan) > 0
         assert ankan[0].tile == 0  # In Riichi, must be the drawn tile (or equivalent type)
         assert sorted(ankan[0].consume_tiles) == [0, 1, 2, 3]
