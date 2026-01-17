@@ -301,14 +301,11 @@ class TestChankan:
         # 1. P2 discards 7p (63). (P0 has 61, 62).
         # Wait, P2 discard 7p (63). P0 (61, 62) should have Pon.
         obs = env.step({2: Action(ActionType.Discard, 63)})
-        print(">>>", env.mjai_log)
         assert 0 in obs
-        print("Step 1: P0 has Pon offer on 7p")
 
         # 2. All pass.
         env.step({0: Action(ActionType.PASS), 1: Action(ActionType.PASS), 3: Action(ActionType.PASS)})
         assert env.current_player == 3
-        print("Step 2: All passed, now P3 turn")
 
         # 3. P3 draws 6p (59) and kakans.
         env.drawn_tile = 59
@@ -320,6 +317,4 @@ class TestChankan:
 
         assert 0 in obs, f"P0 should be active for Chankan. Phase: {env.phase}, Active: {env.active_players}"
         action_types = [a.action_type for a in obs[0].legal_actions()]
-        print(f"P0 legal actions: {action_types}")
-
         assert ActionType.Ron in action_types, f"P0 should have Ron offered. Actions: {action_types}"
