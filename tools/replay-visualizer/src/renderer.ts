@@ -103,8 +103,7 @@ export class Renderer {
                 position: 'relative'
             });
 
-            // Active player highlighting - Removed old highlight
-            // New logic adds bar to infoBox below
+            // Active player highlighting adds bar to infoBox below
             pDiv.style.padding = '10px';
 
             // Call Overlay Logic
@@ -138,7 +137,7 @@ export class Renderer {
                 pDiv.appendChild(overlay);
             }
 
-            // Riichi Stick rendering moved to CenterRenderer
+
 
             // Wait Indicator Logic (Persistent)
             if (p.waits && p.waits.length > 0) {
@@ -158,7 +157,7 @@ export class Renderer {
             }
 
             // --- River + Info Container ---
-            // ABSOLUTE POSITIONED RIVER
+            // Relative positioned river container
             // We use riverRow as the container for the river tiles, absolutely positioned.
             const riverRow = document.createElement('div');
             Object.assign(riverRow.style, {
@@ -197,11 +196,6 @@ export class Renderer {
 
             // Render Hand
             // Check if this player has just drawn a tile (Tsumo position)
-            // Conditions: 
-            // 1. It is this player's turn (active actor)
-            // 2. The last event was 'tsumo' (they drew) OR 'start_kyoku' (Oya's first 14th tile)
-            // Note: After pon/chi/kan, it is their turn but they did NOT draw from wall (they took from river).
-            // So we do NOT separate.
             let hasDraw = false;
             let shouldAnimate = false;
 
@@ -227,11 +221,6 @@ export class Renderer {
 
             const hand = HandRenderer.renderHand(playerState.hand, playerState.melds, i, activeWaits, hasDraw, dAnim, shouldAnimate);
 
-            // HIDE HANDS LOGIC REMOVED
-
-            // Assuming positionElement and handsTarget are part of the class or a refactor
-            // For now, append directly to pDiv as per original structure,
-            // but keep the new hand variable and hide logic.
             pDiv.appendChild(hand);
 
             wrapper.appendChild(pDiv);
@@ -242,22 +231,9 @@ export class Renderer {
         if (state.lastEvent && state.lastEvent.type === 'end_kyoku' && state.lastEvent.meta && state.lastEvent.meta.results) {
             const results = state.lastEvent.meta.results;
             // Use new ResultRenderer
-            // We assume YAKU_MAP is handled internally or passed if needed, but ResultRenderer imports it.
             const modal = ResultRenderer.renderModal(results, state);
 
-            // Allow close by clicking overlay (handled by caller? No, ResultRenderer creates overlay).
-            // We need to support 'removing' it from board.
-            // The renderer.ts recreates content every time, so simply appending it works.
-            // But if user wants to close it?
-            // If the event is still 'end_kyoku', re-render will bring it back.
-            // The modal should perhaps NOT be rendered if the user has dismissed it for this specific event instance?
-            // But usually 'end_kyoku' is a state. You move next to start next kyoku.
-            // So closing it might just hide it. 
-            // Let's add simple click-to-hide logic to the overlay in ResultRenderer or here.
-            // ResultRenderer didn't implement creating a close handler that removes it from DOM.
-            // But since board.innerHTML is cleared on render, 'close' just means removing from DOM *until next render*.
-            // Next render happens on next/prev step.
-            // So clicking background to remove() is fine.
+            // Click background to close
             modal.onclick = (e) => {
                 if (e.target === modal) {
                     modal.remove();

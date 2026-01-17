@@ -161,7 +161,7 @@ export class Viewer {
             btnLog.onclick = () => this.controller.toggleLog(btnLog, this.debugPanel);
             rightSidebar.appendChild(btnLog);
 
-            // Hide Button REMOVED
+
 
             const btnPTurn = createBtn('btn-pturn', ICON_ARROW_LEFT, "Prev Round");
             btnPTurn.onclick = () => this.controller.prevTurn();
@@ -183,7 +183,7 @@ export class Viewer {
             btnAuto.onclick = () => this.controller.toggleAutoPlay(btnAuto);
             rightSidebar.appendChild(btnAuto);
 
-            // Pseudo button for Round Selector (hidden or triggered by center?)
+            // Hidden button for Round Selector
             const rBtn = document.createElement('div');
             rBtn.id = 'btn-round';
             rBtn.style.display = 'none';
@@ -222,16 +222,10 @@ export class Viewer {
         }
 
         // Resize Logic to scale the entire content (Board + Sidebar)
-        // Resize Logic to scale the entire content (Board + Sidebar)
-        // We use ResizeObserver on the container to detect size changes of the parent environment (e.g. Jupyter cell)
+        // We use ResizeObserver on the container to detect size changes.
         const resizeObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
-                // The entry.contentRect gives the size of the container.
-                // However, since we adjust the container size ourselves (in older logic),
-                // we must be careful.
-                // Actually, in the latest logic (step 293), we resize `scaleWrapper`, 
-                // and `this.container` is just a flexible wrapper (display: block, maxWidth: 100%).
-                // So `this.container.clientWidth` should reflect the PARENT's constraint.
+                // this.container.clientWidth reflects the PARENT's constraint.
 
                 const availableW = entry.contentRect.width;
                 // For height, we might not be constrained by parent height in Jupyter (it grows).
@@ -263,21 +257,9 @@ export class Viewer {
 
         resizeObserver.observe(this.container);
 
-        // Also keep window resize listener as fallback or for height updates?
-        // ResizeObserver on container usually covers window resizes that affect container width.
-        // But window height changes might not trigger container resize if container is short.
-        // We can add a simple listener to trigger observer logic?
-        // Or just observe document.body?
-        // Let's stick to observing container + window resize.
 
+        // Handle window resize to update vertical scaling if needed
         window.addEventListener('resize', () => {
-            // Force check
-            // But ResizeObserver loop is separate.
-            // We can just rely on ResizeObserver if width changes.
-            // If ONLY height changes (e.g. browser resizing vertically), container width might not change.
-            // But `availableH` from window.innerHeight depends on it.
-            // So we need to re-run logic.
-            // Let's manually run the logic:
             const availableW = this.container.clientWidth;
             const availableH = window.innerHeight;
             const baseW = 970; const baseH = 900;
@@ -353,16 +335,6 @@ export class Viewer {
         kyokus.forEach((k, idx) => {
             const tr = document.createElement('tr');
             tr.onclick = () => {
-                // Jump to this kyoku
-                // Find start_kyoku event index
-                // We know kyokus[idx] corresponds to limits[idx].start
-                // Actually GameState stores limits. 
-                // We need to jump to k.startEventIndex
-                // Wait, GameState kyokus array has { round, honba, scores, startEventIndex }?
-                // Let's assume GameState has a method or list.
-                // Looking at GameState class (inferred), it likely has this info.
-                // For now, let's assume we can jump by index if we had it.
-                // Simplified: use gameState.jumpToKyoku(idx).
                 this.gameState.jumpToKyoku(idx);
                 this.update();
                 overlay.remove();
