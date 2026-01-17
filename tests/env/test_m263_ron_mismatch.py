@@ -15,14 +15,13 @@ def test_ron_mismatch_after_call():
     # Melds: Chi(7m,8m,9m), Chi(7p,8p,9p), Pon(P,P,P)
     # 1m: 0, 1, 2
     # 7s: 92, 93, 94, 95. We use 92.
-    # P: 136-139? (White Dragon)
-    # Let's use tid_to_mjai style mapping.
-    # 1m=0..3, 1p=36..39, 1s=72..75, E=108, S=112, W=116, N=120, P=124, F=128, C=132 (Wait, let's check)
+    # P: 136-139 (White Dragon)
+    # 1m=0..3, 1p=36..39, 1s=72..75, E=108, S=112, W=116, N=120, P=124, F=128, C=132
 
-    # Actually I can just use any tiles.
     # P3 Hand: [0, 1, 2, 92]
     hands = env.hands
     hands[3] = [0, 1, 2, 92]
+
     # P3 Melds
     # White Pon (P) = 124, 125, 126
     # 789m = (6*4=24, 7*4=28, 8*4=32)
@@ -37,33 +36,16 @@ def test_ron_mismatch_after_call():
     env.hands = hands
 
     # Manually set temporary furiten for P3
-    # missed_agari_doujun is reachable via env.missed_agari_doujun
-    # Wait, check if missed_agari_doujun is exposed.
-    # grep showed line 353: pub missed_agari_doujun: [bool; 4],
-    # and it has #[pyo3(get, set)]? Let's check.
-    # (Checking grep results again... no, I didn't see #[pyo3(get, set)] in grep)
-
-    # I'll check if I can set it.
-    try:
-        mad = env.missed_agari_doujun
-        mad[3] = True
-        env.missed_agari_doujun = mad
-    except AttributeError:
-        # If not exposed, I have to trigger it naturally.
-        # P0 discards 92 (7s). P3 should be offered Ron.
-        # P3 passes -> sets missed_agari_doujun = True.
-        env.current_player = 0
-        env.phase = Phase.WaitAct
-        env.step({0: Action(ActionType.Discard, 92)})
-        # P3 should have Ron offer.
-        # We pass.
-        env.step({3: Action(ActionType.PASS)})
-        print("DEBUG: Triggered temporary furiten for P3")
+    mad = env.missed_agari_doujun
+    mad[3] = True
+    env.missed_agari_doujun = mad
 
     # Now P3 calls someone.
     # P1 discards 1p (36). P3 calls Pon.
     hands = env.hands
     hands[3] = [92, 37, 38, 40]  # 7s, 1p, 1p, 2p (4 tiles for 3 melds)
+    # Ensure P1 has 36 (1p)
+    hands[1] = [36] + hands[1][1:]
     env.hands = hands
 
     env.current_player = 1
@@ -80,6 +62,10 @@ def test_ron_mismatch_after_call():
 
     # Now P3 should NO LONGER be in temporary furiten.
     # P2 discards 7s (93).
+    h = env.hands
+    h[2] = [93] + h[2][1:]
+    env.hands = h
+
     env.current_player = 2
     env.phase = Phase.WaitAct
     obs = env.step({2: Action(ActionType.Discard, 93)})
@@ -89,7 +75,3 @@ def test_ron_mismatch_after_call():
     actions = obs[3].legal_actions()
     action_types = [a.action_type for a in actions]
     assert ActionType.Ron in action_types, f"P3 should have Ron offered. Actions: {action_types}"
-
-
-if __name__ == "__main__":
-    test_ron_mismatch_after_call()

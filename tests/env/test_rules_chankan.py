@@ -48,7 +48,8 @@ def test_chankan_kokushi_tenhou_default():
     env = RiichiEnv(rule=rule)
     setup_kokushi_scenario(env)
 
-    # Player 0 performs Ankan with 9p
+    # Player 0 performs Ankan with 9p (ID 17).
+    # Rust generates Ankan with tile=lowest_id (68), but we allow any tile in the quad (e.g. 71).
     action = Action(ActionType.ANKAN, 71, [68, 69, 70, 71])
 
     env.step({0: action})
@@ -147,8 +148,8 @@ def test_standard_chankan_kakan():
     env = RiichiEnv(rule=rule)
     setup_kakan_scenario(env)
 
-    # P0 performs Kakan (Added Kan) on 9p
-    action = Action(ActionType.KAKAN, 71, [71])
+    # Rust generates Kakan with consume_tiles=[Pon Tiles] = [68, 69, 70]
+    action = Action(ActionType.KAKAN, 71, [68, 69, 70])
 
     obs_dict = env.step({0: action})
 

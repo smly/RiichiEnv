@@ -4,7 +4,9 @@ from .helper import helper_setup_env
 
 
 def test_no_chi_during_riichi():
-    h = [[0] * 13 for _ in range(4)]
+    h = [list(range(13)) for _ in range(4)]
+    # Ensure P1 has 72 (1s) to discard
+    h[1] = [72] + list(range(12))
     h[2] = [76, 80, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
 
     env = helper_setup_env(
@@ -32,7 +34,8 @@ def test_no_chi_during_riichi():
 
 
 def test_chi_offered_when_not_in_riichi():
-    h = [[0] * 13 for _ in range(4)]
+    h = [list(range(13)) for _ in range(4)]
+    h[1] = [72] + list(range(12))  # P1 has 72 (1s)
     h[2] = [76, 80, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
 
     env = helper_setup_env(
@@ -57,7 +60,8 @@ def test_chi_offered_when_not_in_riichi():
 
 
 def test_no_pon_during_riichi():
-    h = [[0] * 13 for _ in range(4)]
+    h = [list(range(13)) for _ in range(4)]
+    h[1] = [78] + list(range(12))  # P1 has 78 (2s)
     h[2] = [76, 77, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
 
     env = helper_setup_env(

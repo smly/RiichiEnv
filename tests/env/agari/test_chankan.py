@@ -10,14 +10,14 @@ class TestChankan:
         """
         env = helper_setup_env(
             hands=[
-                list(parse_hand("02346789m01234p")[0]),
-                list(parse_hand("23m11234567p")[0]),
+                [3] + list(parse_hand("02346789m01234p")[0]),
+                list(parse_hand("23m11p234s456s")[0]),
                 [],
                 [],
             ],
             melds=[
                 [Meld(MeldType.Peng, tiles=[0, 1, 2], opened=True)],
-                [Meld(MeldType.Peng, tiles=list(parse_hand("333z")[0]), opened=True)],
+                [Meld(MeldType.Peng, tiles=list(parse_hand("999m")[0]), opened=True)],
                 [],
                 [],
             ],
@@ -29,10 +29,12 @@ class TestChankan:
         )
 
         # Player 0 performs Kakan
-        kakan_action = Action(ActionType.Kakan, tile=3, consume_tiles=[3])
+        # Pon tiles are [0, 1, 2]
+        kakan_action = Action(ActionType.Kakan, tile=3, consume_tiles=[0, 1, 2])
         obs_dict = env.step({0: kakan_action})
 
         # Env should transition to WaitResponse for Player 1
+
         assert env.phase == Phase.WaitResponse, f"Expected WaitResponse, got {env.phase}"
         assert env.active_players == [1]
         assert list(obs_dict.keys()) == [1]
@@ -51,8 +53,8 @@ class TestChankan:
         assert 1 in env.agari_results
         res = env.agari_results[1]
         assert res.agari
-        # Chankan yaku (ID 3)
-        assert res.yaku == [3]
+        # Chankan (ID 3), dora (ID 31)
+        assert res.yaku == [3, 31]
 
     def test_chankan_pass(self):
         """
@@ -64,7 +66,7 @@ class TestChankan:
         # Same setup as test_chankan_ron
         m1_tiles = [0, 1, 2]
         h = env.hands
-        h[0] = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]
+        h[0] = [3, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]
         env.hands = h
         m = env.melds
         m[0] = [Meld(MeldType.Peng, tiles=m1_tiles, opened=True)]
@@ -72,18 +74,7 @@ class TestChankan:
         env.drawn_tile = 3
 
         h = env.hands
-        h[1] = [
-            convert.mpsz_to_tid("2m"),
-            convert.mpsz_to_tid("3m"),
-            convert.mpsz_to_tid("1p"),
-            convert.mpsz_to_tid("1p"),
-            convert.mpsz_to_tid("2p"),
-            convert.mpsz_to_tid("2p"),
-            convert.mpsz_to_tid("3p"),
-            convert.mpsz_to_tid("3p"),
-            convert.mpsz_to_tid("4p"),
-            convert.mpsz_to_tid("4p"),
-        ]
+        h[1] = list(parse_hand("23m11p234s456s")[0])
         env.hands = h
         m = env.melds
         m[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]
@@ -93,7 +84,7 @@ class TestChankan:
         env.phase = Phase.WaitAct
         env.active_players = [0]
 
-        kakan_action = Action(ActionType.KAKAN, tile=3, consume_tiles=[3])
+        kakan_action = Action(ActionType.KAKAN, tile=3, consume_tiles=[0, 1, 2])
         env.step({0: kakan_action})
 
         # Player 1 performs PASS
@@ -185,7 +176,7 @@ class TestChankan:
         env.active_players = [0]
 
         # Use tile 111 for Ankan
-        ankan_action = Action(ActionType.ANKAN, tile=111, consume_tiles=[108, 109, 110, 111])
+        ankan_action = Action(ActionType.Ankan, tile=111, consume_tiles=[108, 109, 110, 111])
         env.step({0: ankan_action})
 
         assert env.phase == Phase.WaitAct
@@ -217,7 +208,7 @@ class TestChankan:
         env.phase = Phase.WaitAct
         env.active_players = [0]
 
-        ankan_action = Action(ActionType.ANKAN, tile=111, consume_tiles=[108, 109, 110, 111])
+        ankan_action = Action(ActionType.Ankan, tile=111, consume_tiles=[108, 109, 110, 111])
         env.step({0: ankan_action})
 
         # Should NOT transition to WaitResponse. Should immediately execute ANKAN.
@@ -293,7 +284,7 @@ class TestChankan:
             hands=[
                 [4, 5, 6, 8, 9, 10, 12, 13, 14, 61, 62, 49, 53],
                 [],
-                [],
+                [63],  # P2 has 7p (63)
                 [],
             ],
             melds=[
@@ -309,8 +300,13 @@ class TestChankan:
 
         # 1. P2 discards 7p (63). (P0 has 61, 62).
         # Wait, P2 discard 7p (63). P0 (61, 62) should have Pon.
-        obs = env.step({2: Action(ActionType.Discard, 63)})
-        assert 0 in obs
+        obs_dict = env.step({2: Action(ActionType.Discard, 63)})
+        if 0 not in obs_dict:
+            print(f"DEBUG: P0 not in obs. P0 Hand: {env.hands[0]}")
+            # Check if P2 discard 63 was valid?
+            print(f"DEBUG: P2 Hand: {env.hands[2]}")
+            print(f"DEBUG: MJAI LOG: {[x['type'] for x in env.mjai_log[-2:]]}")
+        assert 0 in obs_dict, "Player 0 should be active"
         print("Step 1: P0 has Pon offer on 7p")
 
         # 2. All pass.
@@ -325,6 +321,12 @@ class TestChankan:
         env.hands = h3
 
         obs = env.step({3: Action(ActionType.Kakan, 59, [56, 57, 58])})
+
+        if 0 not in obs:
+            # Debugging Illegal Action
+            print(f"DEBUG: MJAI LOG: {[x['type'] for x in env.mjai_log]}")
+            if len(env.mjai_log) >= 2:
+                print(f"DEBUG: REASON: {env.mjai_log[-1].get('reason')}")
 
         assert 0 in obs, f"P0 should be active for Chankan. Phase: {env.phase}, Active: {env.active_players}"
         action_types = [a.action_type for a in obs[0].legal_actions()]

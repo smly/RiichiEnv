@@ -23,6 +23,9 @@ def test_temporary_furiten_chankan():
     # Correctly update Rust hands
     hands = env.hands
     hands[3] = h3
+
+    # Ensure P1 has discard_tile_5s (88)
+    hands[1] = [88] + hands[1][1:]
     env.hands = hands
 
     # Setup P1 to discard 5s (88).

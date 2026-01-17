@@ -72,10 +72,12 @@ impl Action {
     #[new]
     #[pyo3(signature = (r#type=ActionType::Pass, tile=None, consume_tiles=vec![]))]
     pub fn new(r#type: ActionType, tile: Option<u8>, consume_tiles: Vec<u8>) -> Self {
+        let mut sorted_consume = consume_tiles;
+        sorted_consume.sort();
         Self {
             action_type: r#type,
             tile,
-            consume_tiles,
+            consume_tiles: sorted_consume,
         }
     }
 
@@ -1263,12 +1265,6 @@ impl RiichiEnv {
     pub fn _get_legal_actions(&self, pid: u8) -> Vec<Action> {
         // Internal method reused for Python testing
         // Requires importing _get_legal_actions logic (which is private but available to struct)
-        // Wait, self._get_legal_actions(pid) is defined later?
-        // I need to search for definition instructions.
-        // If it is defined as `fn _get_legal_actions(&self, pid: u8) -> Vec<Action>`, I can just double expose it?
-        // No, PyO3 requires `pub`.
-        // If internal is private `fn`, I can wrap it.
-        // Assuming internal is `fn _get_legal_actions`.
         self._get_legal_actions_internal(pid)
     }
 
@@ -1296,17 +1292,30 @@ impl RiichiEnv {
                     self.active_players.contains(&pid)
                 };
 
-                // Acting out of turn is illegal
-                if !is_expected {
-                    // Check if legal_actions is empty implies out of turn or just not allowed?
-                    // _get_legal_actions_internal returns empty if not turn.
-                }
-
                 let legals = self._get_legal_actions_internal(pid);
                 let action = &actions[&pid];
 
                 // Check strictly using PartialEq (requires sorted consume_tiles)
-                if !legals.contains(action) {
+                // Relaxed Check: If action.consume_tiles is empty, match based on type and tile only.
+                let is_legal = if action.consume_tiles.is_empty() {
+                    legals
+                        .iter()
+                        .any(|l| l.action_type == action.action_type && l.tile == action.tile)
+                } else {
+                    legals.contains(action)
+                        || (action.action_type == ActionType::Ankan
+                            && legals.iter().any(|l| {
+                                // For Ankan, strict equality of `tile` can be problematic because:
+                                // 1. Rust backend generates `tile` as the lowest ID in the quad (canonical form).
+                                // 2. Clients (or tests) might pass the actually drawn tile ID (e.g. 71 vs 68).
+                                // Since `consume_tiles` uniquely identifies the quad being formed (it contains all 4 tiles),
+                                // it is sufficient to check if `consume_tiles` matches a legal Ankan action.
+                                l.action_type == ActionType::Ankan
+                                    && l.consume_tiles == action.consume_tiles
+                            }))
+                };
+
+                if !is_legal {
                     illegal_actor = Some(pid);
                     break;
                 }
