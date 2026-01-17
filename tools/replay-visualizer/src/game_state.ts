@@ -51,8 +51,6 @@ export class GameState {
     kyokus: { index: number, round: number, honba: number, scores: number[] }[];
 
     // Cache state at each step to allow fast jumping
-    // For MVP, we might re-compute from nearest checkpoint or just replay from 0.
-    // Let's implement full replay from 0 for simplicity first, or incremental update.
     current: BoardState;
 
     constructor(events: MjaiEvent[]) {
@@ -207,17 +205,9 @@ export class GameState {
 
     jumpToPrevKyoku(): boolean {
         let target = -1;
-        // Search backwards. If we are currently AT a start_kyoku (cursor is just after it), 
-        // we likely want the PREVIOUS one, so search from cursor - 2.
-        // But if we are mid-game, finding the *current* start_kyoku is basically "Restart Kyoku".
-        // The user asked for "Previous Kyoku", which implies index - 1.
-
-        // Let's interpret "Prev Kyoku" as:
-        // 1. Find the start_kyoku of the CURRENT round first.
-        // 2. If we are far into the round, maybe just jumping to START of current is okay?
-        // User probably expects: Round 1 -> Round 2 -> [Prev] -> Round 1.
-
-        // Algorithm:
+        // Logic to jump to previous kyoku:
+        // 1. Find start_kyoku of current round
+        // 2. If we are at the start, find the previous one
         // Find the index of the start_kyoku for the CURRENT cursor position.
         let currentKyokuStart = -1;
         for (let i = this.cursor - 1; i >= 0; i--) {
@@ -399,7 +389,6 @@ export class GameState {
             case 'kakan': // Added Kan
                 if (e.actor !== undefined && e.pai && e.consumed) {
                     const p = this.current.players[e.actor];
-                    // Remove the added tile from hand (usually e.consumed has it, or just e.pai)
                     // MJAI spec: kakan event has pai (added tile) and consumed (array with just that tile)
                     const addedTile = e.pai;
 
@@ -418,7 +407,6 @@ export class GameState {
                         pon.type = 'kakan';
                         pon.tiles.push(addedTile);
                     } else {
-                        // Fallback: This shouldn't happen in valid logs, but prevent crash
                         console.warn("[GameState] Kakan: Could not find original Pon for", addedTile);
                         p.melds.push({
                             type: 'kakan',
@@ -474,20 +462,14 @@ export class GameState {
                             res.winningTile = res.pai;
                         }
 
-                        // 1. Search backwards for matching hora event
-                        // console.log(`[ResultEnricher] Processing result for actor ${res.actor} at cursor ${this.cursor}`);
-
                         let found = false;
                         for (let i = this.cursor - 1; i >= 0; i--) {
                             const prev = this.events[i];
                             if (prev.type === 'start_kyoku') {
-                                // console.log(`[ResultEnricher] Hit start_kyoku at ${i}, stopping search.`);
                                 break;
                             }
 
                             if (prev.type === 'hora') {
-                                // console.log(`[ResultEnricher] Found hora at ${i}: actor=${prev.actor}, pai=${prev.pai}`);
-                                // Use loose equality for actor to handle string/number mismatch
                                 if (prev.actor == res.actor) {
                                     if (prev.pai) {
                                         res.winningTile = prev.pai;
@@ -495,10 +477,9 @@ export class GameState {
                                         found = true;
                                         break;
                                     } else {
-                                        // console.warn(`[ResultEnricher] Found hora for actor ${res.actor} but 'pai' is missing! Inferring...`, prev);
                                         res.uraMarkers = prev.ura_markers; // Still capture ura markers if present
-
-                                        // Inference Logic:
+                                        
+                                        // Infer winning tile:
                                         // If Ron (target != actor), winning tile is last discard of target.
                                         // If Tsumo (target == actor), winning tile is last tsumo of actor.
 
@@ -515,7 +496,6 @@ export class GameState {
                                                 if (e2.type === 'dahai' && e2.actor == target) {
                                                     res.winningTile = e2.pai;
                                                     found = true;
-                                                    // console.log(`[ResultEnricher] Inferred winning tile from dahai: ${e2.pai}`);
                                                     break;
                                                 }
                                             } else {
@@ -523,7 +503,6 @@ export class GameState {
                                                 if (e2.type === 'tsumo' && e2.actor == actor) {
                                                     res.winningTile = e2.pai;
                                                     found = true;
-                                                    // console.log(`[ResultEnricher] Inferred winning tile from tsumo: ${e2.pai}`);
                                                     break;
                                                 }
                                             }
