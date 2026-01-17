@@ -240,7 +240,7 @@ export class ResultRenderer {
             const han = score.han;
             const fu = score.fu;
             // Check for Yakuman IDs (>= 35)
-            const isYakuman = score.yaku.some((y: number) => y >= 35);
+            const isYakuman = score.yaku?.some((y: number) => y >= 35) ?? false;
             const isKazoe = !isYakuman && han >= 13;
 
             // Apply special styling to content if Yakuman
