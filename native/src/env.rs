@@ -58,7 +58,7 @@ impl ActionType {
 // --- Structs ---
 
 #[pyclass(module = "riichienv._riichienv")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Action {
     #[pyo3(get, set)]
     pub action_type: ActionType,
@@ -488,6 +488,55 @@ impl RiichiEnv {
         }
 
         self._end_kyoku_ryukyoku(is_renchan, true);
+    }
+
+    pub(crate) fn _trigger_error_penalty(&mut self, offender: u8, reason: String) {
+        // Chombo Penalty Logic
+        // Offender pays Mangan amount.
+        // If Oya: 4000 all -> 12000 total.
+        // If Ko: 4000 to Oya, 2000 to others -> 8000 total.
+
+        let mut deltas = [0; 4];
+        let is_offender_oya = offender == self.oya;
+
+        if is_offender_oya {
+            for (i, d) in deltas.iter_mut().enumerate() {
+                if i as u8 == offender {
+                    *d = -12000;
+                } else {
+                    *d = 4000;
+                }
+            }
+        } else {
+            for (i, d) in deltas.iter_mut().enumerate() {
+                if i as u8 == offender {
+                    *d = -8000;
+                } else if i as u8 == self.oya {
+                    *d = 4000;
+                } else {
+                    *d = 2000;
+                }
+            }
+        }
+
+        // Update scores
+        for (i, d) in deltas.iter().enumerate() {
+            self.scores[i] += d;
+            self.score_deltas[i] += d;
+        }
+
+        // Log Ryukyoku with Error reason
+        let mut ev = serde_json::Map::new();
+        ev.insert("type".to_string(), Value::String("ryukyoku".to_string()));
+        let mut full_reason = "Error: ".to_string();
+        full_reason.push_str(&reason);
+        ev.insert("reason".to_string(), Value::String(full_reason));
+        ev.insert("deltas".to_string(), serde_json::to_value(deltas).unwrap());
+        self._push_mjai_event(Value::Object(ev));
+
+        // End Kyoku as Ryukyoku (Renchan + Honba+1)
+        // is_renchan=true (Keep Oya), is_draw=true (It is a draw type).
+        self._end_kyoku_ryukyoku(true, true);
     }
 
     fn _is_game_over(&self) -> bool {
@@ -1232,6 +1281,44 @@ impl RiichiEnv {
         py: Python<'py>,
         actions: HashMap<u8, Action>,
     ) -> PyResult<Py<PyAny>> {
+        // --- Added: Validation for illegal actions ---
+        if !self.is_done {
+            let mut illegal_actor: Option<u8> = None;
+            let mut sorted_keys: Vec<u8> = actions.keys().cloned().collect();
+            sorted_keys.sort();
+
+            for pid in sorted_keys {
+                // Determine if this player interaction is expected
+                let is_expected = if self.phase == Phase::WaitAct {
+                    pid == self.current_player && !self.needs_tsumo
+                } else {
+                    // WaitResponse
+                    self.active_players.contains(&pid)
+                };
+
+                // Acting out of turn is illegal
+                if !is_expected {
+                    // Check if legal_actions is empty implies out of turn or just not allowed?
+                    // _get_legal_actions_internal returns empty if not turn.
+                }
+
+                let legals = self._get_legal_actions_internal(pid);
+                let action = &actions[&pid];
+
+                // Check strictly using PartialEq (requires sorted consume_tiles)
+                if !legals.contains(action) {
+                    illegal_actor = Some(pid);
+                    break;
+                }
+            }
+
+            if let Some(offender) = illegal_actor {
+                self._trigger_error_penalty(offender, "Illegal Action".to_string());
+                return self.get_obs_py(py, Some(self.active_players.clone()));
+            }
+        }
+        // ---------------------------------------------
+
         while !self.is_done {
             if self.needs_initialize_next_round {
                 self._initialize_next_round(self.pending_oya_won, self.pending_is_draw);
