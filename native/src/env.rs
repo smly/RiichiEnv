@@ -2335,7 +2335,6 @@ impl RiichiEnv {
             {
                 // Can still Ron in Riichi
             }
-            // Wait, checking original code again.
             if self.is_done {
                 continue;
             }
@@ -2402,9 +2401,9 @@ impl RiichiEnv {
 
                 if count >= 2 {
                     // Pon
-                    // We need all distinct combinations of 2 tiles.
+                    // Because pon is Any 3 combination
                     // Possible counts of red: 0 or 1 (since total is 4 and only 1 is red).
-                    // Wait, POM can have:
+                    // Pon can have:
                     // 1. Two black tiles
                     // 2. One red and one black
                     let reds: Vec<u8> = hand
