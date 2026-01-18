@@ -4,7 +4,7 @@ from ..helper import helper_setup_env
 
 
 class TestKakan:
-    def test_kakan_action_generation_and_execution(self):
+    def test_kakan_action_from_tsumo(self):
         """
         Verifies that KAKAN (Added Kan) actions are:
         1. Correctly generated in legal_actions when a player has a Pon and the 4th tile.
@@ -28,15 +28,16 @@ class TestKakan:
             current_player=0,
             phase=Phase.WaitAct,
             needs_tsumo=False,
-            drawn_tile=2,
+            drawn_tile=2,  # Duplicated but should be valid
         )
         player_id = 0
         obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
-        assert not any([a.action_type == ActionType.Kakan for a in obs.legal_actions()]), (
-            "Should not have KAKAN action available"
+        assert any([a.action_type == ActionType.Kakan for a in obs.legal_actions()]), (
+            "Should have KAKAN action available"
         )
 
+    def test_kakan_action_from_hand(self):
         # Case2
         env = helper_setup_env(
             hands=[
