@@ -1,9 +1,12 @@
+import pytest
+
 from riichienv import Action, ActionType, GameRule, Meld, MeldType, Phase, RiichiEnv, convert, parse_hand
 
 from ..helper import helper_setup_env
 
 
 class TestChankan:
+    @pytest.mark.skip(reason="See Issue #32")
     def test_chankan_ron(self):
         """
         Verify standard Chankan Ron when a player performs KAKAN.

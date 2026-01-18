@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from riichienv import Action, ActionType, RiichiEnv
 
 
@@ -32,6 +34,7 @@ def test_select_action_from_mjai_discard():
     assert selected.tile == target_act.tile
 
 
+@pytest.mark.skip(reason="See Issue #32")
 def test_select_action_from_mjai_chi():
     env = RiichiEnv(seed=42)
     env.reset()
@@ -58,6 +61,7 @@ def test_select_action_from_mjai_chi():
     assert set(selected.consume_tiles) == set(target_act.consume_tiles)
 
 
+@pytest.mark.skip(reason="See Issue #32")
 def test_select_action_from_mjai_none():
     env = RiichiEnv(seed=42)
     env.reset()

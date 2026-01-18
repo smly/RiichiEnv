@@ -14,6 +14,13 @@ use crate::types::{Agari, Conditions, Meld, MeldType, Wind};
 use crate::yaku;
 use sha2::Digest;
 
+fn splitmix64(x: u64) -> u64 {
+    let mut z = x.wrapping_add(0x9E3779B97F4A7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
+}
+
 // --- Enums ---
 
 #[pyclass(module = "riichienv._riichienv", eq, eq_int)]
@@ -405,6 +412,7 @@ pub struct RiichiEnv {
     pub skip_mjai_logging: bool,
     #[pyo3(get)]
     pub seed: Option<u64>,
+    pub(crate) hand_index: u64,
     #[pyo3(get)]
     pub rule: crate::rule::GameRule,
 }
@@ -850,6 +858,7 @@ impl RiichiEnv {
             game_mode: gt,
             skip_mjai_logging,
             seed,
+            hand_index: 0,
             forbidden_discards: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             rule: rule.unwrap_or_default(),
         };
@@ -953,6 +962,7 @@ impl RiichiEnv {
         if let Some(s) = seed {
             self.seed = Some(s);
         }
+        self.hand_index = 0;
 
         // Reset MJAI log for new game/episode
         self.mjai_log.clear();
@@ -2676,9 +2686,12 @@ impl RiichiEnv {
             self.wall = w;
         } else {
             let mut w: Vec<u8> = (0..136).collect();
-            let mut rng = if let Some(s) = self.seed {
-                StdRng::seed_from_u64(s)
+            let mut rng = if let Some(episode_seed) = self.seed {
+                let hand_seed = splitmix64(episode_seed ^ self.hand_index);
+                self.hand_index = self.hand_index.wrapping_add(1);
+                StdRng::seed_from_u64(hand_seed)
             } else {
+                self.hand_index = self.hand_index.wrapping_add(1);
                 StdRng::from_entropy()
             };
             w.shuffle(&mut rng);

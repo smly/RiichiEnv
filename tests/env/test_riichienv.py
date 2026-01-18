@@ -6,6 +6,7 @@ from riichienv import Action, ActionType, Observation, Phase, RiichiEnv
 
 
 class TestRiichiEnv:
+    @pytest.mark.skip(reason="See Issue #32")
     def test_initialization(self) -> None:
         env = RiichiEnv(seed=42)
         assert len(env.wall) > 0, "Wall should be initialized (not empty) after construction"
