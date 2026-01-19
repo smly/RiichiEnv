@@ -6,3 +6,5 @@ Validate the scoring logic of RiichiEnv against MJSoul game records.
 uv sync
 uv run python main.py
 ```
+
+**NOTE:** `mjsoul-parser` is **not included** in this repository. Users are expected to prepare or use their own parser implementation.
