@@ -1317,18 +1317,53 @@ impl RiichiEnv {
                     legals
                         .iter()
                         .any(|l| l.action_type == action.action_type && l.tile == action.tile)
+                } else if legals.contains(action)
+                    || (action.action_type == ActionType::Ankan
+                        && legals.iter().any(|l| {
+                            l.action_type == ActionType::Ankan
+                                && l.consume_tiles == action.consume_tiles
+                        }))
+                {
+                    true
                 } else {
-                    legals.contains(action)
-                        || (action.action_type == ActionType::Ankan
-                            && legals.iter().any(|l| {
-                                // For Ankan, strict equality of `tile` can be problematic because:
-                                // 1. Rust backend generates `tile` as the lowest ID in the quad (canonical form).
-                                // 2. Clients (or tests) might pass the actually drawn tile ID (e.g. 71 vs 68).
-                                // Since `consume_tiles` uniquely identifies the quad being formed (it contains all 4 tiles),
-                                // it is sufficient to check if `consume_tiles` matches a legal Ankan action.
-                                l.action_type == ActionType::Ankan
-                                    && l.consume_tiles == action.consume_tiles
-                            }))
+                    // Relaxed Check: Match structural validity (equivalent tiles) AND actual hand possession
+                    let matching_legal = legals.iter().find(|l| {
+                        l.action_type == action.action_type
+                            && l.tile == action.tile
+                            && l.consume_tiles.len() == action.consume_tiles.len()
+                            && l.consume_tiles.iter().zip(action.consume_tiles.iter()).all(
+                                |(&lt, &at)| {
+                                    // Equivalent if same ID OR (Same type and Both are Non-Red)
+                                    // Red tiles: 16, 52, 88.
+                                    // If one is red, they must be identical (strict match).
+                                    // If both are non-red, they match if same type (t/4).
+                                    let is_red = |t: u8| t == 16 || t == 52 || t == 88;
+                                    if lt == at {
+                                        true
+                                    } else {
+                                        !is_red(lt) && !is_red(at) && lt / 4 == at / 4
+                                    }
+                                },
+                            )
+                    });
+
+                    if let Some(_match) = matching_legal {
+                        // Structurally valid. Now check if player actually HAS these tiles.
+                        let hand = &self.hands[pid as usize];
+                        let mut temp_hand = hand.clone();
+                        let mut has_all = true;
+                        for &c in &action.consume_tiles {
+                            if let Some(pos) = temp_hand.iter().position(|&h| h == c) {
+                                temp_hand.remove(pos);
+                            } else {
+                                has_all = false;
+                                break;
+                            }
+                        }
+                        has_all
+                    } else {
+                        false
+                    }
                 };
 
                 if !is_legal {
@@ -2300,7 +2335,6 @@ impl RiichiEnv {
             {
                 // Can still Ron in Riichi
             }
-            // Wait, checking original code again.
             if self.is_done {
                 continue;
             }
@@ -2367,9 +2401,9 @@ impl RiichiEnv {
 
                 if count >= 2 {
                     // Pon
-                    // We need all distinct combinations of 2 tiles.
+                    // Because pon is Any 3 combination
                     // Possible counts of red: 0 or 1 (since total is 4 and only 1 is red).
-                    // Wait, POM can have:
+                    // Pon can have:
                     // 1. Two black tiles
                     // 2. One red and one black
                     let reds: Vec<u8> = hand
@@ -3046,8 +3080,34 @@ impl RiichiEnv {
             // Normal Turn
             if self.riichi_stage[pid as usize] {
                 // Must discard after declaring Riichi
+                // Filter discards that maintain Tenpai.
+                let mut valid_discard_types = std::collections::HashSet::new();
+                let mut checked_types = std::collections::HashSet::new();
+
                 for &t in &h14 {
-                    actions.push(Action::new(ActionType::Discard, Some(t), vec![]));
+                    let tt = t / 4;
+                    if checked_types.contains(&tt) {
+                        continue;
+                    }
+                    checked_types.insert(tt);
+
+                    let mut temp_hand = h14.clone();
+                    if let Some(pos) = temp_hand.iter().position(|&x| x == t) {
+                        temp_hand.remove(pos);
+                    }
+                    let calc = crate::agari_calculator::AgariCalculator::new(
+                        temp_hand,
+                        self.melds[pid as usize].clone(),
+                    );
+                    if calc.is_tenpai() {
+                        valid_discard_types.insert(tt);
+                    }
+                }
+
+                for &t in &h14 {
+                    if valid_discard_types.contains(&(t / 4)) {
+                        actions.push(Action::new(ActionType::Discard, Some(t), vec![]));
+                    }
                 }
                 return actions;
             }

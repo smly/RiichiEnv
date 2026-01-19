@@ -47,6 +47,14 @@ def helper_setup_env(
         env.needs_tsumo = needs_tsumo
     if drawn_tile is not None:
         env.drawn_tile = drawn_tile
+        # Ensure drawn_tile is in the hand of current_player
+        if env.hands[current_player] is not None:
+            h = env.hands
+            # Avoid duplication if already in hand (though helper usually sets 13 tiles)
+            # But let's just append it.
+            h[current_player].append(drawn_tile)
+            h[current_player].sort()
+            env.hands = h
     if discards is not None:
         env.discards = discards
     if riichi_declared is not None:
