@@ -3080,8 +3080,34 @@ impl RiichiEnv {
             // Normal Turn
             if self.riichi_stage[pid as usize] {
                 // Must discard after declaring Riichi
+                // Filter discards that maintain Tenpai.
+                let mut valid_discard_types = std::collections::HashSet::new();
+                let mut checked_types = std::collections::HashSet::new();
+
                 for &t in &h14 {
-                    actions.push(Action::new(ActionType::Discard, Some(t), vec![]));
+                    let tt = t / 4;
+                    if checked_types.contains(&tt) {
+                        continue;
+                    }
+                    checked_types.insert(tt);
+
+                    let mut temp_hand = h14.clone();
+                    if let Some(pos) = temp_hand.iter().position(|&x| x == t) {
+                        temp_hand.remove(pos);
+                    }
+                    let calc = crate::agari_calculator::AgariCalculator::new(
+                        temp_hand,
+                        self.melds[pid as usize].clone(),
+                    );
+                    if calc.is_tenpai() {
+                        valid_discard_types.insert(tt);
+                    }
+                }
+
+                for &t in &h14 {
+                    if valid_discard_types.contains(&(t / 4)) {
+                        actions.push(Action::new(ActionType::Discard, Some(t), vec![]));
+                    }
                 }
                 return actions;
             }
