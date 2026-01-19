@@ -1,3 +1,5 @@
+import pytest
+
 from riichienv import Action, ActionType, Phase
 
 from ..helper import helper_setup_env
@@ -8,7 +10,7 @@ class TestRiichiNoClaim:
     Verify that Riichi player does not offer Pon or Chi.
     """
 
-    def test_riichi_no_claim(self):
+    def test_riichi_no_pon_claim(self) -> None:
         # P0 in Riichi
         env = helper_setup_env(
             hands=[
@@ -28,6 +30,7 @@ class TestRiichiNoClaim:
         # Turned into P0's turn implies PON opportunity was skipped
         assert env.phase == Phase.WaitAct and env.active_players == [0]
 
+    def test_riichi_no_chi_claim(self) -> None:
         # Test Chi
         env = helper_setup_env(
             hands=[
@@ -48,5 +51,6 @@ class TestRiichiNoClaim:
         assert not any(ac.action_type == ActionType.Chi for ac in actions)
         assert any(ac.action_type == ActionType.Ron for ac in actions)
 
+    @pytest.mark.skip(reason="Too complex to test")
     def test_riichi_rule_violation(self) -> None:
         pass
