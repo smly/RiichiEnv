@@ -22,7 +22,7 @@ class TestRiichiAutoPlayAfterPass:
             current_player=0,
             drawn_tile=parse_tile("5p"),
         )
-        obs = env.get_observations([0])
+        env.get_observations([0])
         obs = env.step({0: Action(ActionType.Riichi)})
         legal_actions = obs[0].legal_actions()
 
