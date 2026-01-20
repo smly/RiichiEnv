@@ -156,6 +156,7 @@ mod unit_tests {
             hands: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             melds: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             discards: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            discard_from_hand: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             current_player: 0,
             turn_count: 0,
             is_done: false,
