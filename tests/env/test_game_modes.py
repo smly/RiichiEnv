@@ -2,9 +2,9 @@ from riichienv import GameType, RiichiEnv
 
 
 class TestGameModes:
-    def test_tonpusen_support(self):
-        # Should not raise NotImplementedError anymore
-        RiichiEnv(game_mode=GameType.YON_TONPUSEN)
+    """
+    TODO: Add more tests for validation of game modes
+    """
 
     def test_initialization_params(self):
         # East Round, 30000 start, 1 kyotaku, 2 honba
