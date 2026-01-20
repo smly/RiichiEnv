@@ -20,7 +20,7 @@ def helper_setup_env(
     mjai_log: list[dict] | None = None,
 ) -> RiichiEnv:
     env = RiichiEnv(seed=seed, game_mode=game_mode)
-    env.reset(wall=wall)
+    env.reset(wall=wall, oya=oya)
 
     if hands is not None:
         for player_id in range(4):
