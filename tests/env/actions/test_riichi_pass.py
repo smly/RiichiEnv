@@ -32,7 +32,7 @@ class TestRiichiPassAction:
         obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
 
-        # expected lecal actions => [ActionType.Discard, ActionType.Tsumo]
+        # expected legal actions => [ActionType.Discard, ActionType.Tsumo]
         assert ActionType.Discard in [a.action_type for a in obs.legal_actions()], (
             "DISCARD should be available in Riichi"
         )
