@@ -203,6 +203,12 @@ mod unit_tests {
             hand_index: 0,
             forbidden_discards: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             rule: crate::rule::GameRule::default(),
+            pao: [
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+            ],
         }
     }
 

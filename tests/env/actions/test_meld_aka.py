@@ -1,98 +1,232 @@
-import pytest
+from riichienv import Action, ActionType, Phase, parse_hand
+from riichienv import convert as cvt
 
-import riichienv.convert as cvt
-from riichienv import RiichiEnv
-
-
-@pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
-def test_can_pon_aka():
-    env = RiichiEnv(seed=42)
-    env.reset()
-
-    # Rank 4 is 5m. IDs: 16(aka), 17, 18, 19
-    aka_5m = 16
-    n1_5m = 17
-    n2_5m = 18
-    n3_5m = 19
-
-    # Case 1: Two normals, no aka
-    hand = [n1_5m, n2_5m, 0, 1, 2]
-    options = env._can_pon(hand, n3_5m)  # Someone discards 5m
-    assert len(options) == 1
-    assert sorted(options[0]) == sorted([n1_5m, n2_5m])
-
-    # Case 2: One normal, one aka
-    hand = [aka_5m, n1_5m, 0, 1, 2]
-    options = env._can_pon(hand, n2_5m)
-    assert len(options) == 1
-    assert sorted(options[0]) == sorted([aka_5m, n1_5m])
-
-    # Case 3: Two normals, one aka
-    hand = [aka_5m, n1_5m, n2_5m, 0, 1]
-    options = env._can_pon(hand, n3_5m)
-    assert len(options) == 2
-    # Option 1: Two normals
-    # Option 2: One normal, one aka
-    mpsz_options = [sorted(cvt.tid_to_mpsz_list(opt)) for opt in options]
-    assert ["5m", "5m"] in mpsz_options
-    assert ["0m", "5m"] in mpsz_options
+from ..helper import helper_setup_env
 
 
-@pytest.mark.skip(reason="Legacy python test - Rust implementation pending or parity missing")
-def test_can_chi_aka():
-    env = RiichiEnv()
+class TestMeldWithAkaDora:
+    """
+    Tests for melding with aka-dora
+    """
 
-    # 3m, 4m, 5m (aka)
-    # 3m: rank 2 (ids 8-11)
-    # 4m: rank 3 (ids 12-15)
-    # 5m: rank 4 (ids 16(aka), 17-19)
-    # 6m: rank 5 (ids 20-23)
+    def test_can_upper_chi_5m(self) -> None:
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                parse_hand("123456789m1234p")[0],
+                parse_hand("344m123456789p3s")[0],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=17,
+        )
+        env.step({0: Action(ActionType.Discard, 17, [])})
+        assert env.phase == Phase.WaitResponse
+        # 3m(8), 4m (12), 5m(17)
+        env.step({1: Action(ActionType.Chi, tile=17, consume_tiles=[8, 12])})
+        assert env.phase == Phase.WaitAct
+        assert env.mjai_log[-1]["type"] == "chi"
+        assert env.active_players == [1]
 
-    t3m = 8
-    t4m = 12
-    aka_5m = 16
-    n5m = 17
-    t6m = 20
+    def test_can_upper_chi_red_5m(self) -> None:
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                parse_hand("123456789m1234p")[0],
+                parse_hand("344m123456789p3s")[0],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=16,
+        )
+        env.step({0: Action(ActionType.Discard, 16, [])})
+        assert env.phase == Phase.WaitResponse
+        # 3m(8), 4m (12), 0m(16)
+        env.step({1: Action(ActionType.Chi, tile=16, consume_tiles=[8, 12])})
+        assert env.phase == Phase.WaitAct
+        assert env.mjai_log[-1]["type"] == "chi"
+        assert env.active_players == [1]
 
-    # Discard 4m, Hand has 3m and 5m.
-    # If hand has only normal 5m
-    hand = [t3m, n5m, 100, 101]
-    options = env._can_chi(hand, t4m)
-    assert len(options) == 1
-    assert sorted(options[0]) == sorted([t3m, n5m])
+    def test_can_middle_chi_5m(self) -> None:
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                parse_hand("123456789m1234p")[0],
+                parse_hand("446m123456789p3s")[0],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=17,
+        )
+        env.step({0: Action(ActionType.Discard, 17, [])})
+        assert env.phase == Phase.WaitResponse
+        # 4m (12), 5m(17), 6m (20)
+        env.step({1: Action(ActionType.Chi, tile=17, consume_tiles=[12, 20])})
+        assert env.phase == Phase.WaitAct
+        assert env.active_players == [1]
+        assert env.mjai_log[-1]["type"] == "chi"
 
-    # If hand has only aka 5m
-    hand = [t3m, aka_5m, 100, 101]
-    options = env._can_chi(hand, t4m)
-    assert len(options) == 1
-    assert sorted(options[0]) == sorted([t3m, aka_5m])
+    def test_can_middle_chi_red_5m(self) -> None:
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                parse_hand("123456789m1234p")[0],
+                parse_hand("446m123456789p3s")[0],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=16,
+        )
+        env.step({0: Action(ActionType.Discard, 16, [])})
+        assert env.phase == Phase.WaitResponse
+        # 4m (12), 0m(16), 6m (20)
+        env.step({1: Action(ActionType.Chi, tile=16, consume_tiles=[12, 20])})
+        assert env.phase == Phase.WaitAct
+        assert env.mjai_log[-1]["type"] == "chi"
+        assert env.active_players == [1]
 
-    # If hand has both normal 5m and aka 5m
-    hand = [t3m, n5m, aka_5m, 100]
-    options = env._can_chi(hand, t4m)
-    assert len(options) == 2
-    mpsz_options = [sorted(cvt.tid_to_mpsz_list(opt)) for opt in options]
-    assert ["3m", "5m"] in mpsz_options
-    assert ["0m", "3m"] in mpsz_options
+    def test_can_lower_chi_5m(self) -> None:
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                parse_hand("123456789m1234p")[0],
+                parse_hand("776m123456789p3s")[0],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=17,
+        )
+        env.step({0: Action(ActionType.Discard, 17, [])})
+        assert env.phase == Phase.WaitResponse
+        # 4m (12), 5m(17), 6m (20)
+        env.step({1: Action(ActionType.Chi, tile=17, consume_tiles=[20, 24])})
+        assert env.phase == Phase.WaitAct
+        assert env.mjai_log[-1]["type"] == "chi"
+        assert env.active_players == [1]
 
-    # Complex case: Discard 6m, Hand has 4m, 5m(normal), 5m(aka), 7m, 8m
-    # 4-5-6 chi and 6-7-8 chi
-    t7m = 24
-    t8m = 28
-    hand = [t4m, n5m, aka_5m, t7m, t8m, 100]
-    options = env._can_chi(hand, t6m)
-    # Pairs for 6m (rank 5): (3, 4) and (6, 7)
-    # Candidates for rank 3 (4m): [t4m]
-    # Candidates for rank 4 (5m): [aka_5m, n5m]
-    # Candidates for rank 6 (7m): [t7m]
-    # Candidates for rank 7 (8m): [t8m]
-    # (3, 4) -> [t4m, aka_5m], [t4m, n5m]
-    # (4, 6) -> [aka_5m, t7m], [n5m, t7m]
-    # (6, 7) -> [t7m, t8m]
-    assert len(options) == 5
-    mpsz_options = [sorted(cvt.tid_to_mpsz_list(opt)) for opt in options]
-    assert ["0m", "4m"] in mpsz_options
-    assert ["4m", "5m"] in mpsz_options
-    assert ["0m", "7m"] in mpsz_options
-    assert ["5m", "7m"] in mpsz_options
-    assert ["7m", "8m"] in mpsz_options
+    def test_can_lower_chi_red_5m(self) -> None:
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                parse_hand("123456789m1234p")[0],
+                parse_hand("776m123456789p3s")[0],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=16,
+        )
+        env.step({0: Action(ActionType.Discard, 16, [])})
+        assert env.phase == Phase.WaitResponse
+        assert env.active_players == [1]
+        assert 20 in env.hands[1]  # 6m
+        assert 24 in env.hands[1]  # 7m (first 7m)
+        env.step({1: Action(ActionType.Chi, tile=16, consume_tiles=[20, 24])})
+        assert env.phase == Phase.WaitAct
+        assert env.mjai_log[-1]["type"] == "chi"
+        assert env.active_players == [1]
+
+    def test_can_lower_chi_red_5m_different_canonical_id(self) -> None:
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                parse_hand("123456789m1234p")[0],
+                parse_hand("776m123456789p3s")[0],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=16,
+        )
+        env.step({0: Action(ActionType.Discard, 16, [])})
+        assert env.phase == Phase.WaitResponse
+        assert env.active_players == [1]
+        assert 20 in env.hands[1]  # 6m
+        assert 25 in env.hands[1]  # 7m (second 7m)
+        assert cvt.tid_to_mpsz(25) == "7m"
+        # NOTE: Verify relaxed check for chi
+        env.step({1: Action(ActionType.Chi, tile=16, consume_tiles=[20, 25])})
+        assert env.phase == Phase.WaitAct
+        assert env.mjai_log[-1]["type"] == "chi"
+        assert env.active_players == [1]
+
+    def test_can_pon_5m_aka(self) -> None:
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                parse_hand("123456789m1234p")[0],
+                parse_hand("556m123456789p3s")[0],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=16,
+        )
+        env.step({0: Action(ActionType.Discard, 16, [])})
+        assert env.phase == Phase.WaitResponse
+        assert env.active_players == [1]
+        assert 17 in env.hands[1]
+        assert 18 in env.hands[1]
+        env.step({1: Action(ActionType.Pon, tile=16, consume_tiles=[17, 18])})
+        assert env.phase == Phase.WaitAct
+        assert env.mjai_log[-1]["type"] == "pon"
+        assert env.active_players == [1]
+
+    def test_can_pon_5m_normal(self) -> None:
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                parse_hand("123456789m1234p")[0],
+                parse_hand("556m123456789p3s")[0],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=19,
+        )
+        env.step({0: Action(ActionType.Discard, 19, [])})
+        assert env.phase == Phase.WaitResponse
+        assert env.active_players == [1]
+        assert 17 in env.hands[1]
+        assert 18 in env.hands[1]
+        env.step({1: Action(ActionType.Pon, tile=19, consume_tiles=[17, 18])})
+        assert env.phase == Phase.WaitAct
+        assert env.mjai_log[-1]["type"] == "pon"
+        assert env.active_players == [1]
+
+    def test_can_pon_red_5m_in_hand(self) -> None:
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                parse_hand("123456789m1234p")[0],
+                parse_hand("056m123456789p3s")[0],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=18,
+        )
+        env.step({0: Action(ActionType.Discard, 18, [])})
+        assert env.phase == Phase.WaitResponse
+        assert env.active_players == [1]
+        assert 16 in env.hands[1]
+        assert 17 in env.hands[1]
+        env.step({1: Action(ActionType.Pon, tile=18, consume_tiles=[16, 17])})
+        assert env.phase == Phase.WaitAct
+        assert env.mjai_log[-1]["type"] == "pon"
+        assert env.active_players == [1]

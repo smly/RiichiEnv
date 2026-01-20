@@ -16,7 +16,8 @@
 -----
 
 > [!NOTE]
-> This project is currently under active development. The API and specifications are subject to change before the stable release.
+> While RiichiEnv is being built with reinforcement learning applications in mind, it is still very much a work in progress. As indicated in our [Milestones](https://github.com/smly/RiichiEnv/milestones), we haven't yet completed the optimization or verification necessary for RL contexts.
+> The API and specifications are subject to change before the stable release.
 
 ## ✨ Features
 

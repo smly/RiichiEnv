@@ -97,6 +97,12 @@ exclude = ["scripts", "tests", "demos", "tools", "test_verifier_daiminkan.py"]
 [tool.importlinter]
 root_packages = ["riichienv"]
 
+[tool.uv.workspace]
+members = [
+    "tools/mjsoul-parser",
+    "tools/mjsoul-scoring-validation",
+]
+
 [tool.ty.environment]
 python = "./.venv"
 root = ["./src", "./native", "."]

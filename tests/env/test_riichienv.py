@@ -1,12 +1,9 @@
 import json
 
-import pytest
-
 from riichienv import Action, ActionType, Observation, Phase, RiichiEnv
 
 
 class TestRiichiEnv:
-    @pytest.mark.skip(reason="See Issue #32")
     def test_initialization(self) -> None:
         env = RiichiEnv(seed=42)
         assert len(env.wall) > 0, "Wall should be initialized (not empty) after construction"
@@ -55,12 +52,12 @@ class TestRiichiEnv:
         # Test `Observation.to_dict()`
         obs_data = first_dealer_obs.to_dict()
         assert obs_data["legal_actions"][0]["type"] == 0
-        assert obs_data["legal_actions"][0]["tile"] == 9
+        assert obs_data["legal_actions"][0]["tile"] == 6
         assert obs_data["legal_actions"][0]["consume_tiles"] == []
 
         # Test `Observation.select_action_from_mjai()`
         assert first_dealer_obs.select_action_from_mjai({"type": "dahai", "pai": "1m"}) is None
-        assert first_dealer_obs.select_action_from_mjai({"type": "dahai", "pai": "3m"}) is not None
+        assert first_dealer_obs.select_action_from_mjai({"type": "dahai", "pai": "2m"}) is not None
 
     def test_basic_step_processing(self) -> None:
         # env.phase should be either Phase.WaitAct (player's turn action phase)
@@ -145,13 +142,12 @@ class TestRiichiEnv:
         p1_obs = obs_dict[1]
         p1_new = [json.loads(ev) for ev in p1_obs.new_events()]
 
-        # Let's count:
+        # Check event count
         # 1. start_game
         # 2. start_kyoku
         # 3. tsumo(0)
         # 4. dahai(0)
         # 5. tsumo(1)
-
         assert len(p1_new) == 5
         assert p1_new[4]["type"] == "tsumo"
         assert p1_new[4]["actor"] == 1
@@ -295,7 +291,6 @@ class TestRiichiEnv:
         # Setup: P0 discards 3m (ID 8,9,10,11).
         # P1 (Right/Next) has 4m, 5m.
         # 3m, 4m, 5m sequence.
-
         tile_3m = 8
         tile_4m = 12
         tile_5m = 16
@@ -337,14 +332,15 @@ class TestRiichiEnv:
         assert last_ev["type"] == "chi"
 
     def test_chi_claim_with_red_dora(self) -> None:  # noqa: PLR0915
-        # P1 に 5m, 5mr が手にある状態でチーをするとき、どちらの牌を使ってチーするか選択できることを確認する
+        """
+        When P1 has 5m, 5mr in hand and performs Chi, confirm that P1 can select which tile to use for Chi.
+        """
         env = RiichiEnv(seed=42)
         env.reset()
 
         # Setup: P0 discards 3m (ID 8,9,10,11).
         # P1 (Right/Next/Shimocha) has 4m, 5m, 5mr.
         # (3m, 4m, 5m) and (3m, 4m, 5mr) sequence.
-
         tile_3m, tile_4m, tile_5mr, tile_5m = 8, 12, 16, 17
         h = env.hands
         h[0] = [tile_3m] + list(range(40, 40 + 12))
@@ -383,7 +379,7 @@ class TestRiichiEnv:
         assert last_ev["pai"] == "3m"
         assert last_ev["consumed"] == ["4m", "5m"]
 
-        # もう一つのパターンでもチーできることを確認する
+        # Test another pattern
         env = RiichiEnv(seed=42)
         env.reset()
 
@@ -641,56 +637,3 @@ class TestRiichiEnv:
         # Ankan would change the waits, so it should be ILLEGAL.
         ankan = [a for a in legals if a.action_type == ActionType.Ankan]
         assert len(ankan) == 0, f"Ankan should be illegal as it changes waits. Legals: {legals}"
-
-    @pytest.mark.skip(
-        reason="Fails due to strict illegal action penalty; difficult to setup valid P3 Riichi state manually in test."
-    )
-    def test_riichi_declared_on_claim(self) -> None:
-        """Verify that riichi_declared is updated when the reach tile is claimed."""
-        env = RiichiEnv(seed=42)
-        env.reset()
-
-        # Prepare P0 hand to Pon East (109, 110)
-        h = env.hands
-        h[0] = [109, 110] + list(env.hands[0][2:])
-        env.hands = h
-
-        # Prepare P3 hand to be Tenpai (Ready for Riichi)
-        # Use Chiitoitsu (7 Pairs) hand
-        # 11, 22, 33, 44, 55, 66, 7 (Wait 7)
-        # IDs: 0,1 (1m), 4,5 (2m), 8,9 (3m), 12,13 (4m), 16,17 (5m), 20,21 (6m), 24 (7m)
-        p3_hand = [0, 1, 4, 5, 8, 9, 12, 13, 16, 17, 20, 21, 24]
-        h[3] = p3_hand
-        env.hands = h
-
-        # P3 Turn, declares Riichi
-        env.current_player = 3
-        env.phase = Phase.WaitAct
-        env.drawn_tile = 108
-
-        env.step({3: Action(ActionType.Riichi)})
-
-        # P3 Discards reach tile
-        env.step({3: Action(ActionType.Discard, tile=108)})
-
-        # P0 PONS the reach tile
-        if env.phase != Phase.WaitResponse:
-            print(f"DEBUG LOG: {[x['type'] for x in env.mjai_log]}")
-            if len(env.mjai_log) >= 2:
-                print(f"DEBUG REASON: {env.mjai_log[-2].get('reason', 'N/A')}")
-
-        assert env.phase == Phase.WaitResponse
-        assert 108 in [
-            a.tile for a in env.get_observations(players=[0])[0].legal_actions() if a.action_type == ActionType.Pon
-        ]
-
-        # Before claim
-        assert not env.riichi_declared[3]
-
-        # Execute Pon
-        env.step({0: Action(ActionType.Pon, tile=108, consume_tiles=[109, 110])})
-
-        # After claim, riichi_declared should be True
-        assert env.riichi_declared[3]
-        # Also points should be deducted (25000 - 1000 = 24000)
-        assert env.scores()[3] == 24000

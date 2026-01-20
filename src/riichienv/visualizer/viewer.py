@@ -216,7 +216,7 @@ class MetadataInjector:
                     m_type = MeldType.Gang
                     self.is_rinshan = True
 
-                self.melds[actor].append(Meld(m_type, m_tiles, True))
+                self.melds[actor].append(Meld(m_type, m_tiles, True, actor))
                 self.any_melds_in_kyoku = True
                 # Clear all ippatsu on any call
                 self.ippatsu_eligible = [False] * 4
@@ -238,7 +238,7 @@ class MetadataInjector:
                 if found_idx != -1:
                     old_m = self.melds[actor].pop(found_idx)
                     new_tiles = sorted(old_m.tiles + [tid])
-                    self.melds[actor].append(Meld(MeldType.Addgang, new_tiles, True))
+                    self.melds[actor].append(Meld(MeldType.Addgang, new_tiles, True, actor))
                     self.is_rinshan = True
                     self.is_chankan = True  # Eligible for Chankan
 
@@ -258,7 +258,7 @@ class MetadataInjector:
                         m_tiles.append(self._get_tid(c_str))
 
                 m_tiles.sort()
-                self.melds[actor].append(Meld(MeldType.Angang, m_tiles, False))
+                self.melds[actor].append(Meld(MeldType.Angang, m_tiles, False, actor))
                 self.is_rinshan = True
                 self.ippatsu_eligible = [False] * 4
 

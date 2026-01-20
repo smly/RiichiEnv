@@ -108,17 +108,6 @@ def test_yaku_scenarios():
         if "yaku_check" in s:
             assert s["yaku_check"](res.yaku), f"{s['name']}: Yaku check failed. Got {res.yaku}"
 
-    # Valid 14-tile hand: 123m 456p 789s 123s 1z1z
-    # Substitute Red 5s:
-    # 1 2 3m -> 1 2 3m (no reds)
-    # 4 5 6p -> 4 0p 6p (one red)
-    # 7 8 9s -> 7 8 9s (no reds)
-    # 1 2 3s -> 1 2 3s (no reds)
-    # 1z 1z -> 1z 1z (pair)
-    # Wait, 3 reds? 123m 406p 789s 123s 1z1z only has 1 red.
-    # Let's use 0m23m 0p56p 0s89s 123s 1z1z -> 123m 456p 789s 123s 1z1z
-    # tiles_136:
-
 
 def test_multiple_aka_dora():
     # Valid 14-tile hand: 1+2+3m, 4+0+6p, 7+0+9s, 1+2+3s, 2z+2z

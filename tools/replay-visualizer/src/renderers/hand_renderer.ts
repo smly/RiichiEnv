@@ -51,8 +51,7 @@ export class HandRenderer {
                 // Source X: 13 * 40 + 12
                 // Target X: idx * 40
                 const sortDx = (hand.length - idx) * 40 + 12;
-                // Wait, hand.length is usually 13 (after discard). So source is index 13?
-                // Yes, after discard, hand has 13 tiles. 
+                // After discard, hand has 13 tiles. 
                 // The tile moved FROM the 14th slot (index 13, plus margin).
                 // So (13 - idx) * 40 + 12 should be correct.
 
@@ -250,41 +249,6 @@ export class HandRenderer {
                         height: '42px',
                         display: 'block' // Ensure block
                     });
-
-                    // Kakan stacking:
-                    // If 2 tiles, they stack in the flex row (visual vertical).
-                    // The 'top: 6px' shifts the CENTER of the stack down.
-                    // For 1 tile: Center is at 21px. Tile is 30px high (visually). Top at 6, Bottom at 36.
-                    // Shift +6 -> Top at 12, Bottom at 42. Perfect.
-                    // For 2 tiles (60px total): Center at 21. Top at -9, Bottom at 51.
-                    // Shift +6 -> Top at -3, Bottom at 57.
-                    // Kakan will stick out bottom?
-                    // Yes, but Kakan shouldn't be aligned to baseline per se?
-                    // Actually, usually bottom tile aligns to baseline.
-                    // If 2 tiles start at -3 (top) and end at 57 (bottom).
-                    // The "bottom" tile (the one added?)
-                    // Normalized order: [original, added].
-                    // Flex row (visual vertical down): Original is top, Added is bottom.
-                    // So Original is -3 to 27. Added is 27 to 57.
-                    // We want Original to align? Or Added?
-                    // Usually Original is the pon tile. Added is on top.
-                    // In real life, added tile is placed ON TOP (z-axis) or "above" (y-axis) the original.
-                    // In 2D view, usually "above" means -Y.
-                    // Here visual stack is +Y (Right in flex).
-                    // So Added tile is BELOW the original visually?
-                    // That seems wrong.
-                    // If we want Visual Up (-Y), we need flex-direction: row-reverse?
-                    // Or rotate(-90)?
-                    // Existing code uses rotate(90).
-                    // rotate(90): Right -> Down.
-                    // So we are stacking downwards.
-                    // If we want the stack to go "Up" (added tile on top), we need it to be "Left" in unrotated?
-                    // Or "Right" in unrotated means "Down".
-                    // "Left" in unrotated means "Up".
-                    // So we want to stack towards Left?
-                    // flex-direction: row-reverse?
-                    // Let's assume standard Pon is fine, Kakan might be slightly off but acceptable for now.
-                    // Priority is single tile alignment.
 
                     rotator.appendChild(inner);
                 });

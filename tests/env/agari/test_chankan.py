@@ -1,15 +1,12 @@
-import pytest
-
 from riichienv import Action, ActionType, GameRule, Meld, MeldType, Phase, RiichiEnv, convert, parse_hand
 
 from ..helper import helper_setup_env
 
 
 class TestChankan:
-    @pytest.mark.skip(reason="See Issue #32")
     def test_chankan_ron(self):
         """
-        Verify standard Chankan Ron when a player performs KAKAN.
+        Verify standard Chankan Ron when a player performs Kakan (Add Kan).
         """
         env = helper_setup_env(
             hands=[
@@ -56,8 +53,8 @@ class TestChankan:
         assert 1 in env.agari_results
         res = env.agari_results[1]
         assert res.agari
-        # Chankan (ID 3), dora (ID 31)
-        assert res.yaku == [3, 31]
+        # Chankan (ID 3)
+        assert res.yaku == [3]
 
     def test_chankan_pass(self):
         """

@@ -72,7 +72,8 @@ class Meld:
     meld_type: MeldType
     tiles: list[int]
     opened: bool
-    def __init__(self, meld_type: MeldType, tiles: list[int], opened: bool): ...
+    from_who: int
+    def __init__(self, meld_type: MeldType, tiles: list[int], opened: bool, from_who: int = -1): ...
 
 class Conditions:
     tsumo: bool
@@ -232,7 +233,7 @@ class RiichiEnv:
         game_mode: str | int | None = None,
         skip_mjai_logging: bool = False,  # If True, disables MJAI logging (required for visualizer).
         seed: int | None = None,
-        round_wind: int | None = None,
+        round_wind: int | None = None,  # TODO: This should be moved to reset().
         rule: GameRule | None = None,
     ) -> None: ...
     @property

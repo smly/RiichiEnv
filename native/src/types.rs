@@ -108,16 +108,20 @@ pub struct Meld {
     pub tiles: Vec<u8>,
     #[pyo3(get, set)]
     pub opened: bool,
+    #[pyo3(get, set)]
+    pub from_who: i8,
 }
 
 #[pymethods]
 impl Meld {
     #[new]
-    pub fn new(meld_type: MeldType, tiles: Vec<u8>, opened: bool) -> Self {
+    #[pyo3(signature = (meld_type, tiles, opened, from_who=-1))]
+    pub fn new(meld_type: MeldType, tiles: Vec<u8>, opened: bool, from_who: i8) -> Self {
         Self {
             meld_type,
             tiles,
             opened,
+            from_who,
         }
     }
 

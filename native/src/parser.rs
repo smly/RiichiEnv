@@ -32,52 +32,17 @@ impl TileManager {
 
         let is_5 = tile_34 == 4 || tile_34 == 13 || tile_34 == 22;
 
-        let target_idx = if is_5 && is_red {
-            0 // Red 5 is always index 0 in default encoding convention here?
-              // Wait, checking 16%4 == 0. Yes.
-        } else {
-            // Prefer non-0 indices if 5? Or just any available?
-            // If normal 5 requested, prefer 1, 2, 3.
-            // If index 0 is used (red), good.
-            // If index 0 is unused (red still there), check if we can pick 1,2,3.
-            if is_5 {
-                // Try 1, 2, 3 first
-                if !self.used[tile_34][1] {
-                    1
-                } else if !self.used[tile_34][2] {
-                    2
-                } else if !self.used[tile_34][3] {
-                    3
-                } else if !self.used[tile_34][0] {
-                    0
-                }
-                // Fallback to 0 (red) if forced? Usually 0m != 5m in text.
-                // But if input says "5m" and we ran out of blacks? Text should be consistent.
-                else {
-                    return Err(format!("No more copies of tile {}", tile_34));
-                }
-            } else {
-                // Any unused
-                if !self.used[tile_34][0] {
-                    0
-                } else if !self.used[tile_34][1] {
-                    1
-                } else if !self.used[tile_34][2] {
-                    2
-                } else if !self.used[tile_34][3] {
-                    3
-                } else {
-                    return Err(format!("No more copies of tile {}", tile_34));
-                }
-            }
+        let search_indices: &[usize] = match (is_5, is_red) {
+            (true, true) => &[0],
+            (true, false) => &[1, 2, 3, 0],
+            (false, _) => &[0, 1, 2, 3],
         };
 
-        if self.used[tile_34][target_idx] {
-            return Err(format!(
-                "Tile {} index {} already used",
-                tile_34, target_idx
-            ));
-        }
+        let target_idx = search_indices
+            .iter()
+            .find(|&&idx| !self.used[tile_34][idx])
+            .copied()
+            .ok_or_else(|| format!("No more copies of tile {}", tile_34))?;
         self.used[tile_34][target_idx] = true;
         Ok(((tile_34 * 4) + target_idx) as u8)
     }
@@ -318,7 +283,7 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> PyResult<Mel
             );
         }
         tiles_136.sort(); // standardize
-        Ok(Meld::new(MeldType::Chi, tiles_136, true))
+        Ok(Meld::new(MeldType::Chi, tiles_136, true, -1))
     } else {
         // Pon/Kan/AddedKan
         // Usually 1 digit for type (e.g. '1' in 'p1z1'). Or '0' for red pon.
@@ -431,7 +396,7 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> PyResult<Mel
 
         let opened = mtype != MeldType::Angang;
 
-        Ok(Meld::new(mtype, tiles_136, opened))
+        Ok(Meld::new(mtype, tiles_136, opened, -1))
     }
 }
 

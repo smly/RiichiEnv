@@ -1,3 +1,11 @@
+/*
+ * replay.rs: Utilities for replaying a Majsoul game to verify the agari calculator.
+ *
+ * This module is used to replay a Majsoul game and verify the agari calculator.
+ *
+ * NOTE: When a player ron with a new kan, the new kan's dora is not received from Action data.
+ * So we calculate the dora and ura_dora from the tile wall.
+ */
 #![allow(clippy::useless_conversion)]
 use flate2::read::GzDecoder;
 use pyo3::exceptions::PyValueError;
@@ -168,20 +176,9 @@ pub struct HuleDataRaw {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct FanRaw {
     pub id: u32,
+    #[serde(default)]
+    pub val: u32,
 }
-
-/*
-pub struct TypedRound {
-    pub actions: Vec<Action>,
-    pub initial_hands: Vec<Vec<u8>>,
-    pub initial_doras: Vec<u8>,
-    pub chang: u8,
-    pub ju: u8,
-    pub ben: u8,
-    pub liqibang: u8,
-    pub left_tile_count: u8,
-}
-*/
 
 #[derive(Deserialize, Serialize)]
 pub struct GameLog {
@@ -510,8 +507,9 @@ impl Kyoku {
                     let h_list = PyList::empty(py);
                     for h in hules {
                         let h_dict = PyDict::new(py);
+                        let ht_str = TileConverter::to_string(h.hu_tile);
                         h_dict.set_item("seat", h.seat)?;
-                        h_dict.set_item("hu_tile", TileConverter::to_string(h.hu_tile))?;
+                        h_dict.set_item("hu_tile", ht_str)?;
                         h_dict.set_item("zimo", h.zimo)?;
                         h_dict.set_item("count", h.count)?;
                         h_dict.set_item("fu", h.fu)?;
@@ -762,7 +760,7 @@ impl Kyoku {
                         zimo: h.zimo,
                         count: h.count,
                         fu: h.fu,
-                        fans: h.fans.iter().map(|f| f.id).collect(),
+                        fans: h.fans.iter().filter(|f| f.val > 0).map(|f| f.id).collect(),
                         li_doras: h
                             .ura_dora_indicators
                             .or(h.li_doras)
@@ -813,6 +811,9 @@ pub struct AgariContextIterator {
     current_doras: Vec<u8>,
     _current_liqibang: u8,
     current_left_tile_count: u8,
+    wall: Vec<u8>,
+    dora_count: u8,
+    pending_minkan_doras: u8,
 }
 
 #[pymethods]
@@ -826,8 +827,27 @@ impl AgariContextIterator {
     }
 }
 
+// Helper to parse paishan string
+fn parse_paishan(s: &str) -> Vec<u8> {
+    let mut wall = Vec::new();
+    let mut chars = s.chars();
+    while let (Some(n), Some(s_char)) = (chars.next(), chars.next()) {
+        let mut t_str = String::with_capacity(2);
+        t_str.push(n);
+        t_str.push(s_char);
+        wall.push(TileConverter::parse_tile_136(&t_str));
+    }
+    wall
+}
+
 impl AgariContextIterator {
     fn new(kyoku: Kyoku) -> Self {
+        let wall = if let Some(ref p) = kyoku.paishan {
+            parse_paishan(p)
+        } else {
+            Vec::new()
+        };
+
         AgariContextIterator {
             kyoku: kyoku.clone(),
             action_index: 0,
@@ -844,7 +864,59 @@ impl AgariContextIterator {
             current_doras: kyoku.doras.clone(),
             _current_liqibang: kyoku.liqibang,
             current_left_tile_count: kyoku.left_tile_count,
+            wall,
+            dora_count: 1, // Initial Dora is always 1
+            pending_minkan_doras: 0,
         }
+    }
+
+    fn _recalc_doras(&mut self) {
+        if self.wall.is_empty() {
+            return;
+        }
+        let len = self.wall.len();
+        // Base index for 1st Dora: len - 5
+        // Base index for 1st Ura: len - 6
+        // Indicators shift by -2 for each additional Dora
+        self.current_doras.clear();
+        for i in 0..self.dora_count {
+            let offset = (i as usize) * 2;
+            if len >= 5 + offset {
+                let idx = len - 5 - offset;
+                self.current_doras.push(self.wall[idx]);
+            }
+        }
+    }
+
+    fn _sync_doras_with_wall(&mut self) {
+        if self.wall.is_empty() {
+            return;
+        }
+        // If log has more doras, trust log and sync count
+        if self.current_doras.len() > self.dora_count as usize {
+            self.dora_count = self.current_doras.len() as u8;
+            self.pending_minkan_doras = 0; // Log subsumes pending
+        }
+        // If count expects more doras, recalc from wall (Fixes Ankan bug)
+        else if (self.dora_count as usize) > self.current_doras.len() {
+            self._recalc_doras();
+        }
+    }
+
+    fn _get_ura_indicators(&self) -> Vec<u8> {
+        if self.wall.is_empty() {
+            return Vec::new(); // Fallback or empty if no paishan
+        }
+        let mut uras = Vec::new();
+        let len = self.wall.len();
+        for i in 0..self.dora_count {
+            let offset = (i as usize) * 2;
+            if len >= 6 + offset {
+                let idx = len - 6 - offset;
+                uras.push(self.wall[idx]);
+            }
+        }
+        uras
     }
 
     fn do_next(&mut self) -> Option<AgariContext> {
@@ -889,9 +961,18 @@ impl AgariContextIterator {
                     self.is_first_turn[*seat] = false;
 
                     TileConverter::match_and_remove_u8(&mut self.current_hands[*seat], *tile);
+
                     if let Some(d) = doras {
                         self.current_doras = d.clone();
                     }
+
+                    // Discard reveals pending
+                    if self.pending_minkan_doras > 0 {
+                        self.dora_count += self.pending_minkan_doras;
+                        self.pending_minkan_doras = 0;
+                    }
+
+                    self._sync_doras_with_wall();
                 }
                 Action::DealTile {
                     seat,
@@ -911,10 +992,12 @@ impl AgariContextIterator {
                     } else if self.current_left_tile_count > 0 {
                         self.current_left_tile_count -= 1;
                     }
+
                     if let Some(d) = doras {
                         self.current_doras = d.clone();
                         self.rinshan[*seat] = true;
                     }
+                    self._sync_doras_with_wall();
                 }
                 Action::ChiPengGang {
                     seat,
@@ -933,17 +1016,48 @@ impl AgariContextIterator {
                             TileConverter::match_and_remove_u8(&mut self.current_hands[*seat], *t);
                         }
                     }
+                    // Infer from_who from cpg_action if possible, or default to -1
+                    let mut from_who = -1;
+                    for &f in froms {
+                        if f != *seat {
+                            from_who = f as i8;
+                            break;
+                        }
+                    }
                     self.melds[*seat].push(Meld {
                         meld_type: *meld_type,
                         tiles: tiles.clone(),
                         opened: true,
+                        from_who,
                     });
                     if *meld_type == MeldType::Gang {
                         self.rinshan[*seat] = true;
+
+                        // New Kan flushes pending
+                        if self.pending_minkan_doras > 0 {
+                            self.dora_count += self.pending_minkan_doras;
+                            self.pending_minkan_doras = 0;
+                        }
+                        // Add this Kan to pending
+                        self.pending_minkan_doras += 1;
                     }
                 }
                 Action::Dora { dora_marker } => {
-                    self.current_doras.push(*dora_marker);
+                    if self.wall.is_empty() {
+                        self.current_doras.push(*dora_marker);
+                    } else {
+                        // Dora action consumes pending if matches?
+                        // Or just increments?
+                        // Safer to increment and clear pending to avoid double count.
+                        // But Action::Dora implies "One Dora".
+                        // If we have 2 pending, and 1 Dora event...
+                        // Usually events are specific.
+                        self.dora_count += 1;
+                        if self.pending_minkan_doras > 0 {
+                            self.pending_minkan_doras -= 1;
+                        }
+                        self._sync_doras_with_wall();
+                    }
                 }
                 Action::AnGangAddGang {
                     seat,
@@ -956,6 +1070,13 @@ impl AgariContextIterator {
                     if let Some(d) = doras {
                         self.current_doras = d.clone();
                     }
+
+                    // New Kan flushes pending (for previous Minkan)
+                    if self.pending_minkan_doras > 0 {
+                        self.dora_count += self.pending_minkan_doras;
+                        self.pending_minkan_doras = 0;
+                    }
+
                     if *meld_type == MeldType::Angang {
                         self.ippatsu = vec![false; 4];
                         self.is_first_turn = vec![false; 4];
@@ -991,8 +1112,14 @@ impl AgariContextIterator {
                             meld_type: *meld_type,
                             tiles: m_tiles,
                             opened: false,
+                            from_who: -1,
                         });
                         self.rinshan[*seat] = true;
+
+                        // Ankan: Immediate Reveal
+                        if !self.wall.is_empty() {
+                            self.dora_count += 1;
+                        }
                     } else {
                         self.last_action_was_kakan = true;
                         self.kakan_tile = Some(tiles[0]);
@@ -1011,18 +1138,23 @@ impl AgariContextIterator {
                                 meld_type: *meld_type,
                                 tiles: tiles.clone(),
                                 opened: true,
+                                from_who: -1,
                             });
                         }
                         TileConverter::match_and_remove_u8(
                             &mut self.current_hands[*seat],
                             tiles[0],
                         );
+                        // AddGang: Reveal Late (pending)
+                        self.pending_minkan_doras += 1;
                     }
+                    self._sync_doras_with_wall();
                 }
                 Action::Hule { hules } => {
                     for hule_data in hules {
                         let seat = hule_data.seat;
                         let win_tile = hule_data.hu_tile;
+
                         let is_zimo = hule_data.zimo;
 
                         let mut is_chankan = false;
@@ -1062,9 +1194,12 @@ impl AgariContextIterator {
                         }
 
                         let dora_indicators = self.current_doras.clone();
+                        // Use calculated Ura Indicators if wall exists
                         let ura_indicators = if self.liqi[seat] {
                             if let Some(ref li) = hule_data.li_doras {
                                 li.clone()
+                            } else if !self.wall.is_empty() {
+                                self._get_ura_indicators()
                             } else {
                                 self.kyoku.ura_doras.clone()
                             }
@@ -1251,7 +1386,8 @@ impl TileConverter {
         if is_red {
             return format!("0{}", suit);
         }
-        format!("{}{}", num, suit)
+        let res = format!("{}{}", num, suit);
+        res
     }
 
     fn match_and_remove_u8(hand: &mut Vec<u8>, target: u8) -> bool {

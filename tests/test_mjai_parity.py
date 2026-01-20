@@ -1,74 +1,89 @@
 import json
 
-import pytest
-
 from riichienv import Action, ActionType, RiichiEnv
 
-
-def test_action_to_mjai_red_fives():
-    # Test red fives mapping to 5mr, 5pr, 5sr
-    act_m = Action(ActionType.Discard, tile=16)
-    assert '"pai":"5mr"' in act_m.to_mjai()
-
-    act_p = Action(ActionType.Discard, tile=52)
-    assert '"pai":"5pr"' in act_p.to_mjai()
-
-    act_s = Action(ActionType.Discard, tile=88)
-    assert '"pai":"5sr"' in act_s.to_mjai()
+from .env.helper import helper_setup_env
 
 
-def test_select_action_from_mjai_discard():
-    env = RiichiEnv(seed=42)
-    obs_dict = env.reset()
-    obs = obs_dict[0]
+class TestMjaiProtocol:
+    def test_action_to_mjai_red_fives(self):
+        # Test red fives mapping to 5mr, 5pr, 5sr
+        act_m = Action(ActionType.Discard, tile=16)
+        assert '"pai":"5mr"' in act_m.to_mjai()
 
-    # Get a legal discard
-    legal_discards = [a for a in obs.legal_actions() if a.action_type == ActionType.Discard]
-    target_act = legal_discards[0]
-    mjai_resp = json.loads(target_act.to_mjai())
+        act_p = Action(ActionType.Discard, tile=52)
+        assert '"pai":"5pr"' in act_p.to_mjai()
 
-    # Select from MJAI
-    selected = obs.select_action_from_mjai(mjai_resp)
-    assert selected is not None
-    assert selected.action_type == ActionType.Discard
-    assert selected.tile == target_act.tile
+        act_s = Action(ActionType.Discard, tile=88)
+        assert '"pai":"5sr"' in act_s.to_mjai()
 
+    def test_select_action_from_mjai_discard(self):
+        env = RiichiEnv(seed=42)
+        obs_dict = env.reset()
+        obs = obs_dict[0]
 
-@pytest.mark.skip(reason="See Issue #32")
-def test_select_action_from_mjai_chi():
-    env = RiichiEnv(seed=42)
-    env.reset()
+        # Get a legal discard
+        legal_discards = [a for a in obs.legal_actions() if a.action_type == ActionType.Discard]
+        target_act = legal_discards[0]
+        mjai_resp = json.loads(target_act.to_mjai())
 
-    # Setup for Chi
-    # P0 discards 3m. In seed 42, P0 has tile 9 (3m).
+        # Select from MJAI
+        selected = obs.select_action_from_mjai(mjai_resp)
+        assert selected is not None
+        assert selected.action_type == ActionType.Discard
+        assert selected.tile == target_act.tile
 
-    # Manually trigger discard and claim update
-    # In a real scenario, we'd use env.step, but for unit test:
-    env.current_player = 0
-    obs_dict = env.step({0: Action(ActionType.Discard, tile=9)})
+    def test_select_action_from_mjai_chi(self):
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                [0, 1, 2, 9, 16, 17, 18, 19, 32, 33, 34, 35, 48, 52, 108],
+                [3, 4, 5, 6, 7, 20, 21, 22, 23, 36, 37, 38, 49],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=108,
+            wall=list(range(136)),
+        )
 
-    obs1 = obs_dict[1]
-    chi_acts = [a for a in obs1.legal_actions() if a.action_type == ActionType.Chi]
-    assert len(chi_acts) > 0
+        # Setup for Chi
+        # P0 discards 3m.
+        # Manually trigger discard and claim update.
+        env.current_player = 0
+        obs_dict = env.step({0: Action(ActionType.Discard, tile=9)})
 
-    target_act = chi_acts[0]
+        obs1 = obs_dict[1]
+        chi_acts = [a for a in obs1.legal_actions() if a.action_type == ActionType.Chi]
+        assert len(chi_acts) > 0
 
-    mjai_resp = json.loads(target_act.to_mjai())
+        target_act = chi_acts[0]
+        mjai_resp = json.loads(target_act.to_mjai())
 
-    selected = obs1.select_action_from_mjai(mjai_resp)
-    assert selected is not None
-    assert selected.action_type == ActionType.Chi
-    assert set(selected.consume_tiles) == set(target_act.consume_tiles)
+        selected = obs1.select_action_from_mjai(mjai_resp)
+        assert selected is not None
+        assert selected.action_type == ActionType.Chi
+        assert set(selected.consume_tiles) == set(target_act.consume_tiles)
 
+    def test_select_action_from_mjai_none(self):
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                [0, 1, 2, 9, 16, 17, 18, 19, 32, 33, 34, 35, 48, 52, 108],
+                [3, 4, 5, 6, 7, 20, 21, 22, 23, 36, 37, 38, 49],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=108,
+            wall=list(range(136)),
+        )
+        # tile 9 is in P0 hand (3m)
+        obs_dict = env.step({0: Action(ActionType.Discard, tile=9)})
+        obs1 = obs_dict[1]
 
-@pytest.mark.skip(reason="See Issue #32")
-def test_select_action_from_mjai_none():
-    env = RiichiEnv(seed=42)
-    env.reset()
-    # tile 9 is in P0 hand (3m)
-    obs_dict = env.step({0: Action(ActionType.Discard, tile=9)})
-    obs1 = obs_dict[1]
-
-    selected = obs1.select_action_from_mjai({"type": "none"})
-    assert selected is not None
-    assert selected.action_type == ActionType.Pass
+        selected = obs1.select_action_from_mjai({"type": "none"})
+        assert selected is not None
+        assert selected.action_type == ActionType.Pass
