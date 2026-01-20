@@ -311,6 +311,8 @@ pub struct RiichiEnv {
     #[pyo3(get, set)]
     pub discards: [Vec<u8>; 4],
     #[pyo3(get, set)]
+    pub discard_from_hand: [Vec<bool>; 4],
+    #[pyo3(get, set)]
     pub current_player: u8,
     #[pyo3(get, set)]
     pub turn_count: u32,
@@ -816,6 +818,7 @@ impl RiichiEnv {
             hands: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             melds: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             discards: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            discard_from_hand: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             current_player: 0,
             turn_count: 0,
             is_done: false,
@@ -2286,6 +2289,7 @@ impl RiichiEnv {
         }
 
         self.discards[pid as usize].push(tile);
+        self.discard_from_hand[pid as usize].push(!tsumogiri);
         self.drawn_tile = None;
         self.last_discard = Some((pid, tile));
 
@@ -2701,6 +2705,7 @@ impl RiichiEnv {
         self.hands = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         self.melds = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         self.discards = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        self.discard_from_hand = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         self.is_done = false;
         self.current_claims = HashMap::new();
         self.pending_kan = None;
