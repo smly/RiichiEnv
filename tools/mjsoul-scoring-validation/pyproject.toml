@@ -11,8 +11,8 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-mjsoul-parser = { workspace = true }
 riichienv = { workspace = true }
+mjsoul-parser = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
