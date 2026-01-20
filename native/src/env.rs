@@ -3539,18 +3539,19 @@ impl RiichiEnv {
 
     // Helper to update Pao state
     fn _check_pao_conditions(&mut self, pid: u8) {
+        const DRAGON_TILE_TYPES: &[u8] = &[31, 32, 33]; // Haku, Hatsu, Chun
+        const WIND_TILE_TYPES: &[u8] = &[27, 28, 29, 30]; // East, South, West, North
+
         let melds = &self.melds[pid as usize];
-        let dragons = [31, 32, 33]; // Haku, Hatsu, Chun
-                                    // Winds: 27, 28, 29, 30
 
         let mut d_melds = Vec::new();
         let mut w_melds = Vec::new();
 
         for m in melds {
             let t = m.tiles[0] / 4;
-            if dragons.contains(&t) {
+            if DRAGON_TILE_TYPES.contains(&t) {
                 d_melds.push(m);
-            } else if (27..=30).contains(&t) {
+            } else if WIND_TILE_TYPES.contains(&t) {
                 w_melds.push(m);
             }
         }
