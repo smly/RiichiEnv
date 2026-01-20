@@ -230,7 +230,7 @@ requires-dist = [{ name = "protobuf", specifier = ">=5.29.4" }]
 [[package]]
 name = "mjsoul-scoring-validation"
 version = "0.1.0"
-source = { virtual = "tools/mjsoul-scoring-validation" }
+source = { editable = "tools/mjsoul-scoring-validation" }
 dependencies = [
     { name = "mjsoul-parser" },
     { name = "riichienv" },

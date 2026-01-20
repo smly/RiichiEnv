@@ -29,7 +29,6 @@ def iter_game_kyoku(paifu: Paifu) -> Iterator[Kyoku]:
 def main():
     total_agari = 0
     t_riichienv_py = 0
-    has_error = False
 
     target_files = list(glob.glob(TARGET_FILE_PATTERN))
     for path in tqdm.tqdm(target_files, desc="Processing files", ncols=100):
@@ -83,7 +82,6 @@ def main():
                 print(e)
                 print(res_r_py.yaku, ctx.expected_yaku)
                 print(paifu.header["uuid"], k)
-                has_error = True
                 raise e
         
 
