@@ -4,6 +4,7 @@ import glob
 import gzip
 import json
 import tempfile
+from typing import Iterator
 
 import tqdm
 
