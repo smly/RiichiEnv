@@ -14,7 +14,6 @@ YAKUMAN_IDS = [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 47, 48, 49, 50]
 TARGET_FILE_PATTERN = "/data/mahjong_game_record_4p_*/*.bin.xz"
 
 def iter_game_kyoku(paifu: Paifu) -> Iterator[Kyoku]:
-    uuid = paifu.header["uuid"]
     with tempfile.NamedTemporaryFile(delete=True) as f:
         with gzip.GzipFile(fileobj=f, mode="w") as g:
             g.write(json.dumps({"rounds": paifu.data}).encode("utf-8"))
