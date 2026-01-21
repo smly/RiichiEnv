@@ -313,6 +313,10 @@ pub struct RiichiEnv {
     #[pyo3(get, set)]
     pub discard_from_hand: [Vec<bool>; 4],
     #[pyo3(get, set)]
+    pub discard_is_riichi: [Vec<bool>; 4],
+    #[pyo3(get, set)]
+    pub riichi_declaration_index: [Option<usize>; 4],
+    #[pyo3(get, set)]
     pub current_player: u8,
     #[pyo3(get, set)]
     pub turn_count: u32,
@@ -819,6 +823,8 @@ impl RiichiEnv {
             melds: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             discards: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             discard_from_hand: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            discard_is_riichi: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            riichi_declaration_index: [None; 4],
             current_player: 0,
             turn_count: 0,
             is_done: false,
@@ -905,6 +911,16 @@ impl RiichiEnv {
             self.discards[2].iter().map(|&x| x as u32).collect(),
             self.discards[3].iter().map(|&x| x as u32).collect(),
         ]
+    }
+
+    #[getter]
+    fn get_discard_is_riichi(&self) -> [Vec<bool>; 4] {
+        self.discard_is_riichi.clone()
+    }
+
+    #[getter]
+    fn get_riichi_declaration_index(&self) -> [Option<usize>; 4] {
+        self.riichi_declaration_index
     }
 
     #[setter]
@@ -2290,6 +2306,13 @@ impl RiichiEnv {
 
         self.discards[pid as usize].push(tile);
         self.discard_from_hand[pid as usize].push(!tsumogiri);
+        let is_riichi_decl = self.riichi_stage[pid as usize];
+        self.discard_is_riichi[pid as usize].push(is_riichi_decl);
+        if is_riichi_decl {
+            self.riichi_declaration_index[pid as usize] =
+                Some(self.discards[pid as usize].len() - 1);
+        }
+
         self.drawn_tile = None;
         self.last_discard = Some((pid, tile));
 
@@ -2706,6 +2729,8 @@ impl RiichiEnv {
         self.melds = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         self.discards = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         self.discard_from_hand = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        self.discard_is_riichi = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        self.riichi_declaration_index = [None; 4];
         self.is_done = false;
         self.current_claims = HashMap::new();
         self.pending_kan = None;

@@ -210,6 +210,8 @@ mod unit_tests {
                 HashMap::new(),
                 HashMap::new(),
             ],
+            discard_is_riichi: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            riichi_declaration_index: [None; 4],
         }
     }
 
