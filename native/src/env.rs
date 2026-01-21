@@ -348,7 +348,7 @@ pub struct RiichiEnv {
     pub double_riichi_declared: [bool; 4],
 
     // Phases
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub phase: Phase,
     pub active_players: Vec<u8>,
     pub last_discard: Option<(u8, u8)>,
@@ -358,13 +358,13 @@ pub struct RiichiEnv {
     #[pyo3(get, set)]
     pub pending_kan: Option<(u8, Action)>,
 
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub oya: u8,
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub honba: u8, // Added
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub kyoku_idx: u8,
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub round_wind: u8,
     // ...
     pub dora_indicators: Vec<u8>,
@@ -421,7 +421,7 @@ pub struct RiichiEnv {
     pub(crate) hand_index: u64,
     #[pyo3(get)]
     pub rule: crate::rule::GameRule,
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub pao: [HashMap<u8, u8>; 4],
 }
 
@@ -2326,7 +2326,7 @@ impl RiichiEnv {
         self.missed_agari_doujun[pid as usize] = false; // Discard ends temporary furiten
         self.nagashi_eligible[pid as usize] &= is_terminal_tile(tile);
 
-        self._update_claims(pid, tile);
+        self._update_claims(pid, tile, false);
 
         if !self.current_claims.is_empty() {
             self.phase = Phase::WaitResponse;
@@ -2367,7 +2367,7 @@ impl RiichiEnv {
         }
     }
 
-    fn _update_claims(&mut self, discarded_pid: u8, tile: u8) {
+    fn _update_claims(&mut self, discarded_pid: u8, tile: u8, is_chankan: bool) {
         self.current_claims.clear();
 
         // 1. Ron Check
@@ -2412,7 +2412,7 @@ impl RiichiEnv {
                 continue;
             }
 
-            if self._check_ron(pid, tile, discarded_pid, false) {
+            if self._check_ron(pid, tile, discarded_pid, is_chankan) {
                 self.current_claims
                     .entry(pid)
                     .or_default()
@@ -2957,14 +2957,18 @@ impl RiichiEnv {
     ) -> [i32; 4] {
         let mut deltas = [0; 4];
         let h_val = if include_bonus { self.honba as i32 } else { 0 };
+
         let mut pao_pid: Option<u8> = None;
+        let mut pao_yaku_id: Option<u32> = None;
         if agari.yaku.contains(&crate::yaku::ID_DAISANGEN) {
             if let Some(&p) = self.pao[winner as usize].get(&(crate::yaku::ID_DAISANGEN as u8)) {
                 pao_pid = Some(p);
+                pao_yaku_id = Some(crate::yaku::ID_DAISANGEN);
             }
         } else if agari.yaku.contains(&crate::yaku::ID_DAISUUSHI) {
             if let Some(&p) = self.pao[winner as usize].get(&(crate::yaku::ID_DAISUUSHI as u8)) {
                 pao_pid = Some(p);
+                pao_yaku_id = Some(crate::yaku::ID_DAISUUSHI);
             }
         }
 
@@ -2976,8 +2980,69 @@ impl RiichiEnv {
             };
 
             if let Some(p) = pao_pid {
-                deltas[winner as usize] = total;
-                deltas[p as usize] = -total;
+                if self.rule.yakuman_pao_is_liability_only {
+                    // Majsoul Rule: Partial Liability
+                    deltas[winner as usize] = total;
+
+                    let is_oya = winner == self.oya;
+                    let unit = if is_oya { 48000 } else { 32000 };
+
+                    let base_total = if is_oya {
+                        agari.tsumo_agari_ko * 3
+                    } else {
+                        agari.tsumo_agari_oya + agari.tsumo_agari_ko * 2
+                    };
+                    let total_yakumans = base_total / unit;
+
+                    let mut pao_yakumans = 0;
+                    if pao_yaku_id == Some(crate::yaku::ID_DAISANGEN) {
+                        pao_yakumans = 1;
+                    } else if pao_yaku_id == Some(crate::yaku::ID_DAISUUSHI) {
+                        pao_yakumans = 2;
+                    }
+                    if pao_yakumans > total_yakumans {
+                        pao_yakumans = total_yakumans;
+                    }
+
+                    // Pao Payment (Full Pao Part + Honba)
+                    let pao_base = pao_yakumans * unit;
+                    let pao_payment = pao_base as i32 + h_val * 300;
+
+                    if let Some(p) = pao_pid {
+                        deltas[p as usize] -= pao_payment;
+                    }
+
+                    // Normal Split for Remainder
+                    let normal_yakumans = total_yakumans - pao_yakumans;
+                    if normal_yakumans > 0 {
+                        if is_oya {
+                            // 16000 * N per person
+                            let pay = (16000 * normal_yakumans) as i32;
+                            for i in 0..4 {
+                                if i != winner {
+                                    deltas[i as usize] -= pay;
+                                }
+                            }
+                        } else {
+                            // Oya: 16000*N, Ko: 8000*N
+                            let pay_oya = (16000 * normal_yakumans) as i32;
+                            let pay_ko = (8000 * normal_yakumans) as i32;
+                            for i in 0..4 {
+                                if i != winner {
+                                    if i == self.oya {
+                                        deltas[i as usize] -= pay_oya;
+                                    } else {
+                                        deltas[i as usize] -= pay_ko;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Tenhou Rule: Full Liability
+                    deltas[winner as usize] = total;
+                    deltas[p as usize] = -total;
+                }
             } else {
                 let h = h_val * 100;
                 if winner == self.oya {
@@ -3004,19 +3069,60 @@ impl RiichiEnv {
             let s_base = agari.ron_agari as i32;
             let s_total = s_base + h_val * 300;
             if let Some(p) = pao_pid {
-                if loser != Some(p) {
-                    // Split
-                    let half = s_base / 2;
+                if self.rule.yakuman_pao_is_liability_only {
+                    // Majsoul Rule: Partial Liability
+                    // Pao Part is split 50/50. Normal Part is paid by Deal-in.
+                    // Honba is paid by Pao.
+                    deltas[winner as usize] = s_total;
+
+                    let is_oya = winner == self.oya;
+                    let unit = if is_oya { 48000 } else { 32000 };
+                    let total_yakumans = agari.ron_agari / unit;
+                    let mut pao_yakumans = 0;
+                    if pao_yaku_id == Some(crate::yaku::ID_DAISANGEN) {
+                        pao_yakumans = 1;
+                    } else if pao_yaku_id == Some(crate::yaku::ID_DAISUUSHI) {
+                        pao_yakumans = 2;
+                    }
+                    if pao_yakumans > total_yakumans {
+                        pao_yakumans = total_yakumans;
+                    }
+
+                    let pao_base = pao_yakumans * unit;
+                    let normal_base = s_base as u32 - pao_base;
+
+                    // Split Pao Part logic
+                    let half_pao = pao_base / 2;
+                    let pao_pays = half_pao as i32 + h_val * 300; // Pao pays half + Honba
+
                     if let Some(l) = loser {
-                        deltas[l as usize] = -(half);
-                        deltas[p as usize] = -(half) - h_val * 300;
-                        deltas[winner as usize] = s_total;
+                        if l != p {
+                            // Deal-in player pays: Normal Base + Half Pao Base
+                            let deal_in_pays = normal_base as i32 + half_pao as i32;
+                            deltas[l as usize] -= deal_in_pays;
+                            deltas[p as usize] -= pao_pays;
+                        } else {
+                            // Loser is Pao player (dealt in). Pays everything.
+                            // s_total covers base + honba.
+                            deltas[l as usize] -= s_total;
+                        }
                     }
                 } else {
-                    // Loser is p (unlikely in Ron? Pao is third person responsibility)
-                    if let Some(l) = loser {
-                        deltas[l as usize] = -s_total;
-                        deltas[winner as usize] = s_total;
+                    // Tenhou Rule: Split Liability
+                    if loser != Some(p) {
+                        // Split
+                        let half = s_base / 2;
+                        if let Some(l) = loser {
+                            deltas[l as usize] = -(half);
+                            deltas[p as usize] = -(half) - h_val * 300;
+                            deltas[winner as usize] = s_total;
+                        }
+                    } else {
+                        // Loser is p
+                        if let Some(l) = loser {
+                            deltas[l as usize] = -s_total;
+                            deltas[winner as usize] = s_total;
+                        }
                     }
                 }
             } else if let Some(l) = loser {
