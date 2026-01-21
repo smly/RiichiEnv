@@ -1,5 +1,3 @@
-import pytest
-
 from riichienv import Action, ActionType, GameRule, Meld, MeldType, Phase, RiichiEnv
 
 
@@ -7,7 +5,7 @@ class TestPaoCompositeYakuman:
     def test_majsoul_pao_tsumo_composite(self) -> None:
         # Setup: Majsoul Rules
         rule = GameRule.default_mjsoul()
-        env = RiichiEnv(rule=rule, game_mode="4p-red-single")
+        env = RiichiEnv(seed=1, rule=rule, game_mode="4p-red-single")
         env.reset()
 
         # Manually Override State for Test
@@ -85,7 +83,7 @@ class TestPaoCompositeYakuman:
     def test_majsoul_pao_ron_composite(self) -> None:
         # Setup: Majsoul Rules
         rule = GameRule.default_mjsoul()
-        env = RiichiEnv(rule=rule, game_mode="4p-red-single")
+        env = RiichiEnv(seed=1, rule=rule, game_mode="4p-red-single")
         env.reset()
 
         env.oya = 0
@@ -154,43 +152,37 @@ class TestPaoCompositeYakuman:
         action = Action(ActionType.Discard, 122, [])
         env.step({1: action})
 
-        if env.phase == Phase.WaitResponse:
-            assert env.phase == Phase.WaitResponse
+        assert env.phase == Phase.WaitResponse
 
-            action_ron = Action(ActionType.Ron, 122, [])
-            env.step({0: action_ron})
+        action_ron = Action(ActionType.Ron, 122, [])
+        env.step({0: action_ron})
 
-            print(f"Debug: Winner Yaku: {env.agari_results[0].yaku}")
-            print(f"Scores deltas: {env.score_deltas}")
+        # Expected: Triple Yakuman (Daisuushi 2x + Tsuuiisou 1x) = 144000.
 
-            # Expected: Triple Yakuman (Daisuushi 2x + Tsuuiisou 1x) = 144000.
+        # Majsoul Rule:
+        # Pao Part (Daisuushi 2x = 96000): Split 50/50.
+        # Pao pays 48000. Deal-in pays 48000.
 
-            # Majsoul Rule:
-            # Pao Part (Daisuushi 2x = 96000): Split 50/50.
-            # Pao pays 48000. Deal-in pays 48000.
+        # Normal Part (Tsuuiisou 1x = 48000): Paid by Deal-in.
+        # Deal-in pays 48000.
 
-            # Normal Part (Tsuuiisou 1x = 48000): Paid by Deal-in.
-            # Deal-in pays 48000.
+        # Total:
+        # Pao (P2) pays: 48000.
+        # Deal-in (P1) pays: 48000 + 48000 = 96000.
 
-            # Total:
-            # Pao (P2) pays: 48000.
-            # Deal-in (P1) pays: 48000 + 48000 = 96000.
+        # Difference from Tenhou:
+        # Tenhou Composite (3x = 144000) -> Split 50/50 -> Each pays 72000.
+        # Majsoul -> P2: 48000, P1: 96000. (Distinct).
 
-            # Difference from Tenhou:
-            # Tenhou Composite (3x = 144000) -> Split 50/50 -> Each pays 72000.
-            # Majsoul -> P2: 48000, P1: 96000. (Distinct).
-
-            assert env.score_deltas[0] == 144000
-            assert env.score_deltas[1] == -96000  # Deal-in (48k split + 48k normal)
-            assert env.score_deltas[2] == -48000  # Pao (48k split)
-            assert env.score_deltas[3] == 0
-        else:
-            pytest.fail(f"Did not enter WaitResponse phase. Current phase: {env.phase}")
+        assert env.score_deltas[0] == 144000
+        assert env.score_deltas[1] == -96000  # Deal-in (48k split + 48k normal)
+        assert env.score_deltas[2] == -48000  # Pao (48k split)
+        assert env.score_deltas[3] == 0
 
     def test_majsoul_pao_ron_single(self) -> None:
         # Setup: Majsoul Rules
         rule = GameRule.default_mjsoul()
-        env = RiichiEnv(rule=rule, game_mode="4p-red-single")
+        env = RiichiEnv(seed=1, rule=rule, game_mode="4p-red-single")
         env.reset()
 
         env.oya = 0
@@ -210,8 +202,9 @@ class TestPaoCompositeYakuman:
         current_melds[0] = melds_p0
         env.melds = current_melds
 
-        # Hand
-        p0_hand_reduced = [0, 4, 8, 16]  # 1m, 2m, 3m, 5m (Wait)
+        # Hand (Shanpon Wait: 1m Pair + 2m Pair)
+        # Wait on 2m (4)
+        p0_hand_reduced = [0, 1, 4, 4]  # 1m, 1m, 2m, 2m
         current_hands = env.hands
         current_hands[0] = p0_hand_reduced
         env.hands = current_hands
@@ -222,25 +215,33 @@ class TestPaoCompositeYakuman:
         current_pao[0] = {id_daisangen: 2}  # P2 liable
         env.pao = current_pao
 
-        # P1 discards 5m (17)
+        # P1 discards 2m (4)
         env.current_player = 1
-        env.drawn_tile = 17
+
+        # Ensure P1 has the tile in hand (required for legal discard check)
+        hands_p1 = [4, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        current_hands = env.hands
+        current_hands[1] = hands_p1
+        env.hands = current_hands
+
+        env.drawn_tile = 4
+        env.needs_tsumo = False
         env.phase = Phase.WaitAct
 
-        # Discard 17
-        action = Action(ActionType.Discard, 17, [])
+        # Discard 4
+        action = Action(ActionType.Discard, 4, [])
         env.step({1: action})
 
-        if env.phase == Phase.WaitResponse:
-            action_ron = Action(ActionType.Ron, 17, [])
-            env.step({0: action_ron})
+        assert env.phase == Phase.WaitResponse
+        action_ron = Action(ActionType.Ron, 4, [])
+        env.step({0: action_ron})
 
-            # Expected: Single Yakuman (48000).
-            # Majsoul Single Pao Ron = Same as Tenhou.
-            # Split 50/50.
-            # Pao pays 24000. Deal-in pays 24000.
+        # Expected: Single Yakuman (48000).
+        # Majsoul Single Pao Ron = Same as Tenhou.
+        # Split 50/50.
+        # Pao pays 24000. Deal-in pays 24000.
 
-            assert env.score_deltas[0] == 48000
-            assert env.score_deltas[1] == -24000
-            assert env.score_deltas[2] == -24000
-            assert env.score_deltas[3] == 0
+        assert env.score_deltas[0] == 48000
+        assert env.score_deltas[1] == -24000
+        assert env.score_deltas[2] == -24000
+        assert env.score_deltas[3] == 0

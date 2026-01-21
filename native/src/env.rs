@@ -2957,6 +2957,7 @@ impl RiichiEnv {
     ) -> [i32; 4] {
         let mut deltas = [0; 4];
         let h_val = if include_bonus { self.honba as i32 } else { 0 };
+
         let mut pao_pid: Option<u8> = None;
         let mut pao_yaku_id: Option<u32> = None;
         if agari.yaku.contains(&crate::yaku::ID_DAISANGEN) {
