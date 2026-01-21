@@ -19,16 +19,10 @@ from utils import AverageMeter
 def main():
     device_str = "cuda"
     device = torch.device(device_str)
-    df_trn = pl.concat([
-        pl.read_parquet("/data/train_grp.pq"),
-        pl.read_parquet("/data/train_grp_2024.pq"),
-    ])
-    df_val = pl.read_parquet("/data/val_grp.pq")
-
-    trn_dataset = RankPredictorDataset(df_trn)
-    trn_dataloader = DataLoader(trn_dataset, batch_size=128, shuffle=True)
-    val_dataset = RankPredictorDataset(df_val)
-    val_dataloader = DataLoader(val_dataset, batch_size=128, shuffle=False)
+    trn_dataset = RankPredictorDataset("/data/train_grp.pq")
+    trn_dataloader = DataLoader(trn_dataset, batch_size=128, shuffle=True, num_workers=12, pin_memory=True)
+    val_dataset = RankPredictorDataset("/data/val_grp.pq")
+    val_dataloader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=12, pin_memory=True)
     model = RankPredictor().to(device)
 
     n_epochs = 10
