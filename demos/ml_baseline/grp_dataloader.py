@@ -6,9 +6,8 @@ from torch.utils.data import Dataset
 
 
 class RankPredictorDataset(Dataset):
-    def __init__(self, data_path: str, dataframe: pl.DataFrame | None = None):
-        self.df = dataframe if dataframe is not None else pl.read_parquet(data_path)
-        self.df = self.df.with_columns(
+    def __init__(self, dataframe: pl.DataFrame):
+        self.df = dataframe.with_columns(
             (pl.col("chang") / 3).cast(pl.Float32).alias("chang"),
             (pl.col("ju") / 3).cast(pl.Float32).alias("ju"),
             (pl.col("ben") / 4).cast(pl.Float32).alias("ben"),

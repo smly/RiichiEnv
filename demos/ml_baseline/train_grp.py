@@ -16,26 +16,40 @@ from grp_model import RankPredictor, RewardPredictor
 from utils import AverageMeter
 
 
-def main():
-    device_str = "cuda"
-    device = torch.device(device_str)
-    trn_dataset = RankPredictorDataset("/data/train_grp.pq")
-    trn_dataloader = DataLoader(trn_dataset, batch_size=128, shuffle=True, num_workers=12, pin_memory=True)
-    val_dataset = RankPredictorDataset("/data/val_grp.pq")
-    val_dataloader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=12, pin_memory=True)
-    model = RankPredictor().to(device)
+class Trainer:
+    def __init__(
+        self,
+        device_str: str = "cuda",
+        train_dataframe: pl.DataFrame = None,
+        val_dataframe: pl.DataFrame = None,
+    ):
+        self.device_str = device_str
+        self.device = torch.device(device_str)
 
-    n_epochs = 10
-    optimizer = optim.Adam(model.parameters(), lr=5e-4)
-    scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs * len(trn_dataloader), eta_min=1e-7)
-    criterion = nn.CrossEntropyLoss()
-    for epoch in range(n_epochs):
+        if train_dataframe is not None:
+            self.train_dataset = RankPredictorDataset(train_dataframe)
+            self.train_dataloader = DataLoader(self.train_dataset, batch_size=128, shuffle=True, num_workers=12, pin_memory=True)
+        if val_dataframe is not None:
+            self.val_dataset = RankPredictorDataset(val_dataframe)
+            self.val_dataloader = DataLoader(self.val_dataset, batch_size=128, shuffle=False, num_workers=12, pin_memory=True)
+
+    def train(self, n_epochs: int = 10) -> None:
+        model = RankPredictor().to(self.device)
+        optimizer = optim.Adam(model.parameters(), lr=5e-4)
+        scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs * len(self.train_dataloader), eta_min=1e-7)
+        criterion = nn.CrossEntropyLoss()
+        for epoch in range(n_epochs):
+            self._train_epoch(epoch, model, optimizer, scheduler, criterion)
+            self._val_epoch(epoch, model, criterion)
+            torch.save(model.state_dict(), "grp_model.pth")
+
+    def _train_epoch(self, epoch: int, model: nn.Module, optimizer: optim.Optimizer, scheduler: optim.lr_scheduler._LRScheduler, criterion: nn.Module) -> None:
         loss_meter = AverageMeter("loss", ":.4e")
         acc_meter = AverageMeter("acc", ":.4f")
 
         model = model.train()
-        for idx, (x, y) in tqdm.tqdm(enumerate(trn_dataloader), desc=f"epoch {epoch:d}", total=len(trn_dataloader), mininterval=1.0, ncols=100):
-            x, y = x.to(device), y.to(device)
+        for idx, (x, y) in tqdm.tqdm(enumerate(self.train_dataloader), desc=f"epoch {epoch:d}", total=len(self.train_dataloader), mininterval=1.0, ncols=100):
+            x, y = x.to(self.device), y.to(self.device)
             optimizer.zero_grad()
             y_pred = model(x)
             loss = criterion(y_pred, y)
@@ -53,12 +67,13 @@ def main():
 
         print(f"(train) epoch {epoch:d} loss: {loss_meter.avg:.4e} acc: {acc_meter.avg:.4f}")
 
+    def _val_epoch(self, epoch, model: nn.Module, criterion: nn.Module) -> None:
         loss_meter = AverageMeter("loss", ":.4e")
         acc_meter = AverageMeter("acc", ":.4f")
 
         model = model.eval()
-        for idx, (x, y) in tqdm.tqdm(enumerate(val_dataloader), desc=f"epoch {epoch:d}", total=len(val_dataloader), mininterval=1.0, ncols=100):
-            x, y = x.to(device), y.to(device)
+        for idx, (x, y) in tqdm.tqdm(enumerate(self.val_dataloader), desc=f"epoch {epoch:d}", total=len(self.val_dataloader), mininterval=1.0, ncols=100):
+            x, y = x.to(self.device), y.to(self.device)
             y_pred = model(x)
             loss = criterion(y_pred, y)
 
@@ -69,13 +84,43 @@ def main():
             acc_meter.update(acc, x.size(0))
 
         print(f"(val) epoch {epoch:d} loss: {loss_meter.avg:.4e} acc: {acc_meter.avg:.4f}")
-        torch.save(model.state_dict(), "grp_model.pth")
 
 
-def check_gpr_output() -> None:
+def main():
+    device_str = "cuda"
+    device = torch.device(device_str)
+
+    df_trn = pl.concat([
+        pl.read_parquet("/data/train_grp.pq"),
+        pl.read_parquet("/data/train_grp_2024.pq"),
+    ])
+    df_val = pl.read_parquet("/data/val_grp.pq")
+
+    trainer = Trainer(device_str, df_trn, df_val)
+    trainer.train()
+
+
+def check_reward_predictions() -> None:
     kyoku_df = pl.read_parquet("/data/train_grp.pq", n_rows=10)
     kyoku_df = kyoku_df.drop(["p0_hand", "p1_hand", "p2_hand", "p3_hand", "p0_dora_marker"])
-    kyoku_features = kyoku_df.to_dicts()
+    kyoku_features = kyoku_df.select([
+        "p0_init_score",
+        "p1_init_score",
+        "p2_init_score",
+        "p3_init_score",
+        "p0_end_score",
+        "p1_end_score",
+        "p2_end_score",
+        "p3_end_score",
+        "p0_delta_score",
+        "p1_delta_score",
+        "p2_delta_score",
+        "p3_delta_score",
+        "chang",
+        "ju",
+        "ben",
+        "liqibang",
+    ]).to_dicts()
 
     point_weights = [100, 40, -40, -100]
     player_idx = 0
@@ -90,4 +135,4 @@ def check_gpr_output() -> None:
 
 if __name__ == "__main__":
     main()
-    check_gpr_output()
+    check_reward_predictions()
