@@ -86,6 +86,8 @@ pub struct Kyoku {
     pub ben: u8,
     pub liqibang: u8,
     pub left_tile_count: u8,
+    pub end_scores: Vec<i32>,
+    pub wliqi: Vec<bool>,
     pub paishan: Option<String>,
     pub actions: Arc<[Action]>,
 }
@@ -297,6 +299,28 @@ impl Kyoku {
         }
 
         Ok(events.into())
+    }
+
+    fn grp_features(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let features = PyDict::new(py);
+        features.set_item("chang", self.chang)?;
+        features.set_item("ju", self.ju)?;
+        features.set_item("ben", self.ben)?;
+        features.set_item("liqibang", self.liqibang)?;
+        features.set_item("scores", self.scores.clone())?;
+        features.set_item("end_scores", self.end_scores.clone())?;
+        features.set_item("wliqi", self.wliqi.clone())?;
+
+        // Calculate delta_scores
+        let mut delta_scores = Vec::new();
+        if self.scores.len() == self.end_scores.len() {
+            for i in 0..self.scores.len() {
+                delta_scores.push(self.end_scores[i] - self.scores[i]);
+            }
+        }
+        features.set_item("delta_scores", delta_scores)?;
+
+        Ok(features.into())
     }
 }
 
@@ -831,12 +855,6 @@ impl AgariContext {
 pub struct TileConverter {}
 
 impl TileConverter {
-    /*
-        fn new() -> Self {
-            TileConverter {}
-        }
-    */
-
     pub fn parse_tile(t: &str) -> (u8, bool) {
         if t.is_empty() {
             return (0, false);

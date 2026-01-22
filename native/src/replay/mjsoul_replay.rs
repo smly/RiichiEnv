@@ -170,6 +170,11 @@ impl MjSoulReplay {
             rounds.push(Self::kyoku_from_raw_actions(r_raw));
         }
 
+        // Populate end_scores based on next round's start scores
+        for i in 0..rounds.len().saturating_sub(1) {
+            rounds[i].end_scores = rounds[i + 1].scores.clone();
+        }
+
         Ok(MjSoulReplay { rounds })
     }
 
@@ -181,6 +186,11 @@ impl MjSoulReplay {
         let mut rounds = Vec::with_capacity(rounds_raw.len());
         for r_raw in rounds_raw {
             rounds.push(Self::kyoku_from_raw_actions(r_raw));
+        }
+
+        // Populate end_scores based on next round's start scores
+        for i in 0..rounds.len().saturating_sub(1) {
+            rounds[i].end_scores = rounds[i + 1].scores.clone();
         }
 
         Ok(MjSoulReplay { rounds })
@@ -358,8 +368,20 @@ impl MjSoulReplay {
             actions.push(Self::parse_raw_action(ma));
         }
 
+        let end_scores = scores.clone();
+
+        let mut wliqi = vec![false; 4];
+        for action in &actions {
+            if let Action::DiscardTile { seat, is_wliqi, .. } = action {
+                if *is_wliqi {
+                    wliqi[*seat] = true;
+                }
+            }
+        }
+
         Kyoku {
             scores,
+            end_scores,
             doras,
             ura_doras,
             hands,
@@ -368,6 +390,7 @@ impl MjSoulReplay {
             ben,
             liqibang,
             left_tile_count,
+            wliqi,
             paishan,
             actions: Arc::from(actions),
         }

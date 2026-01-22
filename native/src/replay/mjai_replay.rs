@@ -57,6 +57,7 @@ pub enum MjaiEvent {
         bakaze: String,
         kyoku: u8,
         honba: u8,
+        #[serde(alias = "kyotaku")]
         kyoutaku: u8,
         oya: u8,
         scores: Vec<i32>,
@@ -106,7 +107,7 @@ pub enum MjaiEvent {
     Hora {
         actor: usize,
         target: usize,
-        pai: String, // Winning tile
+        pai: Option<String>, // Winning tile (optional in some logs)
         uradora_markers: Option<Vec<String>>,
         #[serde(default)]
         yaku: Option<Vec<(String, u32)>>, // List of [yaku_name, han_value]
@@ -114,12 +115,15 @@ pub enum MjaiEvent {
         han: Option<u32>,
         #[serde(default)]
         scores: Option<Vec<i32>>, // Scores AFTER hor
+        #[serde(alias = "deltas")]
         delta: Option<Vec<i32>>,
     },
     #[serde(rename = "ryukyoku")]
     Ryukyoku {
         reason: Option<String>,
         tehais: Option<Vec<Vec<String>>>, // Revealed hands
+        delta: Option<Vec<i32>>,
+        scores: Option<Vec<i32>>,
     },
     #[serde(rename = "end_game")]
     EndGame,
@@ -133,6 +137,7 @@ pub enum MjaiEvent {
 struct KyokuBuilder {
     actions: Vec<Action>,
     scores: Vec<i32>,
+    end_scores: Vec<i32>,
     hands: Vec<Vec<u8>>,
     doras: Vec<u8>,
     chang: u8,
@@ -144,6 +149,9 @@ struct KyokuBuilder {
 
     // Internal tracking
     liqi_flags: Vec<bool>, // Who has declared reach (to set `is_liqi` on discard)
+    wliqi_flags: Vec<bool>, // Who has effectively achieved Double Riichi
+    first_discard: Vec<bool>,
+    has_calls: bool,
 }
 
 impl KyokuBuilder {
@@ -175,10 +183,12 @@ impl KyokuBuilder {
         }
 
         let first_dora = TileConverter::parse_tile_136(&dora_marker);
+        let end_scores = scores.clone();
 
         KyokuBuilder {
             actions: Vec::new(),
             scores,
+            end_scores,
             hands,
             doras: vec![first_dora],
             chang,
@@ -188,12 +198,16 @@ impl KyokuBuilder {
             left_tile_count: 70, // Standard starting count?
             ura_doras: Vec::new(),
             liqi_flags: vec![false; 4],
+            wliqi_flags: vec![false; 4],
+            first_discard: vec![true; 4],
+            has_calls: false,
         }
     }
 
     fn to_kyoku(self) -> Kyoku {
         Kyoku {
             scores: self.scores,
+            end_scores: self.end_scores,
             doras: self.doras,
             ura_doras: self.ura_doras,
             hands: self.hands,
@@ -202,6 +216,7 @@ impl KyokuBuilder {
             ben: self.ben,
             liqibang: self.liqibang,
             left_tile_count: self.left_tile_count,
+            wliqi: self.wliqi_flags,
             paishan: None, // MJAI usually doesn't have full paishan
             actions: Arc::from(self.actions),
         }
@@ -317,61 +332,47 @@ impl MjaiReplay {
             } => {
                 let tile = TileConverter::parse_tile_136(&pai);
                 let is_liqi = builder.liqi_flags[actor];
-                // If double riichi is tracked, would be harder. Assuming simple riichi for now.
-                // Reset liqi flag if it was just a declaration or keep it established?
-                // MJSoul `DiscardTile` has `is_liqi` which effectively means "Declaration of Riichi on this discard".
-                // In MJAI, `reach` event comes BEFORE `dahai` of the riichi declaration.
-                // So if `liqi_flags` is true, it means this discard IS the riichi discard.
+
+                let is_wliqi = is_liqi && builder.first_discard[actor] && !builder.has_calls;
+                if is_wliqi {
+                    builder.wliqi_flags[actor] = true;
+                }
 
                 builder.actions.push(Action::DiscardTile {
                     seat: actor,
                     tile,
-                    is_liqi,         // This flag is "Is this discard a Riichi declaration?"
-                    is_wliqi: false, // Hard to infer WLiqi without more context (turn count etc)
+                    is_liqi,
+                    is_wliqi,
                     doras: None,
                 });
 
-                // After the discard, the "Declaration" moment is passed.
-                // But generally `is_liqi` in Action represents "This action establishes Riichi".
-                // So we should turn it off after using it?
-                // But we need to know if player IS in riichi for scoring?
-                // `Kyoku` actions are just sequence. Replay engine tracks state.
-                // `is_liqi` in DiscardTile usually triggers the stick deposit in Replay engine.
+                builder.first_discard[actor] = false;
+
                 if is_liqi {
-                    builder.liqibang += 1; // Assuming it deposits immediately or we just track it.
-                                           // Actually `liqibang` in KyokuBuilder is "Start of Round" sticks.
-                                           // We don't necessarily update it for internal state unless we carry over.
-                                           // We should reset the flag so subsequent discards don't look like new declarations.
+                    builder.liqibang += 1;
                     builder.liqi_flags[actor] = false;
                 }
             }
             MjaiEvent::Reach { actor } => {
-                // MJAI: Reach -> Dahai -> ReachAccepted
                 builder.liqi_flags[actor] = true;
-                // We don't emit an Action for Step 1 of Reach?
-                // MJSoul has `is_liqi` field on DiscardTile.
             }
-            MjaiEvent::ReachAccepted { actor: _ } => {
-                // Confirm deposit?
-            }
+            MjaiEvent::ReachAccepted { actor: _ } => {}
             MjaiEvent::Chi {
                 actor,
                 pai,
                 consumed,
                 ..
             } => {
+                builder.has_calls = true;
                 let mut tiles = vec![TileConverter::parse_tile_136(&pai)];
                 for c in consumed {
                     tiles.push(TileConverter::parse_tile_136(&c));
                 }
-                // Sort? MJAI `consumed` are the other 2 tiles. `pai` is the one from victim.
                 builder.actions.push(Action::ChiPengGang {
                     seat: actor,
                     meld_type: MeldType::Chi,
                     tiles,
-                    froms: vec![], // MJAI doesn't explicitly give froms in this event easily?
-                                   // actually `target` is in `Chi` event usually?
-                                   // Struct above has `target`.
+                    froms: vec![],
                 });
             }
             MjaiEvent::Pon {
@@ -380,6 +381,7 @@ impl MjaiReplay {
                 consumed,
                 ..
             } => {
+                builder.has_calls = true;
                 let mut tiles = vec![TileConverter::parse_tile_136(&pai)];
                 for c in consumed {
                     tiles.push(TileConverter::parse_tile_136(&c));
@@ -397,6 +399,7 @@ impl MjaiReplay {
                 consumed,
                 ..
             } => {
+                builder.has_calls = true;
                 // Daiminkan
                 let mut tiles = vec![TileConverter::parse_tile_136(&pai)];
                 for c in consumed {
@@ -410,6 +413,7 @@ impl MjaiReplay {
                 });
             }
             MjaiEvent::Ankan { actor, consumed } => {
+                builder.has_calls = true;
                 let tiles: Vec<u8> = consumed
                     .iter()
                     .map(|s| TileConverter::parse_tile_136(s))
@@ -418,11 +422,12 @@ impl MjaiReplay {
                     seat: actor,
                     meld_type: MeldType::Angang,
                     tiles,
-                    tile_raw_id: 0, // Not critical for Ankan usually?
+                    tile_raw_id: 0,
                     doras: None,
                 });
             }
             MjaiEvent::Kakan { actor, pai } => {
+                builder.has_calls = true;
                 let tile = TileConverter::parse_tile_136(&pai);
                 builder.actions.push(Action::AnGangAddGang {
                     seat: actor,
@@ -447,11 +452,32 @@ impl MjaiReplay {
                 yaku: _,
                 fu,
                 han,
-                ..
+                scores,
+                delta,
             } => {
+                let hu_tile_id = if let Some(p) = pai {
+                    TileConverter::parse_tile_136(&p)
+                } else {
+                    // Try to infer from last action
+                    // If Tsumo (actor == target), last action should be DealTile for actor
+                    // If Ron (actor != target), last action should be DiscardTile
+                    // Simplifying assumption: look at last action
+                    if let Some(last_action) = builder.actions.last() {
+                        match last_action {
+                            Action::DealTile { tile, .. } => *tile,
+                            Action::DiscardTile { tile, .. } => *tile,
+                            // Check for AddGang too (Chankan)?
+                            Action::AnGangAddGang { tiles, .. } => tiles[0], // AddGang
+                            _ => 0, // Fallback, though ideally shouldn't happen
+                        }
+                    } else {
+                        0
+                    }
+                };
+
                 let mut hule_data = HuleData {
                     seat: actor,
-                    hu_tile: TileConverter::parse_tile_136(&pai),
+                    hu_tile: hu_tile_id,
                     zimo: actor == target, // If actor is target, it's Tsumo
                     count: han.unwrap_or(0),
                     fu: fu.unwrap_or(0),
@@ -472,11 +498,31 @@ impl MjaiReplay {
                     hule_data.li_doras = Some(ud);
                 }
 
+                // Update end_scores
+                if let Some(s) = scores {
+                    builder.end_scores = s;
+                } else if let Some(d) = delta {
+                    for (i, val) in d.iter().enumerate() {
+                        if i < builder.end_scores.len() {
+                            builder.end_scores[i] = builder.scores[i] + val;
+                        }
+                    }
+                }
+
                 builder.actions.push(Action::Hule {
                     hules: vec![hule_data],
                 });
             }
-            MjaiEvent::Ryukyoku { .. } => {
+            MjaiEvent::Ryukyoku { delta, scores, .. } => {
+                if let Some(s) = scores {
+                    builder.end_scores = s;
+                } else if let Some(d) = delta {
+                    for (i, val) in d.iter().enumerate() {
+                        if i < builder.end_scores.len() {
+                            builder.end_scores[i] = builder.scores[i] + val;
+                        }
+                    }
+                }
                 builder.actions.push(Action::NoTile);
             }
             _ => {}
