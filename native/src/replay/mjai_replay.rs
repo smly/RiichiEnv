@@ -359,7 +359,9 @@ impl MjaiReplay {
             MjaiEvent::Reach { actor } => {
                 builder.liqi_flags[actor] = true;
             }
-            MjaiEvent::ReachAccepted { actor: _ } => {}
+            MjaiEvent::ReachAccepted { actor } => {
+                builder.reach_accepted[actor] = true;
+            }
             MjaiEvent::Chi {
                 actor,
                 pai,
