@@ -58,7 +58,7 @@ pub enum MjaiEvent {
         kyoku: u8,
         honba: u8,
         kyoutaku: u8,
-        oyaxd: u8, // 0-3 // actually OyaID
+        oya: u8,
         scores: Vec<i32>,
         dora_marker: String,
         tehais: Vec<Vec<String>>,
@@ -497,7 +497,7 @@ mod tests {
     fn test_mjai_parsing() {
         let json_data = r#"
 {"type":"start_game"}
-{"type":"start_kyoku","bakaze":"E","kyoku":1,"honba":0,"kyoutaku":0,"oyaxd":0,"scores":[25000,25000,25000,25000],"dora_marker":"1m","tehais":[["1s","1s","1s","2s","3s","4s","5s","6s","7s","8s","9s","9s","9s"],["1s","1s","1s","2s","3s","4s","5s","6s","7s","8s","9s","9s","9s"],["1s","1s","1s","2s","3s","4s","5s","6s","7s","8s","9s","9s","9s"],["1s","1s","1s","2s","3s","4s","5s","6s","7s","8s","9s","9s","9s"]]}
+{"type":"start_kyoku","bakaze":"E","kyoku":1,"honba":0,"kyoutaku":0,"oya":0,"scores":[25000,25000,25000,25000],"dora_marker":"1m","tehais":[["1s","1s","1s","2s","3s","4s","5s","6s","7s","8s","9s","9s","9s"],["1s","1s","1s","2s","3s","4s","5s","6s","7s","8s","9s","9s","9s"],["1s","1s","1s","2s","3s","4s","5s","6s","7s","8s","9s","9s","9s"],["1s","1s","1s","2s","3s","4s","5s","6s","7s","8s","9s","9s","9s"]]}
 {"type":"tsumo","actor":0,"pai":"2m"}
 {"type":"dahai","actor":0,"pai":"2m","tsumogiri":false}
 {"type":"ryukyoku","reason":"fanpai"}
