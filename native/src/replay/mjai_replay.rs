@@ -207,7 +207,7 @@ impl KyokuBuilder {
         }
     }
 
-    fn to_kyoku(self) -> Kyoku {
+    fn build(self) -> Kyoku {
         Kyoku {
             scores: self.scores,
             end_scores: self.end_scores,
@@ -266,7 +266,7 @@ impl MjaiReplay {
                 } => {
                     // Start new Kyoku
                     if let Some(b) = builder.take() {
-                        rounds.push(b.to_kyoku());
+                        rounds.push(b.build());
                     }
                     builder = Some(KyokuBuilder::new(
                         bakaze,
@@ -280,7 +280,7 @@ impl MjaiReplay {
                 }
                 MjaiEvent::EndKyoku | MjaiEvent::EndGame => {
                     if let Some(b) = builder.take() {
-                        rounds.push(b.to_kyoku());
+                        rounds.push(b.build());
                     }
                 }
                 _ => {
@@ -293,7 +293,7 @@ impl MjaiReplay {
 
         // Final flush if unexpected end
         if let Some(b) = builder.take() {
-            rounds.push(b.to_kyoku());
+            rounds.push(b.build());
         }
 
         Ok(MjaiReplay { rounds })
