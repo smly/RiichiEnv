@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::action::{Action, ActionType, Phase};
 use crate::observation::Observation;
+use crate::replay::MjaiEvent;
 use crate::rule::GameRule;
 use crate::state::GameState;
 use crate::types::{Agari, Meld, MeldType};
@@ -558,6 +559,10 @@ impl RiichiEnv {
         map
     }
 
+    pub fn get_observation(&mut self, player_id: u8) -> Observation {
+        self.state.get_observation(player_id)
+    }
+
     #[pyo3(signature = (players=None))]
     fn get_obs_py<'py>(
         &mut self,
@@ -624,5 +629,16 @@ impl RiichiEnv {
             return Ok(dict.unbind().into());
         }
         self.get_obs_py(py, Some(self.state.active_players.clone()))
+    }
+
+    pub fn apply_mjai_event(&mut self, py: Python, event: Py<PyAny>) -> PyResult<()> {
+        // Use python json to dump to string, then parse in rust
+        let json = py.import("json")?;
+        let s: String = json.call_method1("dumps", (event,))?.extract()?;
+        let ev: MjaiEvent = serde_json::from_str(&s).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("JSON Parse Error: {}", e))
+        })?;
+        self.state.apply_mjai_event(ev);
+        Ok(())
     }
 }

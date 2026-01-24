@@ -257,4 +257,69 @@ impl Observation {
 
         Ok(dict.unbind().into())
     }
+
+    pub fn encode<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        let dict = PyDict::new(py);
+
+        // Hand: 34 dims (counts)
+        let mut hand_vec = vec![0u8; 34];
+        if (self.player_id as usize) < self.hands.len() {
+            for &t in &self.hands[self.player_id as usize] {
+                let idx = (t as usize) / 4;
+                if idx < 34 {
+                    hand_vec[idx] += 1;
+                }
+            }
+        }
+        let hand_py = pyo3::types::PyList::new(py, hand_vec)?;
+        dict.set_item("hand", hand_py)?;
+
+        // Melds: 34 dims (counts of melded tiles)
+        let mut meld_vec = vec![0u8; 34];
+        if (self.player_id as usize) < self.melds.len() {
+            for m in &self.melds[self.player_id as usize] {
+                for &t in &m.tiles {
+                    let idx = (t as usize) / 4;
+                    if idx < 34 {
+                        meld_vec[idx] += 1;
+                    }
+                }
+            }
+        }
+        let meld_py = pyo3::types::PyList::new(py, meld_vec)?;
+        dict.set_item("melds_vec", meld_py)?;
+
+        // Discards: 34 dims (counts)
+        let mut disc_vec = vec![0u8; 34];
+        if (self.player_id as usize) < self.discards.len() {
+            for &t in &self.discards[self.player_id as usize] {
+                let idx = (t as usize) / 4;
+                if idx < 34 {
+                    disc_vec[idx] += 1;
+                }
+            }
+        }
+        let disc_py = pyo3::types::PyList::new(py, disc_vec)?;
+        dict.set_item("discards_vec", disc_py)?;
+
+        // Dora: 34 dims (counts)
+        let mut dora_vec = vec![0u8; 34];
+        for &t in &self.dora_indicators {
+            let idx = (t as usize) / 4;
+            if idx < 34 {
+                dora_vec[idx] += 1;
+            }
+        }
+        let dora_py = pyo3::types::PyList::new(py, dora_vec)?;
+        dict.set_item("dora_vec", dora_py)?;
+
+        // Scalars
+        dict.set_item("honba", self.honba)?;
+        dict.set_item("riichi_sticks", self.riichi_sticks)?;
+        dict.set_item("round_wind", self.round_wind)?;
+        dict.set_item("oya", self.oya)?;
+        dict.set_item("scores", self.scores.clone())?;
+
+        Ok(dict.unbind().into())
+    }
 }

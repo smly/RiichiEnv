@@ -202,15 +202,20 @@ class TestRiichiEnv:
         p3_tile = p3_obs.hand[0]
         obs_dict = env.step({3: Action(ActionType.Discard, tile=p3_tile)})
 
+        p0_events = []
         if env.phase == Phase.WaitResponse:
+            if 0 in obs_dict:
+                p0_events.extend([json.loads(ev) for ev in obs_dict[0].new_events()])
             obs_dict = env.step({pid: Action(ActionType.Pass) for pid in env.active_players})
 
         assert env.phase == Phase.WaitAct
         assert 0 in obs_dict
         assert 3 not in obs_dict
 
-        p0_obs = obs_dict[0]
-        p0_new = [json.loads(ev) for ev in p0_obs.new_events()]
+        if 0 in obs_dict:
+            p0_events.extend([json.loads(ev) for ev in obs_dict[0].new_events()])
+
+        p0_new = p0_events
 
         # Check new events from p0_obs
         # 1. start_game (not included)

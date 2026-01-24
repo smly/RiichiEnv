@@ -13,6 +13,7 @@ use crate::types::{Agari, Conditions, Meld, MeldType};
 pub mod mjai_replay;
 pub mod mjsoul_replay;
 
+pub use mjai_replay::MjaiEvent;
 pub use mjai_replay::MjaiReplay;
 pub use mjsoul_replay::MjSoulReplay;
 

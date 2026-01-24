@@ -9,6 +9,7 @@ use crate::action::{Action, ActionType, Phase};
 use crate::observation::Observation;
 use crate::parser::tid_to_mjai;
 use crate::replay::Action as LogAction;
+use crate::replay::MjaiEvent;
 use crate::rule::GameRule;
 use crate::types::{Agari, Conditions, Meld, MeldType, Wind};
 
@@ -528,6 +529,211 @@ impl GameState {
             legals.push(Action::new(ActionType::Pass, None, vec![]));
         }
         legals
+    }
+
+    pub fn apply_mjai_event(&mut self, event: MjaiEvent) {
+        match event {
+            MjaiEvent::StartKyoku {
+                bakaze,
+                kyoku: _,
+                honba,
+                kyoutaku,
+                scores,
+                dora_marker,
+                tehais,
+                oya,
+            } => {
+                // Initialize round state from event
+                self.honba = honba;
+                self.riichi_sticks = kyoutaku as u32;
+                self.scores = scores.try_into().unwrap_or([25000; 4]);
+                self.round_wind = match bakaze.as_str() {
+                    "E" => Wind::East as u8,
+                    "S" => Wind::South as u8,
+                    "W" => Wind::West as u8,
+                    "N" => Wind::North as u8,
+                    _ => Wind::East as u8,
+                };
+                self.oya = oya as u8;
+                self.dora_indicators =
+                    vec![crate::replay::TileConverter::parse_tile_136(&dora_marker)];
+
+                // Set hands
+                for (i, hand_strs) in tehais.iter().enumerate() {
+                    let mut hand = Vec::new();
+                    for tile_str in hand_strs {
+                        hand.push(crate::replay::TileConverter::parse_tile_136(tile_str));
+                    }
+                    hand.sort();
+                    self.hands[i] = hand;
+                }
+
+                // Clear other state
+                self.discards = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+                self.melds = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+                self.riichi_declared = [false; 4];
+                self.riichi_stage = [false; 4];
+                self.drawn_tile = None;
+                self.current_player = self.oya; // Oya starts
+                self.needs_tsumo = true;
+                self.is_done = false;
+            }
+            MjaiEvent::Tsumo { actor, pai } => {
+                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                self.current_player = actor as u8;
+                self.drawn_tile = Some(tile);
+                self.hands[actor].push(tile);
+                self.hands[actor].sort();
+                if self.wall.len() > 0 {
+                    self.wall.pop();
+                }
+                self.needs_tsumo = false;
+            }
+            MjaiEvent::Dahai { actor, pai, .. } => {
+                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                self.current_player = actor as u8;
+                if let Some(idx) = self.hands[actor].iter().position(|&t| t == tile) {
+                    self.hands[actor].remove(idx);
+                }
+                self.discards[actor].push(tile);
+                self.last_discard = Some((actor as u8, tile));
+                self.drawn_tile = None;
+
+                if self.riichi_stage[actor] {
+                    self.riichi_declared[actor] = true;
+                }
+                self.needs_tsumo = true;
+            }
+            MjaiEvent::Pon {
+                actor,
+                pai,
+                consumed,
+                ..
+            } => {
+                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                self.current_player = actor as u8;
+                let c1 = crate::replay::TileConverter::parse_tile_136(&consumed[0]);
+                let c2 = crate::replay::TileConverter::parse_tile_136(&consumed[1]);
+                let form_tiles = vec![tile, c1, c2];
+
+                for t in &[c1, c2] {
+                    if let Some(idx) = self.hands[actor].iter().position(|&x| x == *t) {
+                        self.hands[actor].remove(idx);
+                    }
+                }
+
+                self.melds[actor].push(Meld {
+                    meld_type: MeldType::Peng,
+                    tiles: form_tiles,
+                    opened: true,
+                    from_who: -1,
+                });
+                self.drawn_tile = None;
+                self.needs_tsumo = false;
+            }
+            MjaiEvent::Chi {
+                actor,
+                pai,
+                consumed,
+                ..
+            } => {
+                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                self.current_player = actor as u8;
+                let c1 = crate::replay::TileConverter::parse_tile_136(&consumed[0]);
+                let c2 = crate::replay::TileConverter::parse_tile_136(&consumed[1]);
+                let form_tiles = vec![tile, c1, c2];
+
+                for t in &[c1, c2] {
+                    if let Some(idx) = self.hands[actor].iter().position(|&x| x == *t) {
+                        self.hands[actor].remove(idx);
+                    }
+                }
+
+                self.melds[actor].push(Meld {
+                    meld_type: MeldType::Chi,
+                    tiles: form_tiles,
+                    opened: true,
+                    from_who: -1,
+                });
+                self.drawn_tile = None;
+                self.needs_tsumo = false;
+            }
+            MjaiEvent::Kan {
+                actor,
+                pai,
+                consumed,
+                ..
+            } => {
+                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                self.current_player = actor as u8;
+                let mut tiles = vec![tile];
+                for c in &consumed {
+                    tiles.push(crate::replay::TileConverter::parse_tile_136(c));
+                }
+
+                for c in &consumed {
+                    let tv = crate::replay::TileConverter::parse_tile_136(c);
+                    if let Some(idx) = self.hands[actor].iter().position(|&x| x == tv) {
+                        self.hands[actor].remove(idx);
+                    }
+                }
+
+                self.melds[actor].push(Meld {
+                    meld_type: MeldType::Gang,
+                    tiles,
+                    opened: true,
+                    from_who: -1,
+                });
+                self.needs_tsumo = true;
+            }
+            MjaiEvent::Ankan { actor, consumed } => {
+                let mut tiles = Vec::new();
+                for c in &consumed {
+                    let t = crate::replay::TileConverter::parse_tile_136(c);
+                    tiles.push(t);
+                    if let Some(idx) = self.hands[actor].iter().position(|&x| x == t) {
+                        self.hands[actor].remove(idx);
+                    }
+                }
+                self.melds[actor].push(Meld {
+                    meld_type: MeldType::Angang,
+                    tiles,
+                    opened: false,
+                    from_who: -1,
+                });
+                self.needs_tsumo = true;
+            }
+            MjaiEvent::Kakan { actor, pai } => {
+                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                if let Some(idx) = self.hands[actor].iter().position(|&x| x == tile) {
+                    self.hands[actor].remove(idx);
+                }
+                for m in self.melds[actor].iter_mut() {
+                    if m.meld_type == MeldType::Peng && m.tiles[0] / 4 == tile / 4 {
+                        m.meld_type = MeldType::Addgang;
+                        m.tiles.push(tile);
+                        break;
+                    }
+                }
+                self.needs_tsumo = true;
+            }
+            MjaiEvent::Reach { actor } => {
+                self.riichi_stage[actor] = true;
+            }
+            MjaiEvent::ReachAccepted { actor } => {
+                self.riichi_declared[actor] = true;
+                self.riichi_sticks += 1;
+                self.scores[actor] -= 1000;
+            }
+            MjaiEvent::Dora { dora_marker } => {
+                let tile = crate::replay::TileConverter::parse_tile_136(&dora_marker);
+                self.dora_indicators.push(tile);
+            }
+            MjaiEvent::Hora { .. } | MjaiEvent::Ryukyoku { .. } | MjaiEvent::EndKyoku => {
+                self.is_done = true;
+            }
+            _ => {}
+        }
     }
 
     pub fn step(&mut self, actions: &HashMap<u8, Action>) {
@@ -1468,7 +1674,7 @@ impl GameState {
         } else {
             let mut w: Vec<u8> = (0..136).collect();
             let mut rng = if let Some(episode_seed) = self.seed {
-                let hand_seed = episode_seed.wrapping_add(self.hand_index);
+                let hand_seed = splitmix64(episode_seed.wrapping_add(self.hand_index));
                 self.hand_index = self.hand_index.wrapping_add(1);
                 StdRng::seed_from_u64(hand_seed)
             } else {
