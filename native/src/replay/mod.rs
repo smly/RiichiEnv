@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use crate::action::Action as EnvAction;
 use crate::agari_calculator::AgariCalculator;
-use crate::observation::Observation;
 use crate::types::{Agari, Conditions, Meld, MeldType};
 
 pub mod mjai_replay;
@@ -83,6 +82,7 @@ pub struct KyokuStepIterator {
     actions: Arc<[Action]>,
     idx: usize,
     pending_action: Option<(u8, EnvAction)>,
+    filter_seat: Option<u8>,
 }
 
 #[pymethods]
@@ -91,20 +91,33 @@ impl KyokuStepIterator {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<(u8, Observation, EnvAction)> {
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
         let actions = slf.actions.clone();
 
-        if let Some((pid, action)) = slf.pending_action.take() {
-            let obs = slf.state.get_observation(pid);
-            let current_log_action = &actions[slf.idx];
-            slf.state.apply_log_action(current_log_action);
-            slf.idx += 1;
-            return Some((pid, obs, action));
-        }
+        loop {
+            if let Some((pid, action)) = slf.pending_action.take() {
+                let obs = slf.state.get_observation(pid);
+                let current_log_action = &actions[slf.idx];
+                slf.state.apply_log_action(current_log_action);
+                slf.idx += 1;
 
-        while slf.idx < actions.len() {
+                if let Some(target) = slf.filter_seat {
+                    if pid == target {
+                        let py = slf.py();
+                        return Ok(Some((obs, action).into_pyobject(py)?.unbind().into()));
+                    }
+                    continue;
+                } else {
+                    let py = slf.py();
+                    return Ok(Some((pid, obs, action).into_pyobject(py)?.unbind().into()));
+                }
+            }
+
+            if slf.idx >= actions.len() {
+                return Ok(None);
+            }
+
             let action = &actions[slf.idx];
-
             match action {
                 Action::DealTile { .. }
                 | Action::Dora { .. }
@@ -135,7 +148,21 @@ impl KyokuStepIterator {
                         );
                         slf.pending_action = Some((pid, discard_action));
                         slf.state.riichi_declared[pid as usize] = true;
-                        return Some((pid, obs, riichi_action));
+
+                        if let Some(target) = slf.filter_seat {
+                            if pid == target {
+                                let py = slf.py();
+                                return Ok(Some(
+                                    (obs, riichi_action).into_pyobject(py)?.unbind().into(),
+                                ));
+                            }
+                            // continue loop to next iteration/pending action logic
+                        } else {
+                            let py = slf.py();
+                            return Ok(Some(
+                                (pid, obs, riichi_action).into_pyobject(py)?.unbind().into(),
+                            ));
+                        }
                     } else {
                         let env_action = EnvAction::new(
                             crate::action::ActionType::Discard,
@@ -144,7 +171,20 @@ impl KyokuStepIterator {
                         );
                         slf.state.apply_log_action(action);
                         slf.idx += 1;
-                        return Some((pid, obs, env_action));
+
+                        if let Some(target) = slf.filter_seat {
+                            if pid == target {
+                                let py = slf.py();
+                                return Ok(Some(
+                                    (obs, env_action).into_pyobject(py)?.unbind().into(),
+                                ));
+                            }
+                        } else {
+                            let py = slf.py();
+                            return Ok(Some(
+                                (pid, obs, env_action).into_pyobject(py)?.unbind().into(),
+                            ));
+                        }
                     }
                 }
                 Action::ChiPengGang {
@@ -167,7 +207,18 @@ impl KyokuStepIterator {
 
                     slf.state.apply_log_action(action);
                     slf.idx += 1;
-                    return Some((pid, obs, env_action));
+
+                    if let Some(target) = slf.filter_seat {
+                        if pid == target {
+                            let py = slf.py();
+                            return Ok(Some((obs, env_action).into_pyobject(py)?.unbind().into()));
+                        }
+                    } else {
+                        let py = slf.py();
+                        return Ok(Some(
+                            (pid, obs, env_action).into_pyobject(py)?.unbind().into(),
+                        ));
+                    }
                 }
                 Action::AnGangAddGang {
                     seat,
@@ -186,7 +237,18 @@ impl KyokuStepIterator {
                     let env_action = EnvAction::new(atype, tile, tiles.to_vec());
                     slf.state.apply_log_action(action);
                     slf.idx += 1;
-                    return Some((pid, obs, env_action));
+
+                    if let Some(target) = slf.filter_seat {
+                        if pid == target {
+                            let py = slf.py();
+                            return Ok(Some((obs, env_action).into_pyobject(py)?.unbind().into()));
+                        }
+                    } else {
+                        let py = slf.py();
+                        return Ok(Some(
+                            (pid, obs, env_action).into_pyobject(py)?.unbind().into(),
+                        ));
+                    }
                 }
                 Action::Hule { hules } => {
                     let first = &hules[0];
@@ -200,11 +262,21 @@ impl KyokuStepIterator {
                     let env_action = EnvAction::new(atype, None, Vec::new());
                     slf.state.apply_log_action(action);
                     slf.idx += 1;
-                    return Some((pid, obs, env_action));
+
+                    if let Some(target) = slf.filter_seat {
+                        if pid == target {
+                            let py = slf.py();
+                            return Ok(Some((obs, env_action).into_pyobject(py)?.unbind().into()));
+                        }
+                    } else {
+                        let py = slf.py();
+                        return Ok(Some(
+                            (pid, obs, env_action).into_pyobject(py)?.unbind().into(),
+                        ));
+                    }
                 }
             }
         }
-        None
     }
 }
 
@@ -224,6 +296,8 @@ pub struct Kyoku {
     pub wliqi: Vec<bool>,
     pub paishan: Option<String>,
     pub actions: Arc<[Action]>,
+    #[pyo3(get)]
+    pub rule: crate::rule::GameRule,
 }
 
 #[pymethods]
@@ -232,7 +306,13 @@ impl Kyoku {
         Ok(AgariContextIterator::new(self.clone()))
     }
 
-    fn steps(&self, rule: crate::rule::GameRule) -> PyResult<KyokuStepIterator> {
+    #[pyo3(signature = (seat=None, rule=None))]
+    fn steps(
+        &self,
+        seat: Option<u8>,
+        rule: Option<crate::rule::GameRule>,
+    ) -> PyResult<KyokuStepIterator> {
+        let rule = rule.unwrap_or(self.rule);
         let mut state = crate::state::GameState::new(0, false, None, 0, rule);
 
         // Initialize state from Kyoku data
@@ -265,6 +345,7 @@ impl Kyoku {
             actions: self.actions.clone(),
             idx: 0,
             pending_action: None,
+            filter_seat: seat,
         })
     }
 

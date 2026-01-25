@@ -182,12 +182,36 @@ impl MjSoulReplay {
     fn from_dict(py: Python, paifu: Py<PyAny>) -> PyResult<Self> {
         let json = py.import("json")?;
         let s: String = json.call_method1("dumps", (paifu,))?.extract()?;
-        let rounds_raw: Vec<Vec<RawAction>> = serde_json::from_str(&s)
+        let v: serde_json::Value = serde_json::from_str(&s)
             .map_err(|e| PyValueError::new_err(format!("Failed to parse JSON: {}", e)))?;
+
+        let (rounds_raw, _rule) = if let Some(obj) = v.as_object() {
+            if let Some(data) = obj.get("data") {
+                // assume Paifu struct { header, data }
+                let rounds: Vec<Vec<RawAction>> = serde_json::from_value(data.clone())
+                    .map_err(|e| PyValueError::new_err(format!("Failed to parse rounds: {}", e)))?;
+                // TODO: Parse header for rule if converting from Paifu
+                (rounds, crate::rule::GameRule::default_mjsoul())
+            } else {
+                // maybe just dict of rounds? Unlikely given usage.
+                return Err(PyValueError::new_err("Invalid dict format: missing 'data'"));
+            }
+        } else if let Some(_) = v.as_array() {
+            let rounds: Vec<Vec<RawAction>> = serde_json::from_value(v).map_err(|e| {
+                PyValueError::new_err(format!("Failed to parse rounds list: {}", e))
+            })?;
+            (rounds, crate::rule::GameRule::default_mjsoul())
+        } else {
+            return Err(PyValueError::new_err(
+                "Invalid input format: expected dict or list",
+            ));
+        };
 
         let mut rounds = Vec::with_capacity(rounds_raw.len());
         for r_raw in rounds_raw {
-            rounds.push(Self::kyoku_from_raw_actions(r_raw));
+            let mut kyoku = Self::kyoku_from_raw_actions(r_raw);
+            kyoku.rule = _rule;
+            rounds.push(kyoku);
         }
 
         // Populate end_scores based on next round's start scores
@@ -395,6 +419,7 @@ impl MjSoulReplay {
             wliqi,
             paishan,
             actions: Arc::from(actions),
+            rule: crate::rule::GameRule::default_mjsoul(),
         }
     }
 
