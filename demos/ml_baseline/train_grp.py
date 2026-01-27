@@ -16,7 +16,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from grp_dataloader import RankPredictorDataset
+from grp_dataset import RankPredictorDataset
 from grp_model import RankPredictor, RewardPredictor
 from utils import AverageMeter
 
