@@ -1,4 +1,4 @@
-from riichienv import Action, ActionType, Phase
+from riichienv import Action, ActionType, Meld, MeldType, Phase
 
 from ..helper import helper_setup_env
 
@@ -32,12 +32,48 @@ class TestKuikae:
         actions = obs2.legal_actions()
 
         # 1s 2s 3s Chi involves consuming 2s + 3s.
+        assert env.phase == Phase.WaitResponse
         assert any(a.action_type == ActionType.Chi for a in actions), "Chi should be offered"
         obs2 = env.step({2: Action(ActionType.Chi, 72, [79, 82])})
 
         # P2 should not be able to discard 4s
         actions = obs2[2].legal_actions()
         assert not any(a.action_type == ActionType.Discard for a in actions if a.tile // 4 == 21)
+
+    def test_kuikae_suji_chi_avoid_kuikae_deadlock(self) -> None:
+        env = helper_setup_env(
+            hands=[
+                [0] * 13,
+                [72] + list(range(12)),
+                [79, 82, 85, 86],
+                [0] * 13,
+            ],
+            melds=[
+                [
+                    Meld(MeldType.Peng, [108, 109, 110], True, 1),  # East
+                    Meld(MeldType.Peng, [112, 113, 114], True, 1),  # South
+                    Meld(MeldType.Peng, [116, 117, 118], True, 1),  # West
+                ],
+                [],
+                [],
+                [],
+            ],
+            current_player=1,
+            phase=Phase.WaitAct,
+            needs_tsumo=False,
+            wall=list(range(136)),
+        )
+
+        # P1 discards 1s (72).
+        discard_tile = 72
+        action_discard = Action(ActionType.Discard, discard_tile, [])
+
+        obs_dict = env.step({1: action_discard})
+
+        # kuikae deadlock!
+        # Check if P2 is not offered Chi
+        assert env.phase == Phase.WaitAct
+        assert 2 in obs_dict
 
     def test_kuikae_discard_restriction(self) -> None:
         h = [list(range(13)) for _ in range(4)]

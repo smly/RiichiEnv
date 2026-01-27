@@ -2271,15 +2271,49 @@ impl GameState {
                 let count = hand.iter().filter(|&&t| t / 4 == tile / 4).count();
                 if count >= 2 {
                     // Check if taking this Pon leaves any valid discard (Kuikae check)
-                    // Consumes 2 matching tiles. Forbidden: tile (same 34).
-                    // Remaining hand must have at least one tile != tile/4.
-                    if hand.iter().any(|&t| t / 4 != tile / 4) {
-                        let consumes: Vec<u8> = hand
-                            .iter()
-                            .filter(|&&t| t / 4 == tile / 4)
-                            .take(2)
-                            .cloned()
-                            .collect();
+                    let check_pon_kuikae = |consumes: &Vec<u8>| -> bool {
+                        let mut forbidden_34 = Vec::new();
+
+                        match self.rule.kuikae_mode {
+                            crate::rule::KuikaeMode::None => {}
+                            _ => {
+                                // SameAndUsed: forbid discarding taken tile kind
+                                forbidden_34.push(tile / 4);
+                            }
+                        }
+
+                        // Check if any tile in remaining hand is NOT forbidden
+                        let mut used_consumes = vec![false; consumes.len()];
+                        for &t in hand.iter() {
+                            // Skip consumed tiles (simulation)
+                            let mut consumed_this = false;
+                            for (idx, &c) in consumes.iter().enumerate() {
+                                if !used_consumes[idx] && c == t {
+                                    used_consumes[idx] = true;
+                                    consumed_this = true;
+                                    break;
+                                }
+                            }
+                            if consumed_this {
+                                continue;
+                            }
+
+                            // Check if this tile is allowed
+                            if !forbidden_34.contains(&(t / 4)) {
+                                return true;
+                            }
+                        }
+                        false
+                    };
+
+                    let consumes: Vec<u8> = hand
+                        .iter()
+                        .filter(|&&t| t / 4 == tile / 4)
+                        .take(2)
+                        .cloned()
+                        .collect();
+
+                    if check_pon_kuikae(&consumes) {
                         legals.push(Action::new(ActionType::Pon, Some(tile), consumes));
                     }
                 }
@@ -2300,22 +2334,70 @@ impl GameState {
             if !self.riichi_declared[i as usize] && !self.wall.is_empty() && is_shimocha {
                 let t_val = tile / 4;
                 if t_val < 27 {
-                    // Helper to check standard Kuikae
                     let check_chi_kuikae = |c1: u8, c2: u8| -> bool {
-                        let mut forbidden = vec![t_val];
-                        let mut cons = [c1 / 4, c2 / 4];
-                        cons.sort();
+                        // Determine forbidden tiles based on KuikaeMode
+                        let mut forbidden_34 = Vec::new();
+                        match self.rule.kuikae_mode {
+                            crate::rule::KuikaeMode::None => {}
+                            mode => {
+                                // SameAndUsed
+                                forbidden_34.push(t_val);
+                                forbidden_34.push(c1 / 4);
+                                forbidden_34.push(c2 / 4);
 
-                        if cons[0] == t_val + 1 && cons[1] == t_val + 2 {
-                            if t_val % 9 <= 5 {
-                                forbidden.push(t_val + 3);
-                            }
-                        } else if t_val >= 2 && cons[1] == t_val - 1 && cons[0] == t_val - 2 {
-                            if t_val % 9 >= 3 {
-                                forbidden.push(t_val - 3);
+                                if mode == crate::rule::KuikaeMode::StrictFlank {
+                                    let mut cons_34 = [c1 / 4, c2 / 4];
+                                    cons_34.sort();
+
+                                    let mut forbid_left = None;
+                                    let mut forbid_right = None;
+
+                                    if cons_34[0] == t_val + 1 && cons_34[1] == t_val + 2 {
+                                        if t_val % 9 >= 1 {
+                                            forbid_left = Some(t_val - 1);
+                                        }
+                                        if t_val % 9 <= 5 {
+                                            forbid_right = Some(t_val + 3);
+                                        }
+                                    } else if t_val >= 2
+                                        && cons_34[1] == t_val - 1
+                                        && cons_34[0] == t_val - 2
+                                    {
+                                        if t_val % 9 >= 3 {
+                                            forbid_left = Some(t_val - 3);
+                                        }
+                                        if t_val % 9 <= 7 {
+                                            forbid_right = Some(t_val + 1);
+                                        }
+                                    } else if t_val >= 1
+                                        && cons_34[0] == t_val - 1
+                                        && cons_34[1] == t_val + 1
+                                    {
+                                        if t_val % 9 >= 2 {
+                                            forbid_left = Some(t_val - 2);
+                                        }
+                                        if t_val % 9 <= 6 {
+                                            forbid_right = Some(t_val + 2);
+                                        }
+                                    }
+
+                                    let mut flanks = Vec::new();
+                                    if let Some(f) = forbid_left {
+                                        flanks.push(f);
+                                    }
+                                    if let Some(f) = forbid_right {
+                                        flanks.push(f);
+                                    }
+
+                                    // Apply Flank logic
+                                    for f in flanks {
+                                        forbidden_34.push(f);
+                                    }
+                                }
                             }
                         }
 
+                        // Simulation: Check if any remaining tile is valid
                         let mut used_c1 = false;
                         let mut used_c2 = false;
                         for &t in hand.iter() {
@@ -2327,7 +2409,7 @@ impl GameState {
                                 used_c2 = true;
                                 continue;
                             }
-                            if !forbidden.contains(&(t / 4)) {
+                            if !forbidden_34.contains(&(t / 4)) {
                                 return true;
                             }
                         }
