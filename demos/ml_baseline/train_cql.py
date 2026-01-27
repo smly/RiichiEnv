@@ -111,7 +111,7 @@ class Trainer:
                 features = features.to(self.device)
                 actions = actions.long().to(self.device)
                 targets = targets.float().to(self.device)
-                masks = masks.long().to(self.device)
+                masks = masks.float().to(self.device)
                 
                 optimizer.zero_grad()
                 
@@ -135,7 +135,7 @@ class Trainer:
                 loss_meter.update(loss.item())
                 cql_meter.update(cql_term.item())
                 mse_meter.update(mse_term.item())
-                
+
                 if step % 100 == 0:
                     print(f"Epoch {epoch}, Step {step}, Loss: {loss_meter.avg:.4f} (MSE: {mse_meter.avg:.4f}, CQL: {cql_meter.avg:.4f})")
                     run.log({
@@ -147,6 +147,8 @@ class Trainer:
 
                 step += 1
                 scheduler.step()
+                if step >= self.limit:
+                    break
 
             loss_meter.reset()
             cql_meter.reset()
@@ -154,6 +156,10 @@ class Trainer:
 
             torch.save(model.state_dict(), output_path)
             print(f"Saved model to {output_path}")
+            if step >= self.limit:
+                break
+
+        run.finish()
 
 
 def parse_args() -> argparse.Namespace:
@@ -167,7 +173,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--num_epochs", type=int, default=10)
     parser.add_argument("--num_workers", type=int, default=12)
-    parser.add_argument("--limit", type=int, default=1e6)
+    parser.add_argument("--limit", type=int, default=3e6)
 
     args = parser.parse_args()
     return args
