@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::action::Action;
 use crate::types::Meld;
 use ndarray::prelude::*;
-use numpy::PyArray2;
 
 #[pyclass(module = "riichienv._riichienv")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,7 +271,7 @@ impl Observation {
         Ok(dict.unbind().into())
     }
 
-    pub fn encode<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f32>>> {
+    pub fn encode<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
         // Total Channels:
         // 0-3: Hand (1,2,3,4)
         // 4: Red (Hand)
@@ -497,6 +496,12 @@ impl Observation {
             arr[[45, i]] = norm_seen;
         }
 
-        Ok(PyArray2::from_owned_array(py, arr))
+        let slice = arr.as_slice().ok_or_else(|| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>("Array not contiguous")
+        })?;
+        let byte_len = slice.len() * std::mem::size_of::<f32>();
+        let byte_slice =
+            unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u8, byte_len) };
+        Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 }

@@ -43,8 +43,9 @@ class ObservationEncoder:
     """
     @staticmethod
     def encode(obs):
-        # obs.encode() returns numpy array (C, 34)
-        feat_numpy = obs.encode()
+        # obs.encode() returns bytes, convert to numpy
+        feat_bytes = obs.encode()
+        feat_numpy = np.frombuffer(feat_bytes, dtype=np.float32).reshape(46, 34).copy()
         return torch.from_numpy(feat_numpy)
 
 

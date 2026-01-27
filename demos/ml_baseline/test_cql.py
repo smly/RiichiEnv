@@ -14,7 +14,8 @@ class CQLAgent:
 
     def act(self, obs):
         with torch.no_grad():
-            q_values = self.model(torch.from_numpy(obs.encode()).unsqueeze(0).to(self.device))
+            feat = np.frombuffer(obs.encode(), dtype=np.float32).reshape(46, 34).copy()
+            q_values = self.model(torch.from_numpy(feat).unsqueeze(0).to(self.device))
 
             action_id_map = {}
             mask = torch.from_numpy(np.zeros(82, dtype=np.float32)).to(self.device)
