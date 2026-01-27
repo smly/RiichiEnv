@@ -1,10 +1,13 @@
-
 import torch
 import numpy as np
+
 
 class FeatureEncoder:
     """
     Encodes Riichi Mahjong game state into a tensor representation using Observation.
+
+    NOTE: This might be a good candidate for porting to Rust as a baseline
+
     Output shape: (channels, 34)
     Channels:
     0-3: Own hand count (1, 2, 3, 4)
@@ -29,8 +32,7 @@ class FeatureEncoder:
         features = torch.zeros((self.num_channels, self.channels), dtype=torch.float32)
         
         # 0-3: Hand
-        # obs.hands[self.player_id] is a list of tile IDs (0-135 or 0-33?) 
-        # Rust side: hands: Vec<Vec<u8>> (0-135).
+        # obs.hands[self.player_id] is a list of tile IDs (0-135)
         my_hand = obs.hands[self.player_id]
         counts = np.zeros(34, dtype=np.int32)
         for t in my_hand:
@@ -46,12 +48,7 @@ class FeatureEncoder:
             
         # 4-7: Melds
         # obs.melds[p] is list of Meld objects.
-        # Meld has .tiles (list of u8) and .meld_type.
-        # We only encoded Own Melds? "Own Melds (Chi, Pon, Kan, Ankan)".
-        # Actually logic in original encoder was "TODO".
-        # Let's simple-encode: 1 for tiles in meld.
-        # Channels 4,5,6,7 could be used for different meld types or just count?
-        # Let's map: 4=Chi, 5=Pon, 6=Kan, 7=Ankan?
+        # 4=Chi, 5=Pon, 6=Kan, 7=Ankan
         my_melds = obs.melds[self.player_id]
         for m in my_melds:
             m_type = m.meld_type # enum int: Chi=0, Peng=1, Gang=2, Angang=3, Addgang=4
@@ -82,27 +79,9 @@ class FeatureEncoder:
             if obs.riichi_declared[p]:
                 features[13+p, :] = 1
                 
-        # 17-20: Seat Wind relative or absolute?
-        # If absolute: 17=East, 18=South... for each player?
-        # A common encoding is: Channel 17 is P0's wind, 18 P1...
-        # Or Channel 17-20 is "Who is East?"
-        # Let's stick to "Seat Wind (p0-p3)".
-        # obs.oya determines dealer (East).
-        # Winds rotate.
-        # Actually, simpler: Relative wind of player?
-        # Original code comment: "17-20: Wind (p0-p3)".
-        # Let's assume absolute wind of player p.
-        # p's wind = (p - oya + 4) % 4. (0=East, 1=South...)
+        # 17-20: Seat Wind
         for p in range(4):
             wind = (p - obs.oya + 4) % 4
-            # We need to express this in (C, 34).
-            # Maybe just fill the channel matching the wind?
-            # Or fill all 34 tiles with value?
-            # Usually we fill proper channel.
-            # But the comment implies 4 channels allocated for 4 players.
-            # So channel 17 = Player 0's wind (0..3 normalized?)
-            # Or channel 17 is "Player who is East".
-            # Let's encode (p - oya + 4)%4 as value/4.0 in channel 17+p.
             features[17+p, :] = float(wind) / 4.0
 
         # 21: Self Wind
@@ -110,7 +89,7 @@ class FeatureEncoder:
         features[21, :] = float(self_wind) / 4.0
         
         # 22: Round Wind
-        features[22, :] = float(obs.round_wind) / 4.0 # 0=East, 1=South...
+        features[22, :] = float(obs.round_wind) / 4.0
 
         return features
 
