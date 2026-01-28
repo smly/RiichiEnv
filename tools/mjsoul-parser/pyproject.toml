@@ -18,12 +18,6 @@ testpaths = ["tests"]
 [tool.hatch.metadata]
 allow-direct-references = true
 
-[tool.hatch.build.targets.wheel]
-dev-mode-dirs = ["src"]
-
-
-
 [tool.ruff]
 target-version = "py313"
-src = ["src"]
 line-length = 79

@@ -76,7 +76,7 @@ pub struct HuleData {
     pub point_zimo_xian: u32,
 }
 
-#[pyclass]
+#[pyclass(module = "riichienv._riichienv")]
 pub struct KyokuStepIterator {
     state: crate::state::GameState,
     actions: Arc<[Action]>,
@@ -355,29 +355,42 @@ impl KyokuStepIterator {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "Kyoku", module = "riichienv._riichienv")]
 #[derive(Clone)]
-pub struct Kyoku {
+pub struct LogKyoku {
+    #[pyo3(get)]
     pub scores: Vec<i32>,
+    #[pyo3(get)]
     pub doras: Vec<u8>,
+    #[pyo3(get)]
     pub ura_doras: Vec<u8>,
+    #[pyo3(get)]
     pub hands: Vec<Vec<u8>>,
+    #[pyo3(get)]
     pub chang: u8,
+    #[pyo3(get)]
     pub ju: u8,
+    #[pyo3(get)]
     pub ben: u8,
+    #[pyo3(get)]
     pub liqibang: u8,
+    #[pyo3(get)]
     pub left_tile_count: u8,
+    #[pyo3(get)]
     pub end_scores: Vec<i32>,
+    #[pyo3(get)]
     pub wliqi: Vec<bool>,
+    #[pyo3(get)]
     pub paishan: Option<String>,
     pub actions: Arc<[Action]>,
     #[pyo3(get)]
     pub rule: crate::rule::GameRule,
+    #[pyo3(get)]
     pub game_end_scores: Option<Vec<i32>>,
 }
 
 #[pymethods]
-impl Kyoku {
+impl LogKyoku {
     fn take_agari_contexts(&self) -> PyResult<AgariContextIterator> {
         Ok(AgariContextIterator::new(self.clone()))
     }
@@ -393,11 +406,19 @@ impl Kyoku {
         let skip_single_action = skip_single_action.unwrap_or(true);
         let mut state = crate::state::GameState::new(0, false, None, 0, rule);
 
-        // Initialize state from Kyoku data
+        // Initialize state from LogKyoku data
         let initial_scores: [i32; 4] = self.scores.clone().try_into().unwrap_or([25000; 4]);
         let doras = self.doras.clone();
 
-        let oya = self.ju % 4;
+        let mut oya_idx = (self.ju % 4) as usize;
+        for (i, h) in self.hands.iter().enumerate() {
+            if h.len() == 14 {
+                oya_idx = i;
+                break;
+            }
+        }
+        let oya = oya_idx as u8;
+
         let bakaze = match self.chang {
             0 => crate::types::Wind::East,
             1 => crate::types::Wind::South,
@@ -423,27 +444,60 @@ impl Kyoku {
         );
 
         state.hands = self.hands.clone().try_into().unwrap_or_default();
+
+        // If dealer starts with 14 tiles, set drawn_tile to allow immediate Tsumo/Discard
+        if state.hands[oya_idx].len() == 14 {
+            let mut dt = state.hands[oya_idx].last().copied();
+
+            // Peek at the first action to see which tile was actually "drawn" (or acted upon)
+            if let Some(first_action) = self.actions.first() {
+                match first_action {
+                    Action::Hule { hules } => {
+                        if let Some(h) = hules.iter().find(|h| h.seat == oya_idx && h.zimo) {
+                            dt = Some(h.hu_tile);
+                        }
+                    }
+                    Action::DiscardTile { seat, tile, .. } => {
+                        if *seat == oya_idx {
+                            dt = Some(*tile);
+                        }
+                    }
+                    Action::AnGangAddGang { seat, tiles, .. } => {
+                        if *seat == oya_idx {
+                            // For Ankan/Kakan, usually the first tile is the relevant one or part of the meld
+                            dt = tiles.first().copied();
+                        }
+                    }
+                    Action::ChiPengGang {
+                        seat,
+                        tiles,
+                        meld_type,
+                        ..
+                    } => {
+                        // Should not happen for Tsumo first turn, but if it does (e.g. late join?), handle it
+                        if *seat == oya_idx && *meld_type == MeldType::Angang {
+                            dt = tiles.first().copied();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            state.drawn_tile = dt;
+            state.needs_tsumo = false;
+        }
+
         for h in state.hands.iter_mut() {
             h.sort();
         }
         state.dora_indicators = doras;
 
-        // Only pop initial hands if we didn't use a provided wall (which usually starts with hands already removed in MJSoul)
-        // Actually, MJSoul paishan usually has 136 tiles.
-        // Let's check wall len after initialization.
-        if wall.is_none() && state.wall.len() == 136 {
-            // Pop initial hands (13 * 4 = 52 tiles)
-            for _ in 0..52 {
+        // If wall was initialized from a full wall (136 tiles), pop all tiles starting hands consumed
+        if state.wall.len() == 136 {
+            let total_hand_tiles: usize = state.hands.iter().map(|h| h.len()).sum();
+            for _ in 0..total_hand_tiles {
                 if !state.wall.is_empty() {
                     state.wall.pop();
-                }
-            }
-        } else if let Some(w) = wall {
-            if w.len() == 136 {
-                for _ in 0..52 {
-                    if !state.wall.is_empty() {
-                        state.wall.pop();
-                    }
                 }
             }
         }
@@ -751,9 +805,9 @@ impl Kyoku {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "riichienv._riichienv")]
 pub struct AgariContextIterator {
-    kyoku: Kyoku,
+    kyoku: LogKyoku,
     action_index: usize,
     pending_agari: Vec<AgariContext>,
     melds: Vec<Vec<Meld>>,
@@ -798,7 +852,7 @@ fn parse_paishan(s: &str) -> Vec<u8> {
 }
 
 impl AgariContextIterator {
-    pub fn new(kyoku: Kyoku) -> Self {
+    pub fn new(kyoku: LogKyoku) -> Self {
         let wall = if let Some(ref p) = kyoku.paishan {
             parse_paishan(p)
         } else {
@@ -1199,7 +1253,7 @@ impl AgariContextIterator {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "riichienv._riichienv")]
 pub struct AgariContext {
     pub seat: u8,
     pub tiles: Vec<u8>,

@@ -400,14 +400,21 @@ impl GameState {
             } => {
                 let s = *seat;
                 let t = *tile;
+                let is_tsumogiri = if let Some(dt) = self.drawn_tile {
+                    dt == t
+                } else {
+                    false
+                };
+
                 if let Some(idx) = self.hands[s].iter().position(|&x| x == t) {
                     self.hands[s].remove(idx);
                 }
                 self.hands[s].sort();
                 self.discards[s].push(t);
-                self.discard_from_hand[s].push(true);
+                self.discard_from_hand[s].push(!is_tsumogiri);
                 self.discard_is_riichi[s].push(*is_liqi || *is_wliqi);
                 self.last_discard = Some((s as u8, t));
+                self.drawn_tile = None;
 
                 self.riichi_declared[s] = self.riichi_declared[s] || *is_liqi;
                 if *is_liqi {
@@ -1819,6 +1826,7 @@ impl GameState {
     ) {
         self.oya = oya;
         self.kyoku_idx = oya;
+        self.current_player = oya;
         self.honba = honba;
         self.riichi_sticks = kyotaku;
         self.round_wind = bakaze;

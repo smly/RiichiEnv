@@ -6,16 +6,16 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::sync::Arc;
 
-use crate::replay::{Action, AgariContextIterator, HuleData, Kyoku, TileConverter};
+use crate::replay::{Action, AgariContextIterator, HuleData, LogKyoku, TileConverter};
 use crate::types::MeldType;
 
-#[pyclass]
+#[pyclass(module = "riichienv._riichienv")]
 pub struct MjSoulReplay {
-    pub rounds: Vec<Kyoku>,
+    pub rounds: Vec<LogKyoku>,
 }
 
 #[derive(Debug)]
-#[pyclass]
+#[pyclass(module = "riichienv._riichienv")]
 pub struct KyokuIterator {
     game: Py<MjSoulReplay>,
     index: usize,
@@ -28,7 +28,7 @@ impl KyokuIterator {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Kyoku> {
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<LogKyoku> {
         if slf.index >= slf.len {
             return None;
         }
@@ -361,7 +361,7 @@ impl MjSoulReplay {
 }
 
 impl MjSoulReplay {
-    fn kyoku_from_raw_actions(raw_actions: Vec<RawAction>) -> Kyoku {
+    fn kyoku_from_raw_actions(raw_actions: Vec<RawAction>) -> LogKyoku {
         let mut scores = Vec::new();
         let mut doras = Vec::new();
         let mut hands = vec![Vec::new(); 4];
@@ -448,7 +448,7 @@ impl MjSoulReplay {
             }
         }
 
-        Kyoku {
+        LogKyoku {
             scores,
             end_scores,
             doras,
