@@ -2430,7 +2430,7 @@ impl GameState {
             // 2. Pon / Kan
             if !self.riichi_declared[i as usize] && !self.wall.is_empty() {
                 let count = hand.iter().filter(|&&t| t / 4 == tile / 4).count();
-                if count >= 2 {
+                if count >= 2 && hand.len() >= 3 {
                     // Check if taking this Pon leaves any valid discard (Kuikae check)
                     let check_pon_kuikae = |consumes: &Vec<u8>| -> bool {
                         let mut forbidden_34 = Vec::new();
@@ -2492,7 +2492,11 @@ impl GameState {
 
             // 3. Chi
             let is_shimocha = i == (pid + 1) % 4;
-            if !self.riichi_declared[i as usize] && !self.wall.is_empty() && is_shimocha {
+            if !self.riichi_declared[i as usize]
+                && !self.wall.is_empty()
+                && is_shimocha
+                && hand.len() >= 3
+            {
                 let t_val = tile / 4;
                 if t_val < 27 {
                     let check_chi_kuikae = |c1: u8, c2: u8| -> bool {

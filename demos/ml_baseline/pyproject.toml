@@ -3,7 +3,7 @@ name = "ml-baseline"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13.5"
+requires-python = "==3.13.5"
 dependencies = [
     "dotenv>=0.9.9",
     "numpy>=2.4.1",
@@ -13,6 +13,9 @@ dependencies = [
     "wandb>=0.24.0",
     "riichienv",
     "mjsoul-parser",
+    "ray[default]>=2.9.0",
+    "torchrl>=0.3.0",
+    "tensordict>=0.3.0",
 ]
 
 [tool.uv.sources]
