@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from riichienv import RiichiEnv
+from riichienv.agents import RandomAgent
 
 from cql_model import QNetwork
 
@@ -17,15 +18,16 @@ class CQLAgent:
             feat = np.frombuffer(obs.encode(), dtype=np.float32).reshape(46, 34).copy()
             q_values = self.model(torch.from_numpy(feat).unsqueeze(0).to(self.device))
 
-            action_id_map = {}
-            mask = torch.from_numpy(np.zeros(82, dtype=np.float32)).to(self.device)
-            for legal_action in obs.legal_actions():
-                aid = legal_action.encode()
-                mask[aid] = 1.0
-                action_id_map[aid] = legal_action
+            mask = torch.from_numpy(np.frombuffer(obs.mask(), dtype=np.uint8).copy()).to(self.device)
             q_values = q_values.masked_fill(mask == 0, -1e9)
             action_selected = q_values.argmax(dim=1).item()
-            return action_id_map[action_selected]
+
+            found_action: Action | None = obs.find_action(action_selected)
+            if found_action is None:
+                raise ValueError(
+                    f"No legal action found for selected action id {action_selected}"
+                )
+            return found_action
 
 
 def main() -> None:
@@ -33,11 +35,12 @@ def main() -> None:
     obs_dict = env.reset()
 
     cql_agent = CQLAgent("./cql_model.pth")
+    random_agent = RandomAgent()
     agents = {
         0: cql_agent,
-        1: cql_agent,
-        2: cql_agent,
-        3: cql_agent,
+        1: random_agent,
+        2: random_agent,
+        3: random_agent,
     }
 
     while not env.done():

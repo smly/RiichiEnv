@@ -11,4 +11,10 @@ dependencies = [
     "torch>=2.9.1",
     "tqdm>=4.67.1",
     "wandb>=0.24.0",
+    "riichienv",
+    "mjsoul-parser",
 ]
+
+[tool.uv.sources]
+riichienv = { workspace = true }
+mjsoul-parser = { workspace = true }

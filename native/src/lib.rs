@@ -62,7 +62,7 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<agari_calculator::AgariCalculator>()?;
     m.add_class::<replay::MjSoulReplay>()?;
     m.add_class::<replay::MjaiReplay>()?;
-    m.add_class::<replay::Kyoku>()?;
+    m.add_class::<replay::LogKyoku>()?;
     m.add_class::<replay::mjsoul_replay::KyokuIterator>()?;
     m.add_class::<replay::AgariContext>()?;
     m.add_class::<replay::AgariContextIterator>()?;

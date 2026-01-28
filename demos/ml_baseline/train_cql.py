@@ -17,7 +17,24 @@ from grp_model import RewardPredictor
 from utils import AverageMeter
 
 
-def cql_loss(q_values, current_actions, masks=None):
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_glob", type=str, required=True, help="Glob path for training data (.xz)")
+    parser.add_argument("--grp_model", type=str, default="./grp_model.pth", help="Path to reward model")
+    parser.add_argument("--output", type=str, default="cql_model.pth", help="Output model path")
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--alpha", type=float, default=1.0, help="CQL Scale")
+    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--num_epochs", type=int, default=10)
+    parser.add_argument("--num_workers", type=int, default=12)
+    parser.add_argument("--limit", type=int, default=3e6)
+
+    args = parser.parse_args()
+    return args
+
+
+def cql_loss(q_values: torch.Tensor, current_actions: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
     """
     Computes CQL Regularization Term: logsumexp(Q(s, a_all)) - Q(s, a_data)
     """
@@ -29,13 +46,10 @@ def cql_loss(q_values, current_actions, masks=None):
     q_data = q_values.gather(1, current_actions.unsqueeze(1)).squeeze(1)
 
     # 2. logsumexp(Q(s, .))
-    if masks is not None:
-        invalid_mask = (masks < 0.5)
-        q_masked = q_values.clone()
-        q_masked = q_masked.masked_fill(invalid_mask, -1e9)
-        logsumexp_q = torch.logsumexp(q_masked, dim=1)
-    else:
-        logsumexp_q = torch.logsumexp(q_values, dim=1)
+    invalid_mask = (masks == 0)
+    q_masked = q_values.clone()
+    q_masked = q_masked.masked_fill(invalid_mask, -1e9)
+    logsumexp_q = torch.logsumexp(q_masked, dim=1)
 
     cql_term = (logsumexp_q - q_data).mean()
     return cql_term, q_data
@@ -138,7 +152,7 @@ class Trainer:
                 loss_meter.update(loss.item())
                 cql_meter.update(cql_term.item())
                 mse_meter.update(mse_term.item())
-                
+
                 if step % 100 == 0:
                     print(f"Epoch {epoch}, Step {step}, Loss: {loss_meter.avg:.4f} (MSE: {mse_meter.avg:.4f}, CQL: {cql_meter.avg:.4f})")
                     run.log({
@@ -150,6 +164,8 @@ class Trainer:
 
                 step += 1
                 scheduler.step()
+                if step >= self.limit:
+                    break
 
             loss_meter.reset()
             cql_meter.reset()
@@ -157,23 +173,10 @@ class Trainer:
 
             torch.save(model.state_dict(), output_path)
             print(f"Saved model to {output_path}")
+            if step >= self.limit:
+                break
 
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data_glob", type=str, required=True, help="Glob path for training data (.xz)")
-    parser.add_argument("--grp_model", type=str, default="./grp_model.pth", help="Path to reward model")
-    parser.add_argument("--output", type=str, default="cql_model.pth", help="Output model path")
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--alpha", type=float, default=1.0, help="CQL Scale")
-    parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--num_epochs", type=int, default=10)
-    parser.add_argument("--num_workers", type=int, default=12)
-    parser.add_argument("--limit", type=int, default=1e6)
-
-    args = parser.parse_args()
-    return args
+        run.finish()
 
 
 def train(args: argparse.Namespace):

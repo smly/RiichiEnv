@@ -6,12 +6,12 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 
-use crate::replay::{Action, HuleData, Kyoku, TileConverter};
+use crate::replay::{Action, HuleData, LogKyoku, TileConverter};
 use crate::types::MeldType;
 
 #[pyclass]
 pub struct MjaiReplay {
-    pub rounds: Vec<Kyoku>,
+    pub rounds: Vec<LogKyoku>,
 }
 
 #[derive(Debug)]
@@ -28,7 +28,7 @@ impl KyokuIterator {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Kyoku> {
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<LogKyoku> {
         if slf.index >= slf.len {
             return None;
         }
@@ -134,7 +134,7 @@ pub enum MjaiEvent {
     Other,
 }
 
-// State for building a Kyoku from MJAI stream
+// State for building a LogKyoku from MJAI stream
 struct KyokuBuilder {
     actions: Vec<Action>,
     scores: Vec<i32>,
@@ -207,8 +207,8 @@ impl KyokuBuilder {
         }
     }
 
-    fn build(self) -> Kyoku {
-        Kyoku {
+    fn build(self) -> LogKyoku {
+        LogKyoku {
             scores: self.scores,
             end_scores: self.end_scores,
             doras: self.doras,
@@ -266,7 +266,7 @@ impl MjaiReplay {
                     tehais,
                     ..
                 } => {
-                    // Start new Kyoku
+                    // Start new LogKyoku
                     if let Some(b) = builder.take() {
                         rounds.push(b.build());
                     }

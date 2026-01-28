@@ -395,8 +395,10 @@ version = "0.1.0"
 source = { virtual = "demos/ml_baseline" }
 dependencies = [
     { name = "dotenv" },
+    { name = "mjsoul-parser" },
     { name = "numpy" },
     { name = "polars" },
+    { name = "riichienv" },
     { name = "torch" },
     { name = "tqdm" },
     { name = "wandb" },
@@ -405,8 +407,10 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "dotenv", specifier = ">=0.9.9" },
+    { name = "mjsoul-parser", editable = "tools/mjsoul-parser" },
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "polars", specifier = ">=1.37.1" },
+    { name = "riichienv", editable = "." },
     { name = "torch", specifier = ">=2.9.1" },
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "wandb", specifier = ">=0.24.0" },

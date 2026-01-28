@@ -93,6 +93,7 @@ pub struct GameState {
     pub rule: GameRule,
     pub pao: [HashMap<u8, u8>; 4],
     pub last_error: Option<String>,
+    pub is_after_kan: bool,
 }
 
 impl GameState {
@@ -165,6 +166,7 @@ impl GameState {
                 HashMap::new(),
             ],
             last_error: None,
+            is_after_kan: false,
         };
         // Initial setup
         state._initialize_round(0, round_wind, 0, 0, None, None);
@@ -193,11 +195,6 @@ impl GameState {
             }
         }
 
-        // println!(
-        //     "DEBUG: get_observation pid={}, phase={:?}, current={}, is_done={}, active={:?}",
-        //     player_id, self.phase, self.current_player, self.is_done, self.active_players
-        // );
-
         let legal_actions = if self.is_done {
             Vec::new()
         } else if (self.phase == Phase::WaitAct && self.current_player == player_id)
@@ -217,29 +214,12 @@ impl GameState {
         };
         self.player_event_counts[pid] = full_log_len;
 
-        let mut waits = Vec::new();
-        let mut is_tenpai = false;
-
-        // Compute waits if strictly necessary or always? Always is better for training.
-        // Convert internal hand (0-135) to Hand (0-33)
-        let mut check_hand = crate::types::Hand::default();
-        for &t in &self.hands[pid] {
-            check_hand.add(t / 4);
-        }
-
-        // Find waits
-        for t in 0..34 {
-            if check_hand.counts[t as usize] < 4 {
-                check_hand.add(t);
-                if crate::agari::is_agari(&mut check_hand) {
-                    waits.push(t);
-                }
-                check_hand.remove(t);
-            }
-        }
-        if !waits.is_empty() {
-            is_tenpai = true;
-        }
+        let calc = crate::agari_calculator::AgariCalculator::new(
+            self.hands[pid].clone(),
+            self.melds[pid].clone(),
+        );
+        let waits = calc.get_waits_u8();
+        let is_tenpai = !waits.is_empty();
 
         Observation::new(
             player_id,
@@ -261,6 +241,154 @@ impl GameState {
         )
     }
 
+    /// Generates an observation specifically for replaying a log action.
+    /// This may involve temporary state manipulation to match the context expected by the log.
+    /// Generates an observation specifically for replaying a log action.
+    /// Returns an error if the expert action is not legal in the current simulator state.
+    pub fn get_observation_for_replay(
+        &mut self,
+        pid: u8,
+        env_action: &Action,
+        log_action_str: &str,
+    ) -> PyResult<Observation> {
+        // 1. Save state that might be modified
+        let original_phase = self.phase;
+        let original_active_players = self.active_players.clone();
+        let original_claims = self.current_claims.clone();
+        let original_riichi = self.riichi_declared[pid as usize];
+
+        // 2. Adjust state based on action type to match environment expectations
+        match env_action.action_type {
+            ActionType::Ron | ActionType::Chi | ActionType::Pon | ActionType::Daiminkan => {
+                // These actions occur in response to another player's discard
+                self.phase = Phase::WaitResponse;
+                self.active_players = vec![pid];
+                // Ensure the expert action is available as a claim for get_observation to see
+                self.current_claims
+                    .entry(pid)
+                    .or_default()
+                    .push(env_action.clone());
+            }
+            _ => {}
+        }
+
+        // 3. Generate observation
+        let mut obs = self.get_observation(pid);
+
+        // 4. Handle known desync cases (e.g. Riichi state mismatch)
+        // Check if the expert action exists in simulator's legal_actions
+        let mut exists = obs
+            ._legal_actions
+            .iter()
+            .any(|a| a.action_type == env_action.action_type && a.tile == env_action.tile);
+
+        if !exists
+            && env_action.action_type == ActionType::Discard
+            && self.riichi_declared[pid as usize]
+        {
+            // Try unsetting riichi to see if it makes the discard legal (likely a desync)
+            self.riichi_declared[pid as usize] = false;
+            let new_obs = self.get_observation(pid);
+            let is_legal_retry = new_obs
+                ._legal_actions
+                .iter()
+                .any(|a| a.action_type == ActionType::Discard && a.tile == env_action.tile);
+
+            if is_legal_retry {
+                // Fix successful.
+                obs = new_obs;
+                exists = true;
+                // Note: riichi_declared remains false to prevent further desyncs in this Kyoku.
+            } else {
+                // Revert if it didn't help
+                self.riichi_declared[pid as usize] = original_riichi;
+            }
+        }
+
+        // 5. Restore other states
+        self.phase = original_phase;
+        self.active_players = original_active_players;
+        self.current_claims = original_claims;
+
+        // 6. Final Validation
+        if !exists {
+            let legal_summaries: Vec<String> = obs
+                ._legal_actions
+                .iter()
+                .map(|a| format!("{:?}", a))
+                .collect();
+            let mut hand_tiles = Vec::new();
+            for &t in &self.hands[pid as usize] {
+                hand_tiles.push(t);
+            }
+            let is_tenpai = obs.is_tenpai;
+            let opened = self.melds[pid as usize].iter().any(|m| m.opened);
+            let melds = &self.melds[pid as usize];
+            let jikaze = (pid + 4 - self.oya) % 4;
+            let mut yaku_info = String::from("None");
+            if let Some(tile) = env_action.tile {
+                let cond = Conditions {
+                    tsumo: env_action.action_type == ActionType::Tsumo,
+                    riichi: self.riichi_declared[pid as usize],
+                    double_riichi: self.double_riichi_declared[pid as usize],
+                    ippatsu: self.ippatsu_cycle[pid as usize],
+                    player_wind: Wind::from(jikaze),
+                    round_wind: Wind::from(self.round_wind),
+                    chankan: env_action.action_type == ActionType::Ron
+                        && self.phase == Phase::WaitAct, // Simplified
+                    haitei: self.wall.len() <= 14 && env_action.action_type == ActionType::Tsumo,
+                    houtei: self.wall.len() <= 14 && env_action.action_type == ActionType::Ron,
+                    rinshan: self.is_rinshan_flag,
+                    tsumo_first_turn: self.is_first_turn && self.discards[pid as usize].is_empty(),
+                    kyoutaku: self.riichi_sticks,
+                    tsumi: self.honba as u32,
+                };
+                let mut hand = self.hands[pid as usize].clone();
+                if let Some(idx) = hand.iter().position(|&t| t == tile) {
+                    hand.remove(idx);
+                }
+                let calc = crate::agari_calculator::AgariCalculator::new(
+                    hand,
+                    self.melds[pid as usize].clone(),
+                );
+                let res = calc.calc(tile, self.dora_indicators.clone(), vec![], Some(cond));
+                yaku_info = format!(
+                    "Agari={}, Han={}, Fu={}, YakuIDs={:?}",
+                    res.agari, res.han, res.fu, res.yaku
+                );
+            }
+
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "Replay desync: Action {:?} is not legal for player {} in simulator.\n\
+                 Log Action: {}\n\
+                 State: Score={}, WallLen={}, Tenpai={}, Opened={}, Phase={:?}, Rinshan={}, Bakaze={}, Jikaze={}\n\
+                 DoraIndicators: {:?}\n\
+                 Hand: {:?}\n\
+                 Melds: {:?}\n\
+                 YakuCalc: {}\n\
+                 Legal actions: [{}]",
+                env_action,
+                pid,
+                log_action_str,
+                self.scores[pid as usize],
+                self.wall.len(),
+                is_tenpai,
+                opened,
+                self.phase,
+                self.is_rinshan_flag,
+                self.round_wind,
+                jikaze,
+                self.dora_indicators,
+                hand_tiles,
+                melds,
+                yaku_info,
+                legal_summaries.join(", ")
+            )));
+        }
+
+        Ok(obs)
+    }
+
     pub fn apply_log_action(&mut self, action: &LogAction) {
         match action {
             LogAction::DiscardTile {
@@ -272,28 +400,46 @@ impl GameState {
             } => {
                 let s = *seat;
                 let t = *tile;
+                let is_tsumogiri = if let Some(dt) = self.drawn_tile {
+                    dt == t
+                } else {
+                    false
+                };
+
                 if let Some(idx) = self.hands[s].iter().position(|&x| x == t) {
                     self.hands[s].remove(idx);
                 }
                 self.hands[s].sort();
                 self.discards[s].push(t);
-                self.discard_from_hand[s].push(true);
+                self.discard_from_hand[s].push(!is_tsumogiri);
                 self.discard_is_riichi[s].push(*is_liqi || *is_wliqi);
                 self.last_discard = Some((s as u8, t));
+                self.drawn_tile = None;
 
                 self.riichi_declared[s] = self.riichi_declared[s] || *is_liqi;
+                if *is_liqi {
+                    self.riichi_declaration_index[s] = Some(self.discards[s].len() - 1);
+                }
                 self.current_player = (s as u8 + 1) % 4;
                 self.phase = Phase::WaitAct;
                 self.active_players = vec![self.current_player];
                 self.needs_tsumo = true;
+                self.is_first_turn = false;
+                self.is_after_kan = false;
             }
             LogAction::DealTile { seat, tile, .. } => {
                 self.hands[*seat].push(*tile);
                 self.drawn_tile = Some(*tile);
                 self.current_player = *seat as u8;
-                self.needs_tsumo = false;
                 self.phase = Phase::WaitAct;
                 self.active_players = vec![self.current_player];
+                self.is_rinshan_flag = self.is_after_kan && *seat == self.current_player as usize;
+                self.needs_tsumo = false;
+                self.is_after_kan = false;
+                self.hands[*seat].sort();
+                if !self.wall.is_empty() {
+                    self.wall.pop();
+                }
             }
             LogAction::ChiPengGang {
                 seat,
@@ -325,7 +471,10 @@ impl GameState {
                 self.current_player = *seat as u8;
                 self.phase = Phase::WaitAct;
                 self.active_players = vec![self.current_player];
-                self.needs_tsumo = false;
+                let is_gang = *meld_type == MeldType::Gang;
+                self.needs_tsumo = is_gang;
+                self.is_first_turn = false;
+                self.is_after_kan = is_gang;
             }
             LogAction::AnGangAddGang {
                 seat,
@@ -372,7 +521,10 @@ impl GameState {
                 self.hands[*seat].sort();
                 self.current_player = *seat as u8;
                 self.phase = Phase::WaitAct;
+                self.active_players = vec![self.current_player];
                 self.needs_tsumo = true;
+                self.is_first_turn = false;
+                self.is_after_kan = true;
             }
             LogAction::Dora { dora_marker } => {
                 self.dora_indicators.push(*dora_marker);
@@ -427,7 +579,17 @@ impl GameState {
             }
 
             // 2. Discard / Riichi
-            if !self.riichi_declared[pid as usize] {
+            let declaration_turn = if self.riichi_declared[pid as usize] {
+                if let Some(idx) = self.riichi_declaration_index[pid as usize] {
+                    self.discards[pid as usize].len() <= idx
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if !self.riichi_declared[pid as usize] || declaration_turn {
                 for &t in self.hands[pid as usize].iter() {
                     let is_forbidden = self.forbidden_discards[pid as usize]
                         .iter()
@@ -437,8 +599,9 @@ impl GameState {
                     }
                 }
 
-                // Riichi check
-                if self.scores[pid as usize] >= 1000
+                // Riichi check (Only if not already declared)
+                if !self.riichi_declared[pid as usize]
+                    && self.scores[pid as usize] >= 1000
                     && self.wall.len() > 14
                     && self.melds[pid as usize].iter().all(|m| !m.opened)
                     && !self.riichi_stage[pid as usize]
@@ -449,8 +612,10 @@ impl GameState {
                     for &skip_idx in &indices {
                         let mut temp_hand = self.hands[pid as usize].clone();
                         temp_hand.remove(skip_idx);
-                        let calc =
-                            crate::agari_calculator::AgariCalculator::new(temp_hand, Vec::new());
+                        let calc = crate::agari_calculator::AgariCalculator::new(
+                            temp_hand,
+                            self.melds[pid as usize].clone(),
+                        );
                         if calc.is_tenpai() {
                             can_riichi = true;
                             break;
@@ -1661,6 +1826,7 @@ impl GameState {
     ) {
         self.oya = oya;
         self.kyoku_idx = oya;
+        self.current_player = oya;
         self.honba = honba;
         self.riichi_sticks = kyotaku;
         self.round_wind = bakaze;
