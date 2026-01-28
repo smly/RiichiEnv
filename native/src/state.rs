@@ -572,7 +572,6 @@ impl GameState {
             }
 
             // 2. Discard / Riichi
-            // 2. Discard / Riichi
             let declaration_turn = if self.riichi_declared[pid as usize] {
                 if let Some(idx) = self.riichi_declaration_index[pid as usize] {
                     self.discards[pid as usize].len() <= idx
