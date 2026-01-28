@@ -128,7 +128,7 @@ impl Observation {
         let mut mask = [0u8; 82];
         for action in &self._legal_actions {
             if let Ok(idx) = action.encode() {
-                if idx >= 0 && (idx as usize) < mask.len() {
+                if (idx as usize) < mask.len() {
                     mask[idx as usize] = 1;
                 }
             }
