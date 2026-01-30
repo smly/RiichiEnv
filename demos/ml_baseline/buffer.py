@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from torchrl.data import TensorDictReplayBuffer, LazyTensorStorage, TensorDictPrioritizedReplayBuffer
-from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement, PrioritizedSampler
+from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from tensordict import TensorDict
 
 

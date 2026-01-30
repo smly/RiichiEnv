@@ -68,8 +68,7 @@ def evaluate_vs_baseline(hero_model, baseline_model, device, num_episodes=30):
                 steps[pid] = found_action
             
             obs_dict = env.step(steps)
-            
-        scores = env.scores()
+
         ranks = env.ranks()
         
         # Reward Config: [10, 4, -4, -10]
