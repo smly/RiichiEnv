@@ -1,7 +1,6 @@
 import sys
 import os
 import ray
-import torch
 import argparse
 
 import wandb
