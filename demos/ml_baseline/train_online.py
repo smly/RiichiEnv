@@ -2,7 +2,6 @@ import sys
 import os
 import ray
 import torch
-import time
 import argparse
 
 import wandb
@@ -174,8 +173,6 @@ def proper_loop(args):
                         }, step=step)
                     except Exception as e:
                         print(f"Evaluation failed at step {step}: {e}")
-                        # Don't crash training loop if eval fails
-                        pass
 
             ready_ids, _ = ray.wait(list(future_to_worker.keys()), num_returns=1)
             future = ready_ids[0]
