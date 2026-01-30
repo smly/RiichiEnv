@@ -1,10 +1,11 @@
-
 import ray
 import torch
 import numpy as np
 from torch.distributions import Categorical
 from riichienv import RiichiEnv
+
 from unified_model import UnifiedNetwork
+
 
 @ray.remote
 class MahjongWorker:
@@ -102,8 +103,6 @@ class MahjongWorker:
 
             obs_dict = self.env.step(steps)
             
-        # End of Episode
-        final_scores = self.env.scores()
         ranks = self.env.ranks()
         transitions = []
         
