@@ -1,10 +1,10 @@
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
 
 from unified_model import UnifiedNetwork
+
 
 class MahjongLearner:
     def __init__(self, 
@@ -21,16 +21,10 @@ class MahjongLearner:
         self.ppo_clip = ppo_clip
         self.ppo_epochs = ppo_epochs
         
-        # Networks (Unified)
         self.model = UnifiedNetwork(in_channels=46, num_actions=82).to(self.device)
-        
-        # Single Optimizer for shared backbone
-        # Alternatively, could use separate optimizers for heads if we froze backbone, 
-        # but here we want to train backbone with both signals.
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
-        
-        self.mse_loss = nn.MSELoss(reduction='none') # Element-wise for IS weights
-        
+        self.mse_loss = nn.MSELoss(reduction='none')
+
         self.policy_version = 0
 
     def get_weights(self):
@@ -45,7 +39,6 @@ class MahjongLearner:
         - fc2 -> critic_head
         - fc2 -> actor_head (Initialize Actor with Q-values -> Boltzmann Policy)
         """
-        print(f"Loading offline weights from {path}...")
         cql_state = torch.load(path, map_location=self.device)
         new_state = {}
         
@@ -54,21 +47,15 @@ class MahjongLearner:
                 new_key = k.replace("fc1", "fc_shared")
                 new_state[new_key] = v
             elif k.startswith("fc2"):
-                # Map fc2 to critic_head
                 critic_key = k.replace("fc2", "critic_head")
                 new_state[critic_key] = v
                 
-                # Also map fc2 to actor_head (Initialization)
                 actor_key = k.replace("fc2", "actor_head")
                 new_state[actor_key] = v
             else:
-                # Backbone (conv_in, bn_in, res_blocks...)
                 new_state[k] = v
-                
-        # Load into UnifiedNetwork
-        # strict=False in case we miss something, but we should match everything
-        missing, unexpected = self.model.load_state_dict(new_state, strict=True)
-        print("Weights loaded successfully.")
+
+        self.model.load_state_dict(new_state, strict=True)
 
 
     def update_critic(self, batch):
