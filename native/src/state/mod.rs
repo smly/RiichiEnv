@@ -2,9 +2,6 @@ use std::collections::HashMap;
 
 use pyo3::prelude::*;
 
-// usage: use rand::prelude::*; line 4 was unused?
-// If line 4 is unused, then I can remove it.
-
 use serde_json::Value;
 
 use crate::action::{Action, ActionType, Phase};

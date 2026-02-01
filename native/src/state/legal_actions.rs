@@ -2,10 +2,6 @@ use crate::action::{Action, ActionType, Phase};
 use crate::state::GameState;
 use crate::types::{is_terminal_tile, Conditions, Meld, MeldType, Wind};
 
-impl GameState {
-    // This is invalid in submodule. Converting to trait.
-}
-
 pub trait GameStateLegalActions {
     fn _get_legal_actions_internal(&self, pid: u8) -> Vec<Action>;
     fn _get_claim_actions_for_player(&self, i: u8, pid: u8, tile: u8) -> (Vec<Action>, bool);
