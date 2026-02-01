@@ -168,10 +168,10 @@ mod unit_tests {
         env.state.seed = Some(42);
 
         env.state._initialize_next_round(true, false);
-        let digest1 = env.state.wall_digest.clone();
+        let digest1 = env.state.wall.wall_digest.clone();
 
         env.state._initialize_next_round(true, false);
-        let digest2 = env.state.wall_digest.clone();
+        let digest2 = env.state.wall.wall_digest.clone();
 
         assert_ne!(
             digest1, digest2,
@@ -192,10 +192,13 @@ mod unit_tests {
         env.state.round_wind = 1;
         env.state.kyoku_idx = 3;
         env.state.oya = 3;
-        env.state.scores = [25000, 25000, 25000, 25000];
+        env.state.oya = 3;
+        for i in 0..4 {
+            env.state.players[i].score = 25000;
+            env.state.players[i].nagashi_eligible = false;
+        }
         // We also need to set needs_initialize_next_round to false initially
         env.state.needs_initialize_next_round = false;
-        env.state.nagashi_eligible = [false; 4];
 
         // Trigger Ryukyoku (draw)
         env.state._trigger_ryukyoku("exhaustive_draw");
@@ -218,7 +221,11 @@ mod unit_tests {
 
         // Now set scores > 30000 and trigger draw again.
         // West 1. Oya is 0.
-        env.state.scores = [31000, 25000, 24000, 20000];
+        // West 1. Oya is 0.
+        let new_scores = [31000, 25000, 24000, 20000];
+        for (player, &score) in env.state.players.iter_mut().zip(new_scores.iter()) {
+            player.score = score;
+        }
 
         env.state._trigger_ryukyoku("exhaustive_draw");
         if env.state.needs_initialize_next_round {
@@ -274,13 +281,15 @@ mod unit_tests {
 
         // Hand: 4m, 5m, 6m, 6m. (12, 16, 20, 21)
         // 3m is 8.
-        env.state.hands[pid as usize] = vec![12, 16, 20, 21];
+        // Hand: 4m, 5m, 6m, 6m. (12, 16, 20, 21)
+        // 3m is 8.
+        env.state.players[pid as usize].hand = vec![12, 16, 20, 21];
 
         // Setup P3 (Kamicha of P0)
         env.state.current_player = 3;
         env.state.phase = Phase::WaitAct;
         env.state.active_players = vec![3];
-        env.state.hands[3].push(8); // Give 3m
+        env.state.players[3].hand.push(8); // Give 3m
 
         // Action: P3 discards 3m
         let mut actions = HashMap::new();

@@ -6,6 +6,7 @@ use crate::action::{Action, Phase};
 use crate::observation::Observation;
 use crate::replay::MjaiEvent;
 use crate::rule::GameRule;
+use crate::state::legal_actions::GameStateLegalActions; // Import trait
 use crate::state::GameState;
 use crate::types::{Agari, Meld};
 
@@ -57,39 +58,39 @@ impl RiichiEnv {
 
     #[getter]
     pub fn get_wall(&self) -> Vec<u32> {
-        self.state.wall.iter().map(|&x| x as u32).collect()
+        self.state.wall.tiles.iter().map(|&x| x as u32).collect()
     }
     #[setter]
     pub fn set_wall(&mut self, v: Vec<u32>) {
-        self.state.wall = v.iter().map(|&x| x as u8).collect();
+        self.state.wall.tiles = v.iter().map(|&x| x as u8).collect();
     }
 
     #[getter]
     pub fn get_hands(&self) -> Vec<Vec<u32>> {
         self.state
-            .hands
+            .players
             .iter()
-            .map(|h| h.iter().map(|&x| x as u32).collect())
+            .map(|p| p.hand.iter().map(|&x| x as u32).collect())
             .collect()
     }
     #[setter]
     pub fn set_hands(&mut self, v: Vec<Vec<u32>>) {
         if v.len() == 4 {
             for (i, h) in v.into_iter().enumerate() {
-                self.state.hands[i] = h.iter().map(|&x| x as u8).collect();
+                self.state.players[i].hand = h.iter().map(|&x| x as u8).collect();
             }
         }
     }
 
     #[getter]
     pub fn get_melds(&self) -> Vec<Vec<Meld>> {
-        self.state.melds.to_vec()
+        self.state.players.iter().map(|p| p.melds.clone()).collect()
     }
     #[setter]
     pub fn set_melds(&mut self, v: Vec<Vec<Meld>>) {
         if v.len() == 4 {
             for (i, m) in v.into_iter().enumerate() {
-                self.state.melds[i] = m;
+                self.state.players[i].melds = m;
             }
         }
     }
@@ -97,42 +98,50 @@ impl RiichiEnv {
     #[getter]
     pub fn get_discards(&self) -> Vec<Vec<u32>> {
         self.state
-            .discards
+            .players
             .iter()
-            .map(|d| d.iter().map(|&x| x as u32).collect())
+            .map(|p| p.discards.iter().map(|&x| x as u32).collect())
             .collect()
     }
     #[setter]
     pub fn set_discards(&mut self, v: Vec<Vec<u32>>) {
         if v.len() == 4 {
             for (i, d) in v.into_iter().enumerate() {
-                self.state.discards[i] = d.iter().map(|&x| x as u8).collect();
+                self.state.players[i].discards = d.iter().map(|&x| x as u8).collect();
             }
         }
     }
 
     #[getter]
     pub fn get_discard_from_hand(&self) -> Vec<Vec<bool>> {
-        self.state.discard_from_hand.to_vec()
+        self.state
+            .players
+            .iter()
+            .map(|p| p.discard_from_hand.clone())
+            .collect()
     }
     #[setter]
     pub fn set_discard_from_hand(&mut self, v: Vec<Vec<bool>>) {
         if v.len() == 4 {
             for (i, d) in v.into_iter().enumerate() {
-                self.state.discard_from_hand[i] = d;
+                self.state.players[i].discard_from_hand = d;
             }
         }
     }
 
     #[getter]
     pub fn get_discard_is_riichi(&self) -> Vec<Vec<bool>> {
-        self.state.discard_is_riichi.to_vec()
+        self.state
+            .players
+            .iter()
+            .map(|p| p.discard_is_riichi.clone())
+            .collect()
     }
     #[setter]
     pub fn set_discard_is_riichi(&mut self, v: Vec<Vec<bool>>) {
         if v.len() == 4 {
             for (i, d) in v.into_iter().enumerate() {
-                self.state.discard_is_riichi[i] = d;
+                self.state.players[i].discard_is_riichi = d;
             }
         }
     }
@@ -140,6 +149,7 @@ impl RiichiEnv {
     #[getter]
     pub fn get_dora_indicators(&self) -> Vec<u32> {
         self.state
+            .wall
             .dora_indicators
             .iter()
             .map(|&x| x as u32)
@@ -147,25 +157,25 @@ impl RiichiEnv {
     }
     #[setter]
     pub fn set_dora_indicators(&mut self, v: Vec<u32>) {
-        self.state.dora_indicators = v.iter().map(|&x| x as u8).collect();
+        self.state.wall.dora_indicators = v.iter().map(|&x| x as u8).collect();
     }
 
     #[getter]
     pub fn get_rinshan_draw_count(&self) -> u8 {
-        self.state.rinshan_draw_count
+        self.state.wall.rinshan_draw_count
     }
     #[setter]
     pub fn set_rinshan_draw_count(&mut self, v: u8) {
-        self.state.rinshan_draw_count = v;
+        self.state.wall.rinshan_draw_count = v;
     }
 
     #[getter]
     pub fn get_pending_kan_dora_count(&self) -> u8 {
-        self.state.pending_kan_dora_count
+        self.state.wall.pending_kan_dora_count
     }
     #[setter]
     pub fn set_pending_kan_dora_count(&mut self, v: u8) {
-        self.state.pending_kan_dora_count = v;
+        self.state.wall.pending_kan_dora_count = v;
     }
 
     #[getter]
@@ -179,13 +189,17 @@ impl RiichiEnv {
 
     #[getter]
     pub fn get_riichi_declaration_index(&self) -> Vec<Option<usize>> {
-        self.state.riichi_declaration_index.to_vec()
+        self.state
+            .players
+            .iter()
+            .map(|p| p.riichi_declaration_index)
+            .collect()
     }
     #[setter]
     pub fn set_riichi_declaration_index(&mut self, v: Vec<Option<usize>>) {
         if v.len() == 4 {
             for (i, d) in v.into_iter().enumerate() {
-                self.state.riichi_declaration_index[i] = d;
+                self.state.players[i].riichi_declaration_index = d;
             }
         }
     }
@@ -252,25 +266,25 @@ impl RiichiEnv {
 
     #[pyo3(name = "scores")]
     pub fn scores_method(&self) -> Vec<i32> {
-        self.state.scores.to_vec()
+        self.state.players.iter().map(|p| p.score).collect()
     }
     #[pyo3(name = "set_scores")]
     pub fn set_scores_method(&mut self, v: Vec<i32>) {
         if v.len() == 4 {
             for (i, &s) in v.iter().enumerate() {
-                self.state.scores[i] = s;
+                self.state.players[i].score = s;
             }
         }
     }
     #[getter]
     pub fn get_scores(&self) -> Vec<i32> {
-        self.state.scores.to_vec()
+        self.state.players.iter().map(|p| p.score).collect()
     }
     #[setter]
     pub fn set_scores(&mut self, v: Vec<i32>) {
         if v.len() == 4 {
             for (i, &s) in v.iter().enumerate() {
-                self.state.scores[i] = s;
+                self.state.players[i].score = s;
             }
         }
     }
@@ -286,26 +300,30 @@ impl RiichiEnv {
 
     #[getter]
     pub fn get_riichi_declared(&self) -> Vec<bool> {
-        self.state.riichi_declared.to_vec()
+        self.state
+            .players
+            .iter()
+            .map(|p| p.riichi_declared)
+            .collect()
     }
     #[setter]
     pub fn set_riichi_declared(&mut self, v: Vec<bool>) {
         if v.len() == 4 {
             for (i, &val) in v.iter().enumerate() {
-                self.state.riichi_declared[i] = val;
+                self.state.players[i].riichi_declared = val;
             }
         }
     }
 
     #[getter]
     pub fn get_riichi_stage(&self) -> Vec<bool> {
-        self.state.riichi_stage.to_vec()
+        self.state.players.iter().map(|p| p.riichi_stage).collect()
     }
     #[setter]
     pub fn set_riichi_stage(&mut self, v: Vec<bool>) {
         if v.len() == 4 {
             for (i, &val) in v.iter().enumerate() {
-                self.state.riichi_stage[i] = val;
+                self.state.players[i].riichi_stage = val;
             }
         }
     }
@@ -405,26 +423,30 @@ impl RiichiEnv {
 
     #[getter]
     pub fn get_pao(&self) -> Vec<HashMap<u8, u8>> {
-        self.state.pao.to_vec()
+        self.state.players.iter().map(|p| p.pao.clone()).collect()
     }
     #[setter]
     pub fn set_pao(&mut self, v: Vec<HashMap<u8, u8>>) {
         if v.len() == 4 {
             for (i, p) in v.into_iter().enumerate() {
-                self.state.pao[i] = p;
+                self.state.players[i].pao = p;
             }
         }
     }
 
     #[getter]
     pub fn get_missed_agari_doujun(&self) -> Vec<bool> {
-        self.state.missed_agari_doujun.to_vec()
+        self.state
+            .players
+            .iter()
+            .map(|p| p.missed_agari_doujun)
+            .collect()
     }
     #[setter]
     pub fn set_missed_agari_doujun(&mut self, v: Vec<bool>) {
         if v.len() == 4 {
             for (i, &val) in v.iter().enumerate() {
-                self.state.missed_agari_doujun[i] = val;
+                self.state.players[i].missed_agari_doujun = val;
             }
         }
     }
@@ -436,7 +458,7 @@ impl RiichiEnv {
 
     #[getter]
     pub fn get_score_deltas(&self) -> Vec<i32> {
-        self.state.score_deltas.to_vec()
+        self.state.players.iter().map(|p| p.score_delta).collect()
     }
 
     #[getter]
@@ -485,7 +507,7 @@ impl RiichiEnv {
         if let Some(sc) = scores {
             if sc.len() == 4 {
                 for (i, &s) in sc.iter().enumerate() {
-                    self.state.scores[i] = s;
+                    self.state.players[i].score = s;
                 }
             }
         }
@@ -497,8 +519,8 @@ impl RiichiEnv {
     pub fn ranks(&self) -> Vec<usize> {
         let mut indices: Vec<usize> = (0..4).collect();
         indices.sort_by(|&a, &b| {
-            let score_a = self.state.scores[a];
-            let score_b = self.state.scores[b];
+            let score_a = self.state.players[a].score;
+            let score_b = self.state.players[b].score;
             if score_a != score_b {
                 score_b.cmp(&score_a)
             } else {
@@ -528,7 +550,7 @@ impl RiichiEnv {
         let ranks = self.ranks();
         let mut points = vec![0.0; 4];
         for i in 0..4 {
-            let score = self.state.scores[i] as f64;
+            let score = self.state.players[i].score as f64;
             let rank = ranks[i];
             let uma = jun_weight[rank - 1];
             points[i] = (score - soten_base) / 1000.0 * soten_weight + uma;

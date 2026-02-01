@@ -272,7 +272,7 @@ impl KyokuStepIterator {
                             let tile = tiles[0];
                             // Find the existing Peng meld to get its tiles
                             let mut consume = Vec::new();
-                            for m in &slf.state.melds[pid as usize] {
+                            for m in &slf.state.players[pid as usize].melds {
                                 if m.meld_type == MeldType::Peng && m.tiles[0] / 4 == t34 {
                                     consume = m.tiles.clone();
                                     break;
@@ -443,11 +443,22 @@ impl LogKyoku {
             Some(initial_scores),
         );
 
-        state.hands = self.hands.clone().try_into().unwrap_or_default();
+        state._initialize_round(
+            oya,
+            bakaze,
+            self.ben,
+            self.liqibang as u32,
+            wall.clone(),
+            Some(initial_scores),
+        );
+
+        for (i, h) in self.hands.iter().enumerate() {
+            state.players[i].hand = h.clone();
+        }
 
         // If dealer starts with 14 tiles, set drawn_tile to allow immediate Tsumo/Discard
-        if state.hands[oya_idx].len() == 14 {
-            let mut dt = state.hands[oya_idx].last().copied();
+        if state.players[oya_idx].hand.len() == 14 {
+            let mut dt = state.players[oya_idx].hand.last().copied();
 
             // Peek at the first action to see which tile was actually "drawn" (or acted upon)
             if let Some(first_action) = self.actions.first() {
@@ -487,17 +498,17 @@ impl LogKyoku {
             state.needs_tsumo = false;
         }
 
-        for h in state.hands.iter_mut() {
-            h.sort();
+        for p in state.players.iter_mut() {
+            p.hand.sort();
         }
-        state.dora_indicators = doras;
+        state.wall.dora_indicators = doras;
 
         // If wall was initialized from a full wall (136 tiles), pop all tiles starting hands consumed
-        if state.wall.len() == 136 {
-            let total_hand_tiles: usize = state.hands.iter().map(|h| h.len()).sum();
+        if state.wall.tiles.len() == 136 {
+            let total_hand_tiles: usize = state.players.iter().map(|p| p.hand.len()).sum();
             for _ in 0..total_hand_tiles {
-                if !state.wall.is_empty() {
-                    state.wall.pop();
+                if !state.wall.tiles.is_empty() {
+                    state.wall.tiles.pop();
                 }
             }
         }

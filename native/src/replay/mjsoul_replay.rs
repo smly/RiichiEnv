@@ -249,8 +249,8 @@ impl MjSoulReplay {
             }
 
             // Update last round's end scores
-            last.end_scores = state.scores.to_vec();
-            Some(state.scores.to_vec())
+            last.end_scores = state.players.iter().map(|p| p.score).collect();
+            Some(last.end_scores.clone())
         } else {
             None
         };
