@@ -258,3 +258,10 @@ impl Agari {
         }
     }
 }
+
+pub fn is_terminal_tile(t: u8) -> bool {
+    let t_type = t / 4;
+    let rank = t_type % 9;
+    let suit = t_type / 9;
+    suit == 3 || rank == 0 || rank == 8
+}

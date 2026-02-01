@@ -934,29 +934,22 @@ impl GameState {
 
                 self._initialize_next_round(oya_won, false);
             } else if let Some((claimer, action)) = call_claim {
-                if let Some(rp) = self.riichi_pending_acceptance {
-                    self.players[rp as usize].score -= 1000;
-                    self.players[rp as usize].score_delta = -1000;
-                    self.riichi_sticks += 1;
-                    self.players[rp as usize].riichi_declared = true;
-                    self.players[rp as usize].ippatsu_cycle = true;
-                    if !self.skip_mjai_logging {
-                        let mut ev = serde_json::Map::new();
-                        ev.insert(
-                            "type".to_string(),
-                            Value::String("reach_accepted".to_string()),
-                        );
-                        ev.insert("actor".to_string(), Value::Number(rp.into()));
-                        self._push_mjai_event(Value::Object(ev));
-                    }
-                    self.riichi_pending_acceptance = None;
-                }
+                self._accept_riichi();
                 self.is_rinshan_flag = false;
                 self.is_first_turn = false;
                 self.players[claimer as usize].missed_agari_doujun = false;
 
                 for p in 0..4 {
                     self.players[p].ippatsu_cycle = false;
+                }
+
+                if action.action_type == ActionType::Daiminkan {
+                    self.current_player = claimer;
+                    self.active_players = vec![claimer];
+                    self.players[claimer as usize].forbidden_discards.clear();
+                    // Handled exclusively by _resolve_kan
+                    self._resolve_kan(claimer, action.clone());
+                    return; // Skip the rest of claim handling (Pon/Chi)
                 }
 
                 for &t in &action.consume_tiles {
@@ -975,8 +968,7 @@ impl GameState {
                 let meld_type = match action.action_type {
                     ActionType::Pon => MeldType::Peng,
                     ActionType::Chi => MeldType::Chi,
-                    ActionType::Daiminkan => MeldType::Gang,
-                    _ => MeldType::Chi,
+                    _ => MeldType::Chi, // Should not happen for this block anymore
                 };
                 self.players[claimer as usize].melds.push(Meld {
                     meld_type,
@@ -989,6 +981,7 @@ impl GameState {
                     let type_str = match action.action_type {
                         ActionType::Pon => Some("pon"),
                         ActionType::Chi => Some("chi"),
+                        ActionType::Daiminkan => Some("daiminkan"),
                         _ => None,
                     };
                     if let Some(s) = type_str {
@@ -1094,23 +1087,7 @@ impl GameState {
                     // Resume Kan
                     self._resolve_kan(pk_pid, pk_act);
                 } else {
-                    if let Some(rp) = self.riichi_pending_acceptance {
-                        self.players[rp as usize].score -= 1000;
-                        self.players[rp as usize].score_delta = -1000;
-                        self.riichi_sticks += 1;
-                        self.players[rp as usize].riichi_declared = true;
-                        self.players[rp as usize].ippatsu_cycle = true;
-                        if !self.skip_mjai_logging {
-                            let mut ev = serde_json::Map::new();
-                            ev.insert(
-                                "type".to_string(),
-                                Value::String("reach_accepted".to_string()),
-                            );
-                            ev.insert("actor".to_string(), Value::Number(rp.into()));
-                            self._push_mjai_event(Value::Object(ev));
-                        }
-                        self.riichi_pending_acceptance = None;
-                    }
+                    self._accept_riichi();
                     self.current_player = (self.current_player + 1) % 4;
                     self._deal_next();
                 }
@@ -1152,6 +1129,10 @@ impl GameState {
             self.wall.pending_kan_dora_count -= 1;
             self._reveal_kan_dora();
         }
+
+        self.players[pid as usize].missed_agari_doujun = false;
+        self.players[pid as usize].nagashi_eligible &= crate::types::is_terminal_tile(tile);
+
         self.current_claims.clear();
         self.active_players.clear();
         let mut has_claims = false;
@@ -1213,16 +1194,20 @@ impl GameState {
                     self.players[p_idx].hand.remove(idx);
                 }
             }
-            let m_type = if action.action_type == ActionType::Ankan {
-                MeldType::Angang
+            let (m_type, tiles, from_who) = if action.action_type == ActionType::Ankan {
+                (MeldType::Angang, action.consume_tiles.clone(), -1i8)
             } else {
-                MeldType::Gang
+                let (discarder, tile) = self.last_discard.unwrap();
+                let mut t_vec = action.consume_tiles.clone();
+                t_vec.push(tile);
+                t_vec.sort();
+                (MeldType::Gang, t_vec, discarder as i8)
             };
             self.players[p_idx].melds.push(Meld {
                 meld_type: m_type,
-                tiles: action.consume_tiles.clone(),
+                tiles,
                 opened: m_type == MeldType::Gang,
-                from_who: -1,
+                from_who,
             });
         }
 
@@ -1239,11 +1224,42 @@ impl GameState {
             self.is_rinshan_flag = true;
 
             if !self.skip_mjai_logging {
-                let mut ev = serde_json::Map::new();
-                ev.insert("type".to_string(), Value::String("tsumo".to_string()));
-                ev.insert("actor".to_string(), Value::Number(p_idx.into()));
-                ev.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
-                self._push_mjai_event(Value::Object(ev));
+                let m_type = match action.action_type {
+                    ActionType::Ankan => Some("ankan"),
+                    ActionType::Daiminkan => Some("daiminkan"),
+                    ActionType::Kakan => None, // Logged in step()
+                    _ => None,
+                };
+                if let Some(s) = m_type {
+                    let mut ev = serde_json::Map::new();
+                    ev.insert("type".to_string(), Value::String(s.to_string()));
+                    ev.insert("actor".to_string(), Value::Number(pid.into()));
+                    if action.action_type == ActionType::Ankan {
+                        let tile = action.tile.unwrap_or_else(|| action.consume_tiles[0]);
+                        ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
+                    } else if action.action_type == ActionType::Daiminkan {
+                        if let Some((target, tile)) = self.last_discard {
+                            ev.insert("target".to_string(), Value::Number(target.into()));
+                            ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
+                        }
+                    }
+                    let cons_strs: Vec<String> = action
+                        .consume_tiles
+                        .iter()
+                        .map(|&t| tid_to_mjai(t))
+                        .collect();
+                    ev.insert(
+                        "consumed".to_string(),
+                        serde_json::to_value(cons_strs).unwrap(),
+                    );
+                    self._push_mjai_event(Value::Object(ev));
+                }
+
+                let mut t_ev = serde_json::Map::new();
+                t_ev.insert("type".to_string(), Value::String("tsumo".to_string()));
+                t_ev.insert("actor".to_string(), Value::Number(pid.into()));
+                t_ev.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
+                self._push_mjai_event(Value::Object(t_ev));
             }
 
             if action.action_type == ActionType::Ankan {
@@ -1252,13 +1268,26 @@ impl GameState {
                 self.wall.pending_kan_dora_count += 1;
             }
             self.phase = Phase::WaitAct;
+            self.active_players = vec![pid];
         }
     }
 
     fn _accept_riichi(&mut self) {
         if let Some(p) = self.riichi_pending_acceptance {
             self.players[p as usize].score -= 1000;
+            self.players[p as usize].score_delta -= 1000;
             self.riichi_sticks += 1;
+            self.players[p as usize].riichi_declared = true;
+            self.players[p as usize].ippatsu_cycle = true;
+            if !self.skip_mjai_logging {
+                let mut ev = serde_json::Map::new();
+                ev.insert(
+                    "type".to_string(),
+                    Value::String("reach_accepted".to_string()),
+                );
+                ev.insert("actor".to_string(), Value::Number(p.into()));
+                self._push_mjai_event(Value::Object(ev));
+            }
             self.riichi_pending_acceptance = None;
         }
     }
