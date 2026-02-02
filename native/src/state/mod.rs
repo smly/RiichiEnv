@@ -1723,8 +1723,8 @@ impl GameState {
     pub fn _get_ura_markers(&self) -> Vec<String> {
         let mut markers = Vec::new();
         for i in 0..self.wall.dora_indicators.len() {
-            let idx = 5 + 2 * i - self.wall.rinshan_draw_count as usize; // Ura is next to front.
-                                                                         // Original: `self.wall[5 + 2*i]`
+            let idx = (5 + 2 * i).saturating_sub(self.wall.rinshan_draw_count as usize); // Ura is next to front.
+                                                                                      // Original: `self.wall[5 + 2*i]`
             if idx < self.wall.tiles.len() {
                 markers.push(tid_to_mjai(self.wall.tiles[idx]));
             }
