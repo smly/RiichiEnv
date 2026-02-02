@@ -2,6 +2,7 @@ from . import convert
 from ._riichienv import (  # type: ignore
     AgariContext,
     GameRule,
+    KanDoraTimingMode,
     KuikaeMode,
     Kyoku,
     Meld,
@@ -48,6 +49,7 @@ __all__ = [
     "RiichiEnv",
     "GameRule",
     "Phase",
+    "KanDoraTimingMode",
     "KuikaeMode",
     "GameType",
     "Agari",

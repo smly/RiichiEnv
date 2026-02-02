@@ -7,9 +7,19 @@ class KuikaeMode(IntEnum):
     StrictFlank = 2
     def __int__(self) -> int: ...
 
+class KanDoraTimingMode(IntEnum):
+    TenhouImmediate = 0
+    MajsoulImmediate = 1
+    AfterDiscard = 2
+    def __int__(self) -> int: ...
+
 class GameRule:
     allows_ron_on_ankan_for_kokushi_musou: bool
     is_kokushi_musou_13machi_double: bool
+    yakuman_pao_is_liability_only: bool
+    allow_double_ron: bool
+    kuikae_mode: KuikaeMode
+    kan_dora_timing: KanDoraTimingMode
     def __init__(
         self,
         allows_ron_on_ankan_for_kokushi_musou: bool = False,
@@ -17,6 +27,7 @@ class GameRule:
         yakuman_pao_is_liability_only: bool = False,
         allow_double_ron: bool = True,
         kuikae_mode: KuikaeMode = KuikaeMode.None_,
+        kan_dora_timing: KanDoraTimingMode = KanDoraTimingMode.TenhouImmediate,
     ) -> None: ...
     @staticmethod
     def default_tenhou() -> GameRule: ...
@@ -317,4 +328,5 @@ __all__ = [
     "parse_hand",
     "parse_tile",
     "KuikaeMode",
+    "KanDoraTimingMode",
 ]
