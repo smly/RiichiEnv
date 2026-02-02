@@ -1104,6 +1104,9 @@ impl GameState {
                 }
             } else {
                 // All Pass
+                self.current_claims.clear();
+                self.active_players.clear();
+
                 if let Some((pk_pid, pk_act)) = self.pending_kan.take() {
                     // Resume Kan
                     self._resolve_kan(pk_pid, pk_act);
