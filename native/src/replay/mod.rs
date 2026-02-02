@@ -443,15 +443,6 @@ impl LogKyoku {
             Some(initial_scores),
         );
 
-        state._initialize_round(
-            oya,
-            bakaze,
-            self.ben,
-            self.liqibang as u32,
-            wall.clone(),
-            Some(initial_scores),
-        );
-
         for (i, h) in self.hands.iter().enumerate() {
             state.players[i].hand = h.clone();
         }
