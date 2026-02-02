@@ -1140,11 +1140,6 @@ impl GameState {
             self.riichi_pending_acceptance = Some(pid);
         }
 
-        while self.wall.pending_kan_dora_count > 0 {
-            self.wall.pending_kan_dora_count -= 1;
-            self._reveal_kan_dora();
-        }
-
         if !self.skip_mjai_logging {
             let mut ev = serde_json::Map::new();
             ev.insert("type".to_string(), Value::String("dahai".to_string()));
@@ -1152,6 +1147,12 @@ impl GameState {
             ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
             ev.insert("tsumogiri".to_string(), Value::Bool(tsumogiri));
             self._push_mjai_event(Value::Object(ev));
+        }
+
+        // Reveal pending kan doras after dahai event (for daiminkan/kakan)
+        while self.wall.pending_kan_dora_count > 0 {
+            self.wall.pending_kan_dora_count -= 1;
+            self._reveal_kan_dora();
         }
 
         self.players[pid as usize].missed_agari_doujun = false;
@@ -1266,22 +1267,45 @@ impl GameState {
                         serde_json::to_value(cons_strs).unwrap(),
                     );
                     self._push_mjai_event(Value::Object(ev));
+                }
+            }
 
+            // Handle kan dora timing based on timing mode and kan type
+            // This applies to all kan types (ankan, daiminkan, kakan)
+            let has_pending_doras = self.wall.pending_kan_dora_count > 0;
+
+            match self.rule.kan_dora_timing {
+                crate::rule::KanDoraTimingMode::MajsoulImmediate => {
                     if action.action_type == ActionType::Ankan {
                         self._reveal_kan_dora();
                     }
                 }
+                crate::rule::KanDoraTimingMode::TenhouImmediate
+                | crate::rule::KanDoraTimingMode::AfterDiscard => {
+                    if has_pending_doras {
+                        while self.wall.pending_kan_dora_count > 0 {
+                            self.wall.pending_kan_dora_count -= 1;
+                            self._reveal_kan_dora();
+                        }
+                    }
 
+                    // Tenhou: Ankan reveals before rinshan tsumo
+                    // Daiminkan/Kakan defer to before discard
+                    if action.action_type == ActionType::Ankan {
+                        self._reveal_kan_dora();
+                    } else {
+                        self.wall.pending_kan_dora_count += 1;
+                    }
+                }
+            }
+
+            if !self.skip_mjai_logging {
                 // Rinshan tsumo logging should apply to Kakan as well
                 let mut t_ev = serde_json::Map::new();
                 t_ev.insert("type".to_string(), Value::String("tsumo".to_string()));
                 t_ev.insert("actor".to_string(), Value::Number(pid.into()));
                 t_ev.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
                 self._push_mjai_event(Value::Object(t_ev));
-
-                if action.action_type != ActionType::Ankan {
-                    self.wall.pending_kan_dora_count += 1;
-                }
             }
             self.phase = Phase::WaitAct;
             self.active_players = vec![pid];
