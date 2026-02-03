@@ -66,6 +66,10 @@ pub struct GameState {
     pub rule: GameRule,
     pub last_error: Option<String>,
     pub is_after_kan: bool,
+
+    // New fields for Mortal-inspired features
+    pub riichi_sutehais: [Option<u8>; 4],      // Tile discarded when declaring riichi
+    pub last_tedashis: [Option<u8>; 4],        // Last hand discard (not tsumogiri)
 }
 
 impl GameState {
@@ -121,6 +125,8 @@ impl GameState {
             rule,
             last_error: None,
             is_after_kan: false,
+            riichi_sutehais: [None; 4],
+            last_tedashis: [None; 4],
         };
 
         if !state.skip_mjai_logging {
@@ -206,6 +212,9 @@ impl GameState {
             self.kyoku_idx,
             waits,
             is_tenpai,
+            self.riichi_sutehais.to_vec(),
+            self.last_tedashis.to_vec(),
+            self.last_discard.map(|(tile, _pid)| tile as u32),
         )
     }
 
@@ -403,6 +412,12 @@ impl GameState {
                                     if dt == t {
                                         tsumogiri = true;
                                     }
+                                }
+                                // Record riichi sutehai (riichi discard tile)
+                                self.riichi_sutehais[pid as usize] = Some(t);
+                                // Record last tedashi if not tsumogiri
+                                if !tsumogiri {
+                                    self.last_tedashis[pid as usize] = Some(t);
                                 }
                                 if let Some(idx) =
                                     self.players[pid as usize].hand.iter().position(|&x| x == t)
@@ -1133,6 +1148,11 @@ impl GameState {
             .discard_is_riichi
             .push(self.players[pid as usize].riichi_stage);
 
+        // Track last tedashi (hand discard, not tsumogiri)
+        if !tsumogiri {
+            self.last_tedashis[pid as usize] = Some(tile);
+        }
+
         self.needs_tsumo = true;
 
         if self.players[pid as usize].riichi_stage {
@@ -1468,6 +1488,8 @@ impl GameState {
         self.agari_results.clear();
         self.last_agari_results.clear();
         self.round_end_scores = None;
+        self.riichi_sutehais = [None; 4];
+        self.last_tedashis = [None; 4];
 
         if let Some(s) = scores {
             for (i, &sc) in s.iter().enumerate() {

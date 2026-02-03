@@ -14,24 +14,25 @@ from riichienv import RiichiEnv
 from ray_actor import MahjongWorker
 from learner import MahjongLearner
 from buffer import GlobalReplayBuffer
+from cql_dataset import ObservationEncoder
 
 
 def evaluate_vs_baseline(hero_model, baseline_model, device, num_episodes=30):
     """
     Evaluates Hero Model (Player 0) vs Baseline Model (Players 1-3).
-    Running on single GPU sequentially (batch size 1 per turn). 
+    Running on single GPU sequentially (batch size 1 per turn).
     Ideally this should be batched, but sequential is fine for 30 games.
     """
     hero_rewards = []
     hero_ranks = []
-    
+
     hero_model.eval()
     baseline_model.eval()
-    
+
     for _ in range(num_episodes):
         env = RiichiEnv(game_mode="4p-red-half")
         obs_dict = env.reset()
-        
+
         while not env.done():
             steps = {}
             for pid, obs in obs_dict.items():
@@ -40,16 +41,17 @@ def evaluate_vs_baseline(hero_model, baseline_model, device, num_episodes=30):
                 else:
                     model = baseline_model
 
-                # Encode
-                feat = np.frombuffer(obs.encode(), dtype=np.float32).reshape(46, 34).copy()
+                # Encode using legacy features (46, 34)
+                feat = ObservationEncoder.encode_legacy(obs)
                 mask = np.frombuffer(obs.mask(), dtype=np.uint8).copy()
 
-                feat_t = torch.from_numpy(feat).to(device).unsqueeze(0)
+                # Move to device and add batch dimension
+                feat_t = feat.to(device).unsqueeze(0)
                 mask_t = torch.from_numpy(mask).to(device).unsqueeze(0)
-                
+
                 with torch.no_grad():
                     logits, q_values = model(feat_t)
-                    
+
                     if pid == 0:
                         # Hero (PPO): Sample from Policy (Logits)
                         logits = logits.masked_fill(mask_t == 0, -1e9)
@@ -60,13 +62,13 @@ def evaluate_vs_baseline(hero_model, baseline_model, device, num_episodes=30):
                         # Baseline (CQL): Greedy Argmax Q-values
                         q_values = q_values.masked_fill(mask_t == 0, -1e9)
                         action_idx = q_values.argmax(dim=1).item()
-                    
+
                 found_action = obs.find_action(action_idx)
                 if found_action is None:
                     found_action = obs.legal_actions()[0]
-                    
+
                 steps[pid] = found_action
-            
+
             obs_dict = env.step(steps)
 
         ranks = env.ranks()
@@ -102,10 +104,18 @@ def proper_loop(args):
     }
     
     ray.init(runtime_env=runtime_env, ignore_reinit_error=True)
-    
-    learner = MahjongLearner(device=args.device)
+
+    learner = MahjongLearner(
+        device=args.device,
+        actor_lr=args.actor_lr,
+        critic_lr=args.critic_lr,
+        alpha_cql_init=args.alpha_cql_init,
+        alpha_cql_final=args.alpha_cql_final,
+        awac_beta=args.awac_beta,
+        awac_max_weight=args.awac_max_weight,
+    )
     baseline_learner = None
-    
+
     if args.load_model:
         learner.load_cql_weights(args.load_model)
         # Load Baseline for Evaluation
@@ -113,15 +123,30 @@ def proper_loop(args):
         baseline_learner.load_cql_weights(args.load_model)
         baseline_learner.model.eval() # Freeze baseline
 
-    buffer = GlobalReplayBuffer(batch_size=args.batch_size, device=args.device)
-    workers = [MahjongWorker.remote(i, "cpu") for i in range(args.num_workers)]
+    # AWAC is off-policy: use unified buffer (same capacity for actor and critic)
+    buffer = GlobalReplayBuffer(
+        batch_size=args.batch_size,
+        device=args.device,
+        actor_capacity=args.critic_capacity,  # Unified buffer
+        critic_capacity=args.critic_capacity,
+    )
+    # Distribute workers across GPUs if available
+    # Each worker gets a fraction of GPU memory
+    if args.worker_device == "cuda":
+        # Assign workers to GPU with memory fraction
+        workers = [
+            MahjongWorker.options(num_gpus=args.gpu_per_worker).remote(i, "cuda", gamma=0.99)
+            for i in range(args.num_workers)
+        ]
+    else:
+        workers = [MahjongWorker.remote(i, "cpu", gamma=0.99) for i in range(args.num_workers)]
     
     # Initial Weight Sync
     weights = {k: v.cpu() for k,v in learner.get_weights().items()}
     weight_ref = ray.put(weights)
-    
+
     for w in workers:
-        w.update_weights.remote(weight_ref, 0)
+        w.update_weights.remote(weight_ref)
         
     # Map future -> worker_index
     future_to_worker = {w.collect_episode.remote(): i for i, w in enumerate(workers)}
@@ -141,17 +166,14 @@ def proper_loop(args):
         except Exception as e:
             print(f"Dry-run evaluation failed: {e}")
             raise e
-    
-    start_beta = 0.4
-    end_beta = 0.8
-    
+
     try:
         while step < args.num_steps:
             # 1. Periodic Evaluation & Snapshot (Priority over Training Step)
-            if step > 0 and step % 10000 == 0:
+            if step > 0 and step % args.eval_interval == 0:
                 print(f"Step {step}: Saving snapshot and Evaluating...")
                 sys.stdout.flush()
-                
+
                 # Snapshot
                 save_path = f"checkpoints/model_{step}.pth"
                 torch.save(learner.get_weights(), save_path)
@@ -179,29 +201,23 @@ def proper_loop(args):
             # Get Result
             transitions = ray.get(future)
             buffer.add(transitions)
-            
-            # Anneal Beta
-            # Linear annealing from start_beta to end_beta over num_steps
-            progress = min(1.0, step / args.num_steps)
-            beta = start_beta + progress * (end_beta - start_beta)
-            buffer.update_beta(beta)
-            
-            # Train
-            metrics = {"beta": beta}
-            
-            # Update Critic (using historical data) -> Multiple steps?
+
+            # Train - Single gradient step per episode (matching main branch performance)
+            metrics = {}
+
+            # Update Critic (using historical data)
             if len(buffer.critic_buffer) > args.batch_size:
                 c_batch = buffer.sample_critic(args.batch_size)
-                
-                # Update with Priority Logic
+
+                # Update with Priority Logic and dynamic CQL alpha
                 # update_critic returns (metrics, indices, priorities)
-                c_metrics, indices, priorities = learner.update_critic(c_batch)
+                c_metrics, indices, priorities = learner.update_critic(c_batch, max_steps=args.num_steps)
                 metrics.update(c_metrics)
-                
+
                 # Feedback priorities to buffer
                 buffer.update_priority(indices, priorities)
-                
-            # Update Actor (using recent data)
+
+            # Update Actor (AWAC is off-policy, can use same data as critic)
             if len(buffer.actor_buffer) > args.batch_size:
                 a_batch = buffer.sample_actor(args.batch_size)
                 a_metrics = learner.update_actor(a_batch)
@@ -211,12 +227,28 @@ def proper_loop(args):
                 print(f"Step {step}: {metrics}")
                 wandb.log(metrics, step=step)
             
-            # Re-dispatch worker with latest weights
-            # Sync weights every X steps or every episode?
-            # Sync every time for now for On-Policy-ness
-            weights = {k: v.cpu() for k,v in learner.get_weights().items()}
-            weight_ref = ray.put(weights)
-            workers[worker_idx].update_weights.remote(weight_ref, learner.policy_version)
+            # Re-dispatch worker
+            # Sync weights periodically to reduce overhead (every N steps)
+            if step % args.weight_sync_freq == 0:
+                weights = {k: v.cpu() for k,v in learner.get_weights().items()}
+
+                # Check for NaN in weights before sending
+                has_nan = False
+                for name, param in weights.items():
+                    if torch.isnan(param).any():
+                        print(f"ERROR: NaN detected in learner weights {name} at step {step}")
+                        has_nan = True
+
+                if has_nan:
+                    print(f"FATAL: Cannot sync NaN weights to workers. Stopping training.")
+                    break
+
+                weight_ref = ray.put(weights)
+                # Update the worker that just finished
+                workers[worker_idx].update_weights.remote(weight_ref)
+            else:
+                # Just re-dispatch without weight update for efficiency
+                pass
             
             new_future = workers[worker_idx].collect_episode.remote()
             future_to_worker[new_future] = worker_idx
@@ -255,11 +287,23 @@ def proper_loop(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--num_workers", type=int, default=12)
     parser.add_argument("--num_steps", type=int, default=1e5)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--load_model", type=str, default=None, help="Path to offline CQL model (cql_model.pth)")
+    parser.add_argument("--actor_lr", type=float, default=1e-4, help="Actor learning rate")
+    parser.add_argument("--critic_lr", type=float, default=3e-4, help="Critic learning rate")
+    parser.add_argument("--alpha_cql_init", type=float, default=1.0, help="Initial CQL alpha")
+    parser.add_argument("--alpha_cql_final", type=float, default=0.1, help="Final CQL alpha")
+    parser.add_argument("--awac_beta", type=float, default=0.3, help="AWAC temperature (lower = more conservative)")
+    parser.add_argument("--awac_max_weight", type=float, default=20.0, help="AWAC max advantage weight clipping")
+    parser.add_argument("--actor_capacity", type=int, default=50000, help="Actor buffer capacity (unused with AWAC unified buffer)")
+    parser.add_argument("--critic_capacity", type=int, default=1000000, help="Critic buffer capacity")
+    parser.add_argument("--eval_interval", type=int, default=2000, help="Evaluation interval")
+    parser.add_argument("--weight_sync_freq", type=int, default=10, help="Sync weights to workers every N steps")
+    parser.add_argument("--worker_device", type=str, default="cpu", choices=["cpu", "cuda"], help="Device for workers (cpu or cuda)")
+    parser.add_argument("--gpu_per_worker", type=float, default=0.1, help="Fraction of GPU memory per worker (e.g., 0.1 = 10%)")
     args = parser.parse_args()
-    
+
     proper_loop(args)

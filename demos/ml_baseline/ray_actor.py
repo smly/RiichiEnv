@@ -5,42 +5,55 @@ from torch.distributions import Categorical
 from riichienv import RiichiEnv
 
 from unified_model import UnifiedNetwork
+from cql_dataset import ObservationEncoder
 
 
 @ray.remote
 class MahjongWorker:
-    def __init__(self, worker_id: int, device: str = "cpu"):
+    def __init__(self, worker_id: int, device: str = "cpu", gamma: float = 0.99):
         torch.set_num_threads(1)
         self.worker_id = worker_id
         self.device = torch.device(device)
         self.env = RiichiEnv(game_mode="4p-red-half")
-        
-        # Policy Model (Unified)
-        self.model = UnifiedNetwork(in_channels=46, num_actions=82).to(self.device)
-        self.model.eval()
-        
-        self.policy_version = 0
+        self.gamma = gamma
 
-    def update_weights(self, state_dict, policy_version):
+        # Policy Model (Unified) with legacy feature dimensions (46 channels)
+        self.model = UnifiedNetwork(num_actions=82).to(self.device)
+        self.model.eval()
+
+    def update_weights(self, state_dict):
         """Syncs weights from the Learner."""
         self.model.load_state_dict(state_dict)
-        self.policy_version = policy_version
+
+        # Check for NaN in weights after loading
+        has_nan = False
+        for name, param in self.model.named_parameters():
+            if torch.isnan(param).any():
+                print(f"ERROR: Worker {self.worker_id} received NaN weights in {name}")
+                has_nan = True
+
+        if has_nan:
+            print(f"WARNING: Worker {self.worker_id} has NaN weights after sync")
 
     def _encode_obs(self, obs):
-        """Encodes Rust observation to Torch Tensor."""
-        feat = np.frombuffer(obs.encode(), dtype=np.float32).reshape(46, 34).copy()
+        """Encodes Rust observation using legacy features (46, 34)."""
+        # Use legacy encoding (46 channels only)
+        feat = ObservationEncoder.encode_legacy(obs)
         mask = np.frombuffer(obs.mask(), dtype=np.uint8).copy()
-        # feat: (46, 34)
-        return (
-            torch.from_numpy(feat).to(self.device),
-            torch.from_numpy(mask).to(self.device)
-        )
+
+        # Move to device
+        feat_tensor = feat.to(self.device)
+        mask_tensor = torch.from_numpy(mask).to(self.device)
+
+        return feat_tensor, mask_tensor
 
     def collect_episode(self):
         """
         Runs one full episode of self-play.
         Returns a list of transitions for the learner.
         """
+        import time
+        t_start = time.time()
 
         obs_dict = self.env.reset(
             scores=[25000, 25000, 25000, 25000],
@@ -64,17 +77,30 @@ class MahjongWorker:
                 any_legal = True
                 # 1. Observation
                 feat_tensor, mask_tensor = self._encode_obs(obs)
-                
-                # 2. Policy Step (Stochastic Sampling for PPO)
+
+                # 2. Policy Step (Stochastic Sampling for AWAC)
                 with torch.no_grad():
-                    logits, _ = self.model(feat_tensor.unsqueeze(0)) # (1, 82)
+                    # Add batch dimension
+                    feat_batch = feat_tensor.unsqueeze(0)  # (1, 46, 34)
+                    logits, _ = self.model(feat_batch)  # (1, 82)
                     logits = logits.masked_fill(mask_tensor.unsqueeze(0) == 0, -1e9)
-                    
-                    dist = Categorical(logits=logits)
-                    action = dist.sample()
-                    log_prob = dist.log_prob(action)
-                    action_idx = action.item()
-                    
+
+                    # Check for NaN in logits
+                    if torch.isnan(logits).any():
+                        print(f"ERROR: NaN detected in worker {self.worker_id} logits")
+                        print(f"  logits: {logits}")
+                        print(f"  Falling back to random legal action")
+                        # Use random legal action as fallback
+                        action_idx = np.random.choice([i for i, m in enumerate(mask_tensor.cpu().numpy()) if m > 0])
+                        # Store dummy log_prob
+                        log_prob_value = -2.0  # Approximate uniform log prob
+                    else:
+                        dist = Categorical(logits=logits)
+                        action = dist.sample()
+                        log_prob = dist.log_prob(action)
+                        action_idx = action.item()
+                        log_prob_value = log_prob.cpu().item()
+
                 # 3. Step Environment
                 found_action = obs.find_action(action_idx)
                 if found_action is None:
@@ -82,14 +108,14 @@ class MahjongWorker:
                     found_action = legal_actions[0]
 
                 steps[pid] = found_action
-                
-                # 4. Store step (for PPO)
+
+                # 4. Store step (for AWAC)
+                # Store legacy features as numpy array
                 episode_buffer[pid].append({
-                    "features": feat_tensor.cpu().numpy(),
+                    "features": feat_tensor.cpu().numpy(),  # (46, 34)
                     "mask": mask_tensor.cpu().numpy(),
-                    "action": action_idx, # Scalar
-                    "log_prob": log_prob.cpu().item(), # Scalar
-                    "policy_version": self.policy_version, 
+                    "action": action_idx,  # Scalar
+                    "log_prob": log_prob_value,  # Scalar (not used in AWAC, but kept for compatibility)
                 })
 
             if not any_legal and not self.env.done():
@@ -122,9 +148,8 @@ class MahjongWorker:
             T = len(traj)
             
             for t, step in enumerate(traj):
-                # MC Return G_t
-                gamma = 0.99
-                decayed_return = obs_reward * (gamma ** (T - t - 1))
+                # MC Return G_t with configured gamma
+                decayed_return = obs_reward * (self.gamma ** (T - t - 1))
                 
                 # We store 'reward' = G_t because PPO Learner will sample this 
                 # and use it as target.
@@ -132,5 +157,10 @@ class MahjongWorker:
                 step["done"] = bool(t == T-1)
                 
                 transitions.append(step)
-                
+
+        t_end = time.time()
+        episode_time = t_end - t_start
+        if len(transitions) > 0:
+            print(f"Worker {self.worker_id}: Episode took {episode_time:.3f}s, {len(transitions)} transitions, {len(transitions)/episode_time:.1f} trans/s")
+
         return transitions
