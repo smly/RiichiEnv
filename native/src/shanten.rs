@@ -96,10 +96,7 @@ pub fn calculate_effective_tiles(hand_tiles: &[u32]) -> u32 {
     let mut effective_count = 0;
 
     for tile_type in 0..34 {
-        let count_in_hand = hand_tiles
-            .iter()
-            .filter(|&&t| (t / 4) == tile_type)
-            .count();
+        let count_in_hand = hand_tiles.iter().filter(|&&t| (t / 4) == tile_type).count();
         if count_in_hand >= 4 {
             continue;
         }
