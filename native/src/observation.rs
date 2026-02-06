@@ -566,10 +566,10 @@ impl Observation {
             arr[[player_idx, 8, 0]] = toitoi.to_f32();
             arr[[player_idx, 8, 1]] = toitoi.to_f32();
 
-            // Yaku 9: Chiitoitsu (only possible with tsumo, no ron)
+            // Yaku 9: Chiitoitsu
             let chiitoitsu = yaku_checker::check_chiitoitsu(melds);
             arr[[player_idx, 9, 0]] = chiitoitsu.to_f32();
-            arr[[player_idx, 9, 1]] = 0.0; // Chiitoitsu cannot win by ron in most rules
+            arr[[player_idx, 9, 1]] = chiitoitsu.to_f32();
 
             // Yaku 10: Shousangen
             let shousangen = yaku_checker::check_shousangen(melds, discards, &self.dora_indicators);
