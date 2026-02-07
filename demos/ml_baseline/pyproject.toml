@@ -1,13 +1,15 @@
 [project]
-name = "ml-baseline"
+name = "riichienv-ml"
 version = "0.1.0"
-description = "Add your description here"
+description = "Mahjong RL training pipeline: GRP reward shaping, offline CQL, and online AWAC+CQL"
 readme = "README.md"
 requires-python = "==3.13.5"
 dependencies = [
     "dotenv>=0.9.9",
     "numpy>=2.4.1",
     "polars>=1.37.1",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
     "torch>=2.9.1",
     "tqdm>=4.67.1",
     "wandb>=0.24.0",
@@ -17,6 +19,13 @@ dependencies = [
     "torchrl>=0.3.0",
     "tensordict>=0.3.0",
 ]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.uv.sources]
 riichienv = { path = "../../", editable = true }

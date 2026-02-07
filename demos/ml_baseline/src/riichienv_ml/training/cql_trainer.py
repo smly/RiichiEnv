@@ -1,4 +1,6 @@
-import argparse
+"""
+Offline CQL Trainer.
+"""
 import glob
 
 import torch
@@ -8,30 +10,10 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 import wandb
-from dotenv import load_dotenv
-load_dotenv()
 
-from cql_dataset import MCDataset
-from cql_model import QNetwork
-from grp_model import RewardPredictor
-from utils import AverageMeter
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data_glob", type=str, required=True, help="Glob path for training data (.xz)")
-    parser.add_argument("--grp_model", type=str, default="./grp_model.pth", help="Path to reward model")
-    parser.add_argument("--output", type=str, default="cql_model.pth", help="Output model path")
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--alpha", type=float, default=1.0, help="CQL Scale")
-    parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--num_epochs", type=int, default=10)
-    parser.add_argument("--num_workers", type=int, default=12)
-    parser.add_argument("--limit", type=int, default=3e6)
-
-    args = parser.parse_args()
-    return args
+from riichienv_ml.config import import_class
+from riichienv_ml.models.grp_model import RewardPredictor
+from riichienv_ml.utils import AverageMeter
 
 
 def cql_loss(q_values: torch.Tensor, current_actions: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
@@ -42,7 +24,6 @@ def cql_loss(q_values: torch.Tensor, current_actions: torch.Tensor, masks: torch
     # current_actions: (B) index
 
     # 1. Q(s, a_data)
-    # actions is (B), unsqueeze to (B,1), gather, squeeze -> (B)
     q_data = q_values.gather(1, current_actions.unsqueeze(1)).squeeze(1)
 
     # 2. logsumexp(Q(s, .))
@@ -59,7 +40,7 @@ class Trainer:
     def __init__(
         self,
         grp_model_path: str,
-        pts_weight: list[float],
+        pts_weight: list,
         data_glob: str,
         device_str: str = "cuda",
         gamma: float = 0.99,
@@ -69,6 +50,11 @@ class Trainer:
         limit: int = 1e6,
         num_epochs: int = 10,
         num_workers: int = 8,
+        wandb_entity: str = "smly",
+        wandb_project: str = "riichienv-offline",
+        model_config: dict | None = None,
+        model_class: str = "riichienv_ml.models.cql_model.QNetwork",
+        dataset_class: str = "riichienv_ml.data.cql_dataset.MCDataset",
     ):
         self.grp_model_path = grp_model_path
         self.pts_weight = pts_weight
@@ -79,9 +65,14 @@ class Trainer:
         self.batch_size = batch_size
         self.lr = lr
         self.alpha = alpha
-        self.limit = limit
+        self.limit = int(limit)
         self.num_epochs = num_epochs
         self.num_workers = num_workers
+        self.wandb_entity = wandb_entity
+        self.wandb_project = wandb_project
+        self.model_config = model_config or {}
+        self.model_class = model_class
+        self.dataset_class = dataset_class
 
     def train(self, output_path: str) -> None:
         # Initialize Reward Predictor
@@ -91,27 +82,35 @@ class Trainer:
         data_files = glob.glob(self.data_glob)
         assert data_files, f"No data found at {self.data_glob}"
 
-        print(f"Found {len(data_files)} data files.")    
-        dataset = MCDataset(data_files, reward_predictor, gamma=self.gamma)        
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, num_workers=self.num_workers)
+        print(f"Found {len(data_files)} data files.")
 
-        # Model
-        model = QNetwork(in_channels=46, num_actions=82).to(self.device)
+        DatasetClass = import_class(self.dataset_class)
+        dataset = DatasetClass(data_files, reward_predictor, gamma=self.gamma)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+        )
+
+        ModelClass = import_class(self.model_class)
+        model = ModelClass(**self.model_config).to(self.device)
+
         optimizer = optim.Adam(model.parameters(), lr=self.lr)
         scheduler = CosineAnnealingLR(optimizer, T_max=self.limit, eta_min=1e-7)
         mse_criterion = nn.MSELoss()
         model.train()
-        
+
         step = 0
         run = wandb.init(
-            entity="smly",
-            project="riichienv-mc-cql",
+            entity=self.wandb_entity,
+            project=self.wandb_project,
             config={
                 "learning_rate": self.lr,
                 "batch_size": self.batch_size,
                 "gamma": self.gamma,
                 "alpha": self.alpha,
                 "dataset": self.data_glob,
+                **self.model_config,
             },
         )
 
@@ -123,30 +122,32 @@ class Trainer:
             for i, batch in enumerate(dataloader):
                 # (feat, act, return, mask)
                 features, actions, targets, masks = batch
-                # targets is G_t
 
                 features = features.to(self.device)
+
                 actions = actions.long().to(self.device)
                 targets = targets.float().to(self.device)
                 masks = masks.float().to(self.device)
-                
+
                 optimizer.zero_grad()
-                
+
                 # 1. Compute Q(s, a)
                 q_values = model(features)
-                
+
                 # 2. CQL Loss
                 cql_term, q_data = cql_loss(q_values, actions, masks)
-                
+
                 # 3. Bellman Error
-                # Regression to G_t
-                # targets is (B, 1), q_data is (B). Squeeze targets.
-                mse_term = mse_criterion(q_data, targets.squeeze(-1))
+                if targets.dim() > 1:
+                    targets = targets.squeeze(-1)
+                mse_term = mse_criterion(q_data, targets)
 
                 # Total Loss
                 loss = mse_term + self.alpha * cql_term
-                
+
                 loss.backward()
+                # Gradient clipping to prevent explosion
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
                 optimizer.step()
 
                 loss_meter.update(loss.item())
@@ -177,27 +178,3 @@ class Trainer:
                 break
 
         run.finish()
-
-
-def train(args: argparse.Namespace):
-    device_str = "cuda"
-    pts_weight = [10.0, 4.0, -4.0, -10.0]
-
-    trainer = Trainer(
-        args.grp_model,
-        pts_weight,
-        args.data_glob,
-        device_str=device_str,
-        batch_size=args.batch_size,
-        lr=args.lr,
-        alpha=args.alpha,
-        gamma=args.gamma,
-        limit=args.limit,
-        num_epochs=args.num_epochs,
-        num_workers=args.num_workers,
-    )
-    trainer.train(args.output)
-
-
-if __name__ == "__main__":
-    train(parse_args())
