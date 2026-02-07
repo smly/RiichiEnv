@@ -24,14 +24,18 @@ class TestRiichiSequenceHandling:
 
     def test_riichi_stage_disables_ankan(self) -> None:
         """
-        Test that when riichi_stage is True, ankan is NOT allowed
-        (unless it doesn't change waits - but for simplicity, we test the basic case).
+        Test that when riichi_stage is True (reach declared, awaiting discard),
+        ankan is NOT available.
+
+        riichi_stage is the intermediate state between declaring reach and choosing
+        the discard tile. At this point only discard actions are offered.
+        The Tenhou "wait-unchanged" ankan rule applies later, after riichi_accepted.
 
         Hand: 333346m 23477p 345s (tenpai, waiting for 5m)
         With 3m as drawn tile (4 tiles of 3m in hand).
 
         Before riichi: can_ankan = True (4 tiles of 3m)
-        After riichi_stage = True: can_ankan = False (or only if wait unchanged)
+        After riichi_stage = True: can_ankan = False
         """
         # Tile IDs for 333346m 23477p 345s
         # 3m = tile_id 8,9,10,11 (0-indexed: 3m is index 2, so 2*4=8, 2*4+1=9, 2*4+2=10, 2*4+3=11)
@@ -99,12 +103,13 @@ class TestRiichiSequenceHandling:
         obs = obs_dict[3]
         legals_after_reach = obs.legal_actions()
 
-        # After riichi declaration (riichi_stage=True), ankan should NOT be available
-        # because the wait-change check applies (same as riichi_declared)
-        # In this case, ankan of 3m would NOT change the wait (still waiting for 5m)
-        # But the point is: the code should check riichi_stage, not just riichi_declared
+        # During riichi_stage (reach declared, awaiting discard), ankan is not offered.
+        # Only discard actions are available at this point.
+        ankan_after_reach = [a for a in legals_after_reach if a.action_type == ActionType.Ankan]
+        assert len(ankan_after_reach) == 0, (
+            "Ankan should NOT be available during riichi_stage"
+        )
 
-        # The key test is: when riichi_stage=True, the riichi path logic is used
         discard_actions = [a for a in legals_after_reach if a.action_type == ActionType.Discard]
         assert len(discard_actions) > 0, "Should be able to discard after reach"
 
