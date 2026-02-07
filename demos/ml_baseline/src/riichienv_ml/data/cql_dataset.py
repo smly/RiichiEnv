@@ -75,6 +75,11 @@ class MCDataset(BaseDataset):
         if self.is_train:
             random.shuffle(files)
 
+        # Shard files across DataLoader workers to avoid duplicated work
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            files = files[worker_info.id::worker_info.num_workers]
+
         for file_path in files:
             with lzma.open(file_path, "rb") as f:
                 paifu = MjsoulPaifuParser.to_dict(f.read())
