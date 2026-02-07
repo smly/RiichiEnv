@@ -77,10 +77,11 @@ def run_training(cfg):
         cfg: OnlineConfig pydantic model.
     """
     python_path = ":".join(sys.path)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # Point to src/ so Ray ships the entire riichienv_ml package to workers
+    src_dir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
     runtime_env = {
-        "working_dir": current_dir,
+        "working_dir": src_dir,
         "excludes": [".git", ".venv", "wandb", "__pycache__", "pyproject.toml", "uv.lock"],
         "env_vars": {
             "PYTHONPATH": python_path,

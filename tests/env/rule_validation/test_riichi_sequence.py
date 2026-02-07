@@ -106,9 +106,7 @@ class TestRiichiSequenceHandling:
         # During riichi_stage (reach declared, awaiting discard), ankan is not offered.
         # Only discard actions are available at this point.
         ankan_after_reach = [a for a in legals_after_reach if a.action_type == ActionType.Ankan]
-        assert len(ankan_after_reach) == 0, (
-            "Ankan should NOT be available during riichi_stage"
-        )
+        assert len(ankan_after_reach) == 0, "Ankan should NOT be available during riichi_stage"
 
         discard_actions = [a for a in legals_after_reach if a.action_type == ActionType.Discard]
         assert len(discard_actions) > 0, "Should be able to discard after reach"
