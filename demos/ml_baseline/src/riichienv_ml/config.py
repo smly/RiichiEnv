@@ -86,6 +86,7 @@ class OnlineConfig(BaseModel):
     wandb_project: str = "riichienv-online"
     model: ModelConfig = ModelConfig()
     model_class: str = "riichienv_ml.models.cql_model.QNetwork"
+    encoder_class: str = "riichienv_ml.data.cql_dataset.ObservationEncoder"
 
 
 class Config(BaseModel):

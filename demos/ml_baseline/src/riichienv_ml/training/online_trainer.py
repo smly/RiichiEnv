@@ -10,13 +10,13 @@ import numpy as np
 import torch
 from riichienv import RiichiEnv
 
+from riichienv_ml.config import import_class
 from riichienv_ml.training.ray_actor import MahjongWorker
 from riichienv_ml.training.learner import MahjongLearner
 from riichienv_ml.training.buffer import GlobalReplayBuffer
-from riichienv_ml.data.cql_dataset import ObservationEncoder
 
 
-def evaluate_vs_baseline(hero_model, baseline_model, device, num_episodes=30):
+def evaluate_vs_baseline(hero_model, baseline_model, device, encoder, num_episodes=30):
     """
     Evaluates Hero Model (Player 0) vs Baseline Model (Players 1-3).
     Both use greedy argmax Q-value action selection.
@@ -36,7 +36,7 @@ def evaluate_vs_baseline(hero_model, baseline_model, device, num_episodes=30):
             for pid, obs in obs_dict.items():
                 model = hero_model if pid == 0 else baseline_model
 
-                feat = ObservationEncoder.encode(obs)
+                feat = encoder.encode(obs)
                 mask = np.frombuffer(obs.mask(), dtype=np.uint8).copy()
 
                 feat_t = feat.to(device).unsqueeze(0)
@@ -91,6 +91,7 @@ def run_training(cfg):
     ray.init(runtime_env=runtime_env, ignore_reinit_error=True)
 
     model_config = cfg.model.model_dump()
+    encoder = import_class(cfg.encoder_class)
 
     learner = MahjongLearner(
         device=cfg.device,
@@ -125,6 +126,7 @@ def run_training(cfg):
         boltzmann_temp=cfg.boltzmann_temp_start,
         top_p=cfg.top_p,
         model_config=model_config, model_class=cfg.model_class,
+        encoder_class=cfg.encoder_class,
     )
     if cfg.worker_device == "cuda":
         workers = [
@@ -157,7 +159,7 @@ def run_training(cfg):
     if baseline_learner is not None:
         print("Running dry-run evaluation (30 episodes)...")
         try:
-            evaluate_vs_baseline(learner.model, baseline_learner.model, cfg.device, num_episodes=30)
+            evaluate_vs_baseline(learner.model, baseline_learner.model, cfg.device, encoder, num_episodes=30)
             print("Dry-run evaluation passed.")
         except Exception as e:
             print(f"Dry-run evaluation failed: {e}")
@@ -177,7 +179,7 @@ def run_training(cfg):
                 if baseline_learner is not None:
                     try:
                         eval_reward, eval_rank = evaluate_vs_baseline(
-                            learner.model, baseline_learner.model, cfg.device, num_episodes=30
+                            learner.model, baseline_learner.model, cfg.device, encoder, num_episodes=30
                         )
                         print(f"Evaluation (vs Baseline): Reward={eval_reward:.2f}, Rank={eval_rank:.2f}")
                         wandb.log({
@@ -222,14 +224,17 @@ def run_training(cfg):
                     break
 
                 weight_ref = ray.put(weights)
-                workers[worker_idx].update_weights.remote(weight_ref)
-
                 if cfg.exploration == "boltzmann":
                     temp = cfg.boltzmann_temp_start + progress * (cfg.boltzmann_temp_final - cfg.boltzmann_temp_start)
-                    workers[worker_idx].set_boltzmann_temp.remote(temp)
                 else:
                     epsilon = cfg.epsilon_start + progress * (cfg.epsilon_final - cfg.epsilon_start)
-                    workers[worker_idx].set_epsilon.remote(epsilon)
+
+                for w in workers:
+                    w.update_weights.remote(weight_ref)
+                    if cfg.exploration == "boltzmann":
+                        w.set_boltzmann_temp.remote(temp)
+                    else:
+                        w.set_epsilon.remote(epsilon)
 
             new_future = workers[worker_idx].collect_episode.remote()
             future_to_worker[new_future] = worker_idx
@@ -238,7 +243,6 @@ def run_training(cfg):
 
     except KeyboardInterrupt:
         print("Stopping...")
-        ray.shutdown()
 
     # Final Snapshot and Evaluation
     print(f"Final Step {step}: Saving snapshot and Evaluating...")
@@ -251,7 +255,7 @@ def run_training(cfg):
     if baseline_learner is not None:
         try:
             eval_reward, eval_rank = evaluate_vs_baseline(
-                learner.model, baseline_learner.model, cfg.device, num_episodes=30
+                learner.model, baseline_learner.model, cfg.device, encoder, num_episodes=30
             )
             print(f"Final Evaluation (vs Baseline): Reward={eval_reward:.2f}, Rank={eval_rank:.2f}")
             wandb.log({

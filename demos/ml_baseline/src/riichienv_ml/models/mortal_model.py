@@ -1,6 +1,5 @@
 import traceback
 from functools import partial
-from itertools import permutations
 from typing import Optional, Tuple, Union
 
 import numpy as np
@@ -199,6 +198,8 @@ class DQN(nn.Module):
             case 4:
                 self.net = nn.Linear(1024, 1 + ACTION_SPACE)
                 nn.init.constant_(self.net.bias, 0)
+            case _:
+                raise ValueError(f"Unsupported DQN version {version}")
 
     def forward(self, phi, mask):
         v, a = self.net(phi).split((1, ACTION_SPACE), dim=-1)

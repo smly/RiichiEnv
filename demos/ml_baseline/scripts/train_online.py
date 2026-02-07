@@ -39,6 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--worker_device", type=str, default=None, choices=["cpu", "cuda"])
     parser.add_argument("--gpu_per_worker", type=float, default=None)
     parser.add_argument("--checkpoint_dir", type=str, default=None, help="Directory to save checkpoints")
+    parser.add_argument("--encoder_class", type=str, default=None, help="Encoder class dotted path")
     # Model architecture overrides
     parser.add_argument("--num_blocks", type=int, default=None, help="Number of residual blocks")
     parser.add_argument("--conv_channels", type=int, default=None, help="Conv hidden channels")
@@ -58,7 +59,7 @@ def main():
                   "boltzmann_epsilon", "boltzmann_temp_start", "boltzmann_temp_final", "top_p",
                   "capacity",
                   "eval_interval", "weight_sync_freq", "worker_device", "gpu_per_worker",
-                  "checkpoint_dir"]:
+                  "checkpoint_dir", "encoder_class"]:
         val = getattr(args, field, None)
         if val is not None:
             overrides[field] = val

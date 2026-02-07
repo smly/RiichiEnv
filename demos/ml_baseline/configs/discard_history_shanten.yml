@@ -39,6 +39,7 @@ online:
   load_model: /data/workspace/riichienv/discard_history_shanten/cql_model.pth
   device: cuda
   model_class: riichienv_ml.models.cql_model.QNetwork
+  encoder_class: riichienv_ml.data.cql_dataset.DiscardHistoryShantenEncoder
   num_workers: 12
   num_steps: 5000000
   batch_size: 128

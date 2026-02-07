@@ -14,7 +14,7 @@ class GrpFeatureEncoder:
     def __init__(self, kyoku):
         self.kyoku = kyoku
 
-    def encode(self) -> list[int]:
+    def encode(self) -> dict:
         feat = self.kyoku.take_grp_features()
         row = {
             "p0_init_score": feat["round_initial_scores"][0],

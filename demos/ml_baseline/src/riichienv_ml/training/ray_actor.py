@@ -4,7 +4,6 @@ import numpy as np
 from riichienv import RiichiEnv
 
 from riichienv_ml.config import import_class
-from riichienv_ml.data.cql_dataset import ObservationEncoder
 
 
 def sample_top_p(logits, p):
@@ -35,7 +34,8 @@ class MahjongWorker:
                  boltzmann_temp: float = 1.0,
                  top_p: float = 0.9,
                  model_config: dict | None = None,
-                 model_class: str = "riichienv_ml.models.cql_model.QNetwork"):
+                 model_class: str = "riichienv_ml.models.cql_model.QNetwork",
+                 encoder_class: str = "riichienv_ml.data.cql_dataset.ObservationEncoder"):
         torch.set_num_threads(1)
         self.worker_id = worker_id
         self.device = torch.device(device)
@@ -51,6 +51,7 @@ class MahjongWorker:
         ModelClass = import_class(model_class)
         self.model = ModelClass(**mc).to(self.device)
         self.model.eval()
+        self.encoder = import_class(encoder_class)
 
     def update_weights(self, state_dict):
         """Syncs weights from the Learner."""
@@ -66,7 +67,7 @@ class MahjongWorker:
 
     def _encode_obs(self, obs):
         """Encodes Rust observation."""
-        feat = ObservationEncoder.encode(obs)
+        feat = self.encoder.encode(obs)
         mask = np.frombuffer(obs.mask(), dtype=np.uint8).copy()
 
         feat_tensor = feat.to(self.device)

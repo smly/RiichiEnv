@@ -1,7 +1,7 @@
 [project]
 name = "riichienv-ml"
 version = "0.1.0"
-description = "Mahjong RL training pipeline: GRP reward shaping, offline CQL, and online AWAC+CQL"
+description = "Mahjong RL training pipeline: GRP reward shaping, offline CQL, and online DQN+CQL"
 readme = "README.md"
 requires-python = "==3.13.5"
 dependencies = [

@@ -47,7 +47,7 @@ class Trainer:
         batch_size: int = 32,
         lr: float = 1e-4,
         alpha: float = 1.0,
-        limit: int = 1e6,
+        limit: int = 1000000,
         num_epochs: int = 10,
         num_workers: int = 8,
         wandb_entity: str = "smly",
