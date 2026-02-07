@@ -14,9 +14,7 @@ The issue was that RiichiEnv's legal_actions was computed before the riichi_stag
 was set, causing a mismatch with Mortal's internal state.
 """
 
-import json
-
-from riichienv import Action, ActionType, Phase, RiichiEnv
+from riichienv import ActionType, Phase
 
 from ..helper import helper_setup_env
 
@@ -100,8 +98,6 @@ class TestRiichiSequenceHandling:
         obs_dict = env.get_observations()
         obs = obs_dict[3]
         legals_after_reach = obs.legal_actions()
-
-        ankan_after_reach = [a for a in legals_after_reach if a.action_type == ActionType.Ankan]
 
         # After riichi declaration (riichi_stage=True), ankan should NOT be available
         # because the wait-change check applies (same as riichi_declared)
@@ -257,8 +253,6 @@ class TestRiichiSequenceHandling:
         # Check consistency with expected Mortal state after reach
         can_discard = any(a.action_type == ActionType.Discard for a in legals)
         can_riichi = any(a.action_type == ActionType.Riichi for a in legals)
-        can_ankan = any(a.action_type == ActionType.Ankan for a in legals)
-        can_kakan = any(a.action_type == ActionType.Kakan for a in legals)
 
         assert can_discard is True, "Should be able to discard during riichi_stage"
         assert can_riichi is False, "Should NOT be able to riichi when already in riichi_stage"
