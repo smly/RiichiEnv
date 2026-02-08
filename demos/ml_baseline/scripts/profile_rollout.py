@@ -107,9 +107,7 @@ def profile_episode(
 
             # B. Encode
             t_enc0 = time.perf_counter()
-            feat_bytes = obs.encode()
-            feat_numpy = np.frombuffer(feat_bytes, dtype=np.float32).reshape(74, 34).copy()
-            feat_tensor = torch.from_numpy(feat_numpy)
+            feat_tensor = encoder.encode(obs)
             mask = np.frombuffer(obs.mask(), dtype=np.uint8).copy()
             mask_tensor = torch.from_numpy(mask)
             t_enc1 = time.perf_counter()
@@ -232,9 +230,7 @@ def profile_batched_episodes(
         feat_list = []
         mask_list = []
         for ei, pid, obs, la in batch_items:
-            feat_bytes = obs.encode()
-            feat_numpy = np.frombuffer(feat_bytes, dtype=np.float32).reshape(74, 34).copy()
-            feat_list.append(torch.from_numpy(feat_numpy))
+            feat_list.append(encoder.encode(obs))
             m = np.frombuffer(obs.mask(), dtype=np.uint8).copy()
             mask_list.append(torch.from_numpy(m))
         t_enc1 = time.perf_counter()
