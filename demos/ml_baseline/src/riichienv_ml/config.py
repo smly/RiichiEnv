@@ -98,6 +98,9 @@ class OnlineConfig(BaseModel):
     model: ModelConfig = ModelConfig()
     model_class: str = "riichienv_ml.models.cql_model.QNetwork"
     encoder_class: str = "riichienv_ml.data.cql_dataset.ObservationEncoder"
+    # GRP reward shaping (per-kyoku reward)
+    grp_model: str | None = None
+    pts_weight: list[float] = [10.0, 4.0, -4.0, -10.0]
 
 
 class Config(BaseModel):

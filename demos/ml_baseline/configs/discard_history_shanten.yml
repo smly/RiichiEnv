@@ -52,6 +52,9 @@ online:
   boltzmann_temp_final: 0.05
   top_p: 1.0
   capacity: 1000000
+  # GRP reward shaping (per-kyoku reward)
+  grp_model: /data/workspace/riichienv/baseline/grp_model.pth
+  pts_weight: [10.0, 4.0, -4.0, -10.0]
   eval_interval: 10000
   weight_sync_freq: 10
   worker_device: cuda

@@ -51,6 +51,9 @@ online:
   gae_lambda: 0.95
   entropy_coef: 0.001
   value_coef: 0.5
+  # GRP reward shaping (per-kyoku reward)
+  grp_model: /data/workspace/riichienv/baseline/grp_model.pth
+  pts_weight: [10.0, 4.0, -4.0, -10.0]
   # Common
   eval_interval: 10
   worker_device: cuda

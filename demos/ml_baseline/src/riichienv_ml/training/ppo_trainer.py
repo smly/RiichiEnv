@@ -150,6 +150,8 @@ def run_ppo_training(cfg):
         model_config=model_config,
         model_class=cfg.model_class,
         encoder_class=cfg.encoder_class,
+        grp_model=cfg.grp_model,
+        pts_weight=cfg.pts_weight,
     )
     if cfg.worker_device == "cuda":
         workers = [
@@ -246,6 +248,12 @@ def run_ppo_training(cfg):
                     f", rew={metrics.get('rollout/reward_mean', 0):.2f}, "
                     f"rank={metrics.get('rollout/rank_mean', 0):.2f}"
                 )
+                if "rollout/kyoku_reward_mean" in metrics:
+                    log_msg += (
+                        f", k_rew={metrics['rollout/kyoku_reward_mean']:.3f}"
+                        f"\u00b1{metrics.get('rollout/kyoku_reward_std', 0):.3f}"
+                        f", k_len={metrics.get('rollout/kyoku_length_mean', 0):.1f}"
+                    )
             logger.info(log_msg)
             wandb.log(metrics, step=step)
 
