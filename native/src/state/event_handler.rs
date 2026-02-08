@@ -1,7 +1,12 @@
 use crate::action::Phase;
+use crate::parser::mjai_to_tid;
 use crate::replay::{Action as LogAction, MjaiEvent};
 use crate::state::GameState;
 use crate::types::{Meld, MeldType, Wind};
+
+fn parse_mjai_tile(s: &str) -> u8 {
+    mjai_to_tid(s).unwrap_or(0)
+}
 
 pub trait GameStateEventHandler {
     fn apply_mjai_event(&mut self, event: MjaiEvent);
@@ -35,14 +40,13 @@ impl GameStateEventHandler for GameState {
                     _ => Wind::East as u8,
                 };
                 self.oya = oya;
-                self.wall.dora_indicators =
-                    vec![crate::replay::TileConverter::parse_tile_136(&dora_marker)];
+                self.wall.dora_indicators = vec![parse_mjai_tile(&dora_marker)];
 
                 // Set hands
                 for (i, hand_strs) in tehais.iter().enumerate() {
                     let mut hand = Vec::new();
                     for tile_str in hand_strs {
-                        hand.push(crate::replay::TileConverter::parse_tile_136(tile_str));
+                        hand.push(parse_mjai_tile(tile_str));
                     }
                     hand.sort();
                     self.players[i].hand = hand;
@@ -61,7 +65,7 @@ impl GameStateEventHandler for GameState {
                 self.is_done = false;
             }
             MjaiEvent::Tsumo { actor, pai } => {
-                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                let tile = parse_mjai_tile(&pai);
                 self.current_player = actor as u8;
                 self.drawn_tile = Some(tile);
                 self.players[actor].hand.push(tile);
@@ -72,7 +76,7 @@ impl GameStateEventHandler for GameState {
                 self.needs_tsumo = false;
             }
             MjaiEvent::Dahai { actor, pai, .. } => {
-                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                let tile = parse_mjai_tile(&pai);
                 self.current_player = actor as u8;
                 if let Some(idx) = self.players[actor].hand.iter().position(|&t| t == tile) {
                     self.players[actor].hand.remove(idx);
@@ -92,10 +96,10 @@ impl GameStateEventHandler for GameState {
                 consumed,
                 ..
             } => {
-                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                let tile = parse_mjai_tile(&pai);
                 self.current_player = actor as u8;
-                let c1 = crate::replay::TileConverter::parse_tile_136(&consumed[0]);
-                let c2 = crate::replay::TileConverter::parse_tile_136(&consumed[1]);
+                let c1 = parse_mjai_tile(&consumed[0]);
+                let c2 = parse_mjai_tile(&consumed[1]);
                 let form_tiles = vec![tile, c1, c2];
 
                 for t in &[c1, c2] {
@@ -119,10 +123,10 @@ impl GameStateEventHandler for GameState {
                 consumed,
                 ..
             } => {
-                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                let tile = parse_mjai_tile(&pai);
                 self.current_player = actor as u8;
-                let c1 = crate::replay::TileConverter::parse_tile_136(&consumed[0]);
-                let c2 = crate::replay::TileConverter::parse_tile_136(&consumed[1]);
+                let c1 = parse_mjai_tile(&consumed[0]);
+                let c2 = parse_mjai_tile(&consumed[1]);
                 let form_tiles = vec![tile, c1, c2];
 
                 for t in &[c1, c2] {
@@ -146,15 +150,15 @@ impl GameStateEventHandler for GameState {
                 consumed,
                 ..
             } => {
-                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                let tile = parse_mjai_tile(&pai);
                 self.current_player = actor as u8;
                 let mut tiles = vec![tile];
                 for c in &consumed {
-                    tiles.push(crate::replay::TileConverter::parse_tile_136(c));
+                    tiles.push(parse_mjai_tile(c));
                 }
 
                 for c in &consumed {
-                    let tv = crate::replay::TileConverter::parse_tile_136(c);
+                    let tv = parse_mjai_tile(c);
                     if let Some(idx) = self.players[actor].hand.iter().position(|&x| x == tv) {
                         self.players[actor].hand.remove(idx);
                     }
@@ -171,7 +175,7 @@ impl GameStateEventHandler for GameState {
             MjaiEvent::Ankan { actor, consumed } => {
                 let mut tiles = Vec::new();
                 for c in &consumed {
-                    let t = crate::replay::TileConverter::parse_tile_136(c);
+                    let t = parse_mjai_tile(c);
                     tiles.push(t);
                     if let Some(idx) = self.players[actor].hand.iter().position(|&x| x == t) {
                         self.players[actor].hand.remove(idx);
@@ -186,7 +190,7 @@ impl GameStateEventHandler for GameState {
                 self.needs_tsumo = true;
             }
             MjaiEvent::Kakan { actor, pai } => {
-                let tile = crate::replay::TileConverter::parse_tile_136(&pai);
+                let tile = parse_mjai_tile(&pai);
                 if let Some(idx) = self.players[actor].hand.iter().position(|&x| x == tile) {
                     self.players[actor].hand.remove(idx);
                 }
@@ -208,7 +212,7 @@ impl GameStateEventHandler for GameState {
                 self.players[actor].score -= 1000;
             }
             MjaiEvent::Dora { dora_marker } => {
-                let tile = crate::replay::TileConverter::parse_tile_136(&dora_marker);
+                let tile = parse_mjai_tile(&dora_marker);
                 self.wall.dora_indicators.push(tile);
             }
             MjaiEvent::Hora { .. } | MjaiEvent::Ryukyoku { .. } | MjaiEvent::EndKyoku => {

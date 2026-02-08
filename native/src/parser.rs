@@ -435,7 +435,6 @@ pub fn tid_to_mjai(tid: u8) -> String {
     }
 }
 
-#[allow(dead_code)]
 pub fn mjai_to_tid(mjai: &str) -> Option<u8> {
     // Honors
     let honors = ["E", "S", "W", "N", "P", "F", "C"];
