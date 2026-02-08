@@ -18,6 +18,7 @@ dependencies = [
     "ray[default]>=2.9.0",
     "torchrl>=0.3.0",
     "tensordict>=0.3.0",
+    "loguru>=0.7.3",
 ]
 
 [build-system]

@@ -126,8 +126,11 @@ def run_training(cfg):
         boltzmann_epsilon=cfg.boltzmann_epsilon,
         boltzmann_temp=cfg.boltzmann_temp_start,
         top_p=cfg.top_p,
+        num_envs=cfg.num_envs_per_worker,
         model_config=model_config, model_class=cfg.model_class,
         encoder_class=cfg.encoder_class,
+        grp_model=cfg.grp_model,
+        pts_weight=cfg.pts_weight,
     )
     if cfg.worker_device == "cuda":
         workers = [
@@ -149,7 +152,7 @@ def run_training(cfg):
     for w in workers:
         w.update_weights.remote(weight_ref)
 
-    future_to_worker = {w.collect_episode.remote(): i for i, w in enumerate(workers)}
+    future_to_worker = {w.collect_episodes.remote(): i for i, w in enumerate(workers)}
 
     step = 0  # counts gradient updates
     episodes = 0
@@ -170,15 +173,19 @@ def run_training(cfg):
             print(f"Dry-run evaluation failed: {e}")
             raise e
 
+    worker_stats_agg = []  # accumulate worker stats between log intervals
+
     try:
         while step < cfg.num_steps:
             ready_ids, _ = ray.wait(list(future_to_worker.keys()), num_returns=1)
             future = ready_ids[0]
             worker_idx = future_to_worker.pop(future)
 
-            transitions = ray.get(future)
+            transitions, worker_stats = ray.get(future)
             buffer.add(transitions)
-            episodes += 1
+            episodes += cfg.num_envs_per_worker
+            if worker_stats:
+                worker_stats_agg.append(worker_stats)
 
             # Train - Multiple gradient steps per episode for better data efficiency.
             if len(buffer) > cfg.batch_size:
@@ -217,7 +224,29 @@ def run_training(cfg):
                     # Logging
                     if step - last_log_step >= 200:
                         last_log_step = step
-                        print(f"Step {step}: {metrics}, ep={episodes}, buf={len(buffer)}, trans={len(transitions)}")
+                        # Aggregate worker stats
+                        log_msg = (
+                            f"Step {step}: loss={metrics['loss']:.4f}, "
+                            f"cql={metrics['cql']:.4f}, mse={metrics['mse']:.4f}, "
+                            f"q_mean={metrics['q_mean']:.4f}, "
+                            f"ep={episodes}, buf={len(buffer)}, trans={len(transitions)}"
+                        )
+                        if worker_stats_agg:
+                            for key in worker_stats_agg[0]:
+                                vals = [s[key] for s in worker_stats_agg if key in s]
+                                metrics[f"rollout/{key}"] = float(np.mean(vals))
+                            log_msg += (
+                                f", rew={metrics.get('rollout/reward_mean', 0):.2f}"
+                                f", rank={metrics.get('rollout/rank_mean', 0):.2f}"
+                            )
+                            if "rollout/kyoku_reward_mean" in metrics:
+                                log_msg += (
+                                    f", k_rew={metrics['rollout/kyoku_reward_mean']:.3f}"
+                                    f"\u00b1{metrics.get('rollout/kyoku_reward_std', 0):.3f}"
+                                    f", k_len={metrics.get('rollout/kyoku_length_mean', 0):.1f}"
+                                )
+                            worker_stats_agg = []
+                        print(log_msg)
                         wandb.log(metrics, step=step)
 
             # Exploration scheduling
@@ -251,7 +280,7 @@ def run_training(cfg):
                     else:
                         w.set_epsilon.remote(epsilon)
 
-            new_future = workers[worker_idx].collect_episode.remote()
+            new_future = workers[worker_idx].collect_episodes.remote()
             future_to_worker[new_future] = worker_idx
 
     except KeyboardInterrupt:

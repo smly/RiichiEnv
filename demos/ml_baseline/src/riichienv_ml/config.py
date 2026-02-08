@@ -31,8 +31,8 @@ class GrpConfig(BaseModel):
 
 class ModelConfig(BaseModel):
     in_channels: int = 74
-    num_blocks: int = 3
-    conv_channels: int = 64
+    num_blocks: int = 8
+    conv_channels: int = 128
     fc_dim: int = 256
     num_actions: int = 82
 
@@ -58,15 +58,18 @@ class CqlConfig(BaseModel):
 
 
 class OnlineConfig(BaseModel):
+    # Algorithm: "dqn" (DQN + CQL) or "ppo" (Actor-Critic + PPO)
+    algorithm: Literal["dqn", "ppo"] = "dqn"
     load_model: str | None = None
     device: str = "cuda"
     num_workers: int = 12
     num_steps: int = 5000000
     batch_size: int = 128
     lr: float = 1e-4
+    # DQN-specific params
     alpha_cql_init: float = 1.0
     alpha_cql_final: float = 0.1
-    # Exploration strategy: "epsilon_greedy" or "boltzmann"
+    # Exploration strategy (DQN only): "epsilon_greedy" or "boltzmann"
     exploration: Literal["epsilon_greedy", "boltzmann"] = "boltzmann"
     # epsilon-greedy params
     epsilon_start: float = 0.1
@@ -77,16 +80,27 @@ class OnlineConfig(BaseModel):
     boltzmann_temp_final: float = 0.05
     top_p: float = 1.0
     capacity: int = 1000000
+    # PPO-specific params
+    ppo_clip: float = 0.2
+    ppo_epochs: int = 4
+    gae_lambda: float = 0.95
+    entropy_coef: float = 0.01
+    value_coef: float = 0.5
+    # Common params
     eval_interval: int = 2000
     weight_sync_freq: int = 10
     worker_device: Literal["cpu", "cuda"] = "cpu"
     gpu_per_worker: float = 0.1
+    num_envs_per_worker: int = 16
     gamma: float = 0.99
     checkpoint_dir: str = "checkpoints"
     wandb_project: str = "riichienv-online"
     model: ModelConfig = ModelConfig()
     model_class: str = "riichienv_ml.models.cql_model.QNetwork"
     encoder_class: str = "riichienv_ml.data.cql_dataset.ObservationEncoder"
+    # GRP reward shaping (per-kyoku reward)
+    grp_model: str | None = None
+    pts_weight: list[float] = [10.0, 4.0, -4.0, -10.0]
 
 
 class Config(BaseModel):
