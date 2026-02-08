@@ -30,7 +30,7 @@ pub fn check_tanyao(melds: &[Meld]) -> YakuPossibility {
         for &tile in &meld.tiles {
             let tile_type = (tile / 4) as usize;
             // Check for terminals (0,8,9,17,18,26) or honors (27-33)
-            if tile_type % 9 == 0 || tile_type % 9 == 8 || tile_type >= 27 {
+            if tile_type.is_multiple_of(9) || tile_type % 9 == 8 || tile_type >= 27 {
                 return YakuPossibility::Impossible;
             }
         }
@@ -254,7 +254,7 @@ pub fn check_chinroutou(melds: &[Meld]) -> YakuPossibility {
         for &tile in &meld.tiles {
             let tile_type = (tile / 4) as usize;
             // Must be terminals only (0, 8, 9, 17, 18, 26)
-            if tile_type >= 27 || (!tile_type % 9 == 0 && tile_type % 9 != 8) {
+            if tile_type >= 27 || (!tile_type.is_multiple_of(9) && tile_type % 9 != 8) {
                 return YakuPossibility::Impossible;
             }
         }
@@ -268,7 +268,7 @@ pub fn check_honroutou(melds: &[Meld]) -> YakuPossibility {
         for &tile in &meld.tiles {
             let tile_type = (tile / 4) as usize;
             // Must be terminals (0,8,9,17,18,26) or honors (27+)
-            if tile_type < 27 && !tile_type % 9 == 0 && tile_type % 9 != 8 {
+            if tile_type < 27 && !tile_type.is_multiple_of(9) && tile_type % 9 != 8 {
                 // Simples (2-8) found = impossible
                 return YakuPossibility::Impossible;
             }
@@ -312,7 +312,7 @@ pub fn check_chanta(melds: &[Meld]) -> YakuPossibility {
         for &tile in &meld.tiles {
             let tile_type = (tile / 4) as usize;
             // Check if terminal (0,8,9,17,18,26) or honor (27+)
-            if tile_type % 9 == 0 || tile_type % 9 == 8 || tile_type >= 27 {
+            if tile_type.is_multiple_of(9) || tile_type % 9 == 8 || tile_type >= 27 {
                 has_terminal_or_honor = true;
                 break;
             }
@@ -344,7 +344,7 @@ pub fn check_junchan(melds: &[Meld]) -> YakuPossibility {
                 return YakuPossibility::Impossible;
             }
             // Check if terminal (0,8,9,17,18,26)
-            if tile_type % 9 == 0 || tile_type % 9 == 8 {
+            if tile_type.is_multiple_of(9) || tile_type % 9 == 8 {
                 has_terminal = true;
             }
         }

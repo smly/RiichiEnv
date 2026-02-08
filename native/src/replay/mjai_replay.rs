@@ -6,8 +6,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 
-use crate::replay::{Action, HuleData, LogKyoku, TileConverter};
+use crate::parser::mjai_to_tid;
+use crate::replay::{Action, HuleData, LogKyoku};
 use crate::types::MeldType;
+
+fn parse_mjai_tile(s: &str) -> u8 {
+    mjai_to_tid(s).unwrap_or(0)
+}
 
 #[pyclass]
 pub struct MjaiReplay {
@@ -177,14 +182,11 @@ impl KyokuBuilder {
         let mut hands = vec![Vec::new(); 4];
         for (i, tehai_strs) in tehais.iter().enumerate() {
             if i < 4 {
-                hands[i] = tehai_strs
-                    .iter()
-                    .map(|s| TileConverter::parse_tile_136(s))
-                    .collect();
+                hands[i] = tehai_strs.iter().map(|s| parse_mjai_tile(s)).collect();
             }
         }
 
-        let first_dora = TileConverter::parse_tile_136(&dora_marker);
+        let first_dora = parse_mjai_tile(&dora_marker);
         let end_scores = scores.clone();
 
         KyokuBuilder {
@@ -319,7 +321,7 @@ impl MjaiReplay {
     fn process_event(builder: &mut KyokuBuilder, event: MjaiEvent) {
         match event {
             MjaiEvent::Tsumo { actor, pai } => {
-                let tile = TileConverter::parse_tile_136(&pai);
+                let tile = parse_mjai_tile(&pai);
                 builder.actions.push(Action::DealTile {
                     seat: actor,
                     tile,
@@ -335,7 +337,7 @@ impl MjaiReplay {
                 pai,
                 tsumogiri: _,
             } => {
-                let tile = TileConverter::parse_tile_136(&pai);
+                let tile = parse_mjai_tile(&pai);
                 let is_liqi = builder.liqi_flags[actor];
 
                 let is_wliqi = is_liqi && builder.first_discard[actor] && !builder.has_calls;
@@ -371,9 +373,9 @@ impl MjaiReplay {
                 ..
             } => {
                 builder.has_calls = true;
-                let mut tiles = vec![TileConverter::parse_tile_136(&pai)];
+                let mut tiles = vec![parse_mjai_tile(&pai)];
                 for c in consumed {
-                    tiles.push(TileConverter::parse_tile_136(&c));
+                    tiles.push(parse_mjai_tile(&c));
                 }
                 builder.actions.push(Action::ChiPengGang {
                     seat: actor,
@@ -389,9 +391,9 @@ impl MjaiReplay {
                 ..
             } => {
                 builder.has_calls = true;
-                let mut tiles = vec![TileConverter::parse_tile_136(&pai)];
+                let mut tiles = vec![parse_mjai_tile(&pai)];
                 for c in consumed {
-                    tiles.push(TileConverter::parse_tile_136(&c));
+                    tiles.push(parse_mjai_tile(&c));
                 }
                 builder.actions.push(Action::ChiPengGang {
                     seat: actor,
@@ -408,9 +410,9 @@ impl MjaiReplay {
             } => {
                 builder.has_calls = true;
                 // Daiminkan
-                let mut tiles = vec![TileConverter::parse_tile_136(&pai)];
+                let mut tiles = vec![parse_mjai_tile(&pai)];
                 for c in consumed {
-                    tiles.push(TileConverter::parse_tile_136(&c));
+                    tiles.push(parse_mjai_tile(&c));
                 }
                 builder.actions.push(Action::ChiPengGang {
                     seat: actor,
@@ -421,10 +423,7 @@ impl MjaiReplay {
             }
             MjaiEvent::Ankan { actor, consumed } => {
                 builder.has_calls = true;
-                let tiles: Vec<u8> = consumed
-                    .iter()
-                    .map(|s| TileConverter::parse_tile_136(s))
-                    .collect();
+                let tiles: Vec<u8> = consumed.iter().map(|s| parse_mjai_tile(s)).collect();
                 builder.actions.push(Action::AnGangAddGang {
                     seat: actor,
                     meld_type: MeldType::Angang,
@@ -435,7 +434,7 @@ impl MjaiReplay {
             }
             MjaiEvent::Kakan { actor, pai } => {
                 builder.has_calls = true;
-                let tile = TileConverter::parse_tile_136(&pai);
+                let tile = parse_mjai_tile(&pai);
                 builder.actions.push(Action::AnGangAddGang {
                     seat: actor,
                     meld_type: MeldType::Addgang,
@@ -445,7 +444,7 @@ impl MjaiReplay {
                 });
             }
             MjaiEvent::Dora { dora_marker } => {
-                let marker = TileConverter::parse_tile_136(&dora_marker);
+                let marker = parse_mjai_tile(&dora_marker);
                 builder.doras.push(marker);
                 builder.actions.push(Action::Dora {
                     dora_marker: marker,
@@ -463,7 +462,7 @@ impl MjaiReplay {
                 delta,
             } => {
                 let hu_tile_id = if let Some(p) = pai {
-                    TileConverter::parse_tile_136(&p)
+                    parse_mjai_tile(&p)
                 } else {
                     // Try to infer from last action
                     // If Tsumo (actor == target), last action should be DealTile for actor
@@ -497,10 +496,7 @@ impl MjaiReplay {
                 };
 
                 if let Some(uras) = uradora_markers {
-                    let ud: Vec<u8> = uras
-                        .iter()
-                        .map(|s| TileConverter::parse_tile_136(s))
-                        .collect();
+                    let ud: Vec<u8> = uras.iter().map(|s| parse_mjai_tile(s)).collect();
                     builder.ura_doras = ud.clone();
                     hule_data.li_doras = Some(ud);
                 }

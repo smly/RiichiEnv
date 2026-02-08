@@ -393,6 +393,154 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_apply_mjai_event_honor_and_red_tiles() {
+        use crate::replay::MjaiEvent;
+
+        let mut state =
+            crate::state::GameState::new(4, true, None, 0, crate::rule::GameRule::default());
+
+        // start_kyoku with mjai-format tiles: honors (E, S, W, N, P, F, C) and red fives (5pr, 5sr)
+        let start = MjaiEvent::StartKyoku {
+            bakaze: "E".to_string(),
+            kyoku: 1,
+            honba: 0,
+            kyoutaku: 0,
+            oya: 0,
+            scores: vec![25000, 25000, 25000, 25000],
+            dora_marker: "P".to_string(), // White dragon (tid 124)
+            tehais: vec![
+                // Player 0: E, S, W, N, P, F, C, 1m, 2m, 3m, 4m, 5m, 6m
+                vec![
+                    "E", "S", "W", "N", "P", "F", "C", "1m", "2m", "3m", "4m", "5m", "6m",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+                // Player 1: 1s, 2s, 3s, 4s, 5sr, 6s, 7s, 8s, 9s, 1p, 2p, 3p, 4p
+                vec![
+                    "1s", "2s", "3s", "4s", "5sr", "6s", "7s", "8s", "9s", "1p", "2p", "3p", "4p",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+                // Player 2: 5pr, 1m, 2m, 3m, 4m, 6m, 7m, 8m, 9m, 1p, 2p, 3p, 4p
+                vec![
+                    "5pr", "1m", "2m", "3m", "4m", "6m", "7m", "8m", "9m", "1p", "2p", "3p", "4p",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+                // Player 3: all number tiles
+                vec![
+                    "1s", "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s", "1m", "2m", "3m", "4m",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+            ],
+        };
+        state.apply_mjai_event(start);
+
+        // Player 0: verify honor tiles are parsed correctly
+        let hand0 = &state.players[0].hand;
+        // E=108, S=112, W=116, N=120, P=124, F=128, C=132
+        assert!(
+            hand0.contains(&108),
+            "E should be tid 108, hand: {:?}",
+            hand0
+        );
+        assert!(
+            hand0.contains(&112),
+            "S should be tid 112, hand: {:?}",
+            hand0
+        );
+        assert!(
+            hand0.contains(&116),
+            "W should be tid 116, hand: {:?}",
+            hand0
+        );
+        assert!(
+            hand0.contains(&120),
+            "N should be tid 120, hand: {:?}",
+            hand0
+        );
+        assert!(
+            hand0.contains(&124),
+            "P should be tid 124, hand: {:?}",
+            hand0
+        );
+        assert!(
+            hand0.contains(&128),
+            "F should be tid 128, hand: {:?}",
+            hand0
+        );
+        assert!(
+            hand0.contains(&132),
+            "C should be tid 132, hand: {:?}",
+            hand0
+        );
+
+        // Player 1: verify red 5s (5sr = tid 88)
+        let hand1 = &state.players[1].hand;
+        assert!(
+            hand1.contains(&88),
+            "5sr should be tid 88, hand: {:?}",
+            hand1
+        );
+
+        // Player 2: verify red 5p (5pr = tid 52)
+        let hand2 = &state.players[2].hand;
+        assert!(
+            hand2.contains(&52),
+            "5pr should be tid 52, hand: {:?}",
+            hand2
+        );
+
+        // Dora marker "P" should be tid 124
+        assert_eq!(
+            state.wall.dora_indicators[0], 124,
+            "dora_marker P should be tid 124, got: {}",
+            state.wall.dora_indicators[0]
+        );
+
+        // Test tsumo with honor tile
+        let tsumo = MjaiEvent::Tsumo {
+            actor: 0,
+            pai: "C".to_string(), // Red dragon (tid 132)
+        };
+        state.apply_mjai_event(tsumo);
+        assert!(
+            state.players[0].hand.contains(&132),
+            "Tsumo C should add tid 132 to hand, hand: {:?}",
+            state.players[0].hand
+        );
+
+        // Test dahai with honor tile
+        let dahai = MjaiEvent::Dahai {
+            actor: 0,
+            pai: "E".to_string(), // East (tid 108)
+            tsumogiri: false,
+        };
+        state.apply_mjai_event(dahai);
+        assert!(
+            state.players[0].discards.contains(&108),
+            "Dahai E should discard tid 108, discards: {:?}",
+            state.players[0].discards
+        );
+
+        // Test dora event with mjai honor
+        let dora = MjaiEvent::Dora {
+            dora_marker: "F".to_string(), // Green dragon (tid 128)
+        };
+        state.apply_mjai_event(dora);
+        assert_eq!(
+            state.wall.dora_indicators[1], 128,
+            "dora F should be tid 128, got: {}",
+            state.wall.dora_indicators[1]
+        );
+    }
+
+    #[test]
     fn test_no_tobi_with_positive_scores() {
         // Test that the game continues when all players have positive scores
         let mut env = create_test_env(4);
