@@ -82,6 +82,14 @@ class PPOLearner:
             advantages: (N,) GAE advantages
             returns: (N,) discounted returns (advantage + value)
         """
+        # Enable training mode but freeze BatchNorm running stats.
+        # BN stats were learned during CQL pretraining on large supervised data.
+        # PPO's small on-policy batches would corrupt these statistics.
+        self.model.train()
+        for module in self.model.modules():
+            if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                module.eval()
+
         features = rollout_batch["features"].to(self.device)
         masks = rollout_batch["masks"].to(self.device)
         actions = rollout_batch["actions"].long().to(self.device)

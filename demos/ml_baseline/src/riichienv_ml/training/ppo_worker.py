@@ -50,17 +50,26 @@ class PPOWorker:
         self.encoder = import_class(encoder_class)
         self._compiled_warmup = False
 
+    def _apply_state_dict(self, model, state_dict):
+        """Apply state dict by copying parameter data directly.
+
+        torch.compile caches compiled graphs and load_state_dict() may not
+        properly invalidate the cache, causing the compiled model to keep
+        using old weights. Copying .data directly avoids this issue.
+        """
+        target = model._orig_mod if hasattr(model, "_orig_mod") else model
+        for name, param in target.named_parameters():
+            if name in state_dict:
+                param.data.copy_(state_dict[name])
+        for name, buf in target.named_buffers():
+            if name in state_dict:
+                buf.data.copy_(state_dict[name])
+
     def update_weights(self, state_dict):
-        target = self.model
-        if hasattr(target, "_orig_mod"):
-            target = target._orig_mod
-        target.load_state_dict(state_dict)
+        self._apply_state_dict(self.model, state_dict)
 
     def update_baseline_weights(self, state_dict):
-        target = self.baseline_model
-        if hasattr(target, "_orig_mod"):
-            target = target._orig_mod
-        target.load_state_dict(state_dict)
+        self._apply_state_dict(self.baseline_model, state_dict)
 
     def _warmup_compile(self):
         if self._compiled_warmup:
