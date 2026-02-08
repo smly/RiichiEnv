@@ -47,15 +47,15 @@ online:
   alpha_cql_init: 1.0
   alpha_cql_final: 0.1
   exploration: boltzmann
-  boltzmann_epsilon: 0.1
-  boltzmann_temp_start: 1.0
-  boltzmann_temp_final: 0.5
-  top_p: 0.9
+  boltzmann_epsilon: 0.02
+  boltzmann_temp_start: 0.1
+  boltzmann_temp_final: 0.05
+  top_p: 1.0
   capacity: 1000000
   eval_interval: 2000
   weight_sync_freq: 10
-  worker_device: cpu
-  gpu_per_worker: 0.1
+  worker_device: cuda
+  gpu_per_worker: 0.08
   gamma: 0.99
   checkpoint_dir: /data/workspace/riichienv/discard_history/checkpoints
   wandb_project: riichienv-online

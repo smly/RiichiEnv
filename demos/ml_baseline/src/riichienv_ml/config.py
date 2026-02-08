@@ -72,10 +72,10 @@ class OnlineConfig(BaseModel):
     epsilon_start: float = 0.1
     epsilon_final: float = 0.01
     # Boltzmann (softmax) exploration params
-    boltzmann_epsilon: float = 0.1
-    boltzmann_temp_start: float = 1.0
-    boltzmann_temp_final: float = 0.5
-    top_p: float = 0.9
+    boltzmann_epsilon: float = 0.02
+    boltzmann_temp_start: float = 0.1
+    boltzmann_temp_final: float = 0.05
+    top_p: float = 1.0
     capacity: int = 1000000
     eval_interval: int = 2000
     weight_sync_freq: int = 10

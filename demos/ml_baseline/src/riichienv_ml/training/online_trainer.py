@@ -151,7 +151,11 @@ def run_training(cfg):
 
     future_to_worker = {w.collect_episode.remote(): i for i, w in enumerate(workers)}
 
-    step = 0
+    step = 0  # counts gradient updates
+    episodes = 0
+    last_log_step = 0
+    last_eval_step = 0
+    last_sync_step = 0
     wandb.init(project=cfg.wandb_project, config=cfg.model_dump())
 
     os.makedirs(cfg.checkpoint_dir, exist_ok=True)
@@ -168,50 +172,60 @@ def run_training(cfg):
 
     try:
         while step < cfg.num_steps:
-            # Periodic Evaluation & Snapshot
-            if step > 0 and step % cfg.eval_interval == 0:
-                print(f"Step {step}: Saving snapshot and Evaluating...")
-                sys.stdout.flush()
-
-                save_path = f"{cfg.checkpoint_dir}/model_{step}.pth"
-                torch.save(learner.get_weights(), save_path)
-                print(f"Saved snapshot to {save_path}")
-
-                if baseline_learner is not None:
-                    try:
-                        eval_reward, eval_rank = evaluate_vs_baseline(
-                            learner.model, baseline_learner.model, cfg.device, encoder, num_episodes=30
-                        )
-                        print(f"Evaluation (vs Baseline): Reward={eval_reward:.2f}, Rank={eval_rank:.2f}")
-                        wandb.log({
-                            "eval/reward": eval_reward,
-                            "eval/rank": eval_rank
-                        }, step=step)
-                    except Exception as e:
-                        print(f"Evaluation failed at step {step}: {e}")
-
             ready_ids, _ = ray.wait(list(future_to_worker.keys()), num_returns=1)
             future = ready_ids[0]
             worker_idx = future_to_worker.pop(future)
 
             transitions = ray.get(future)
             buffer.add(transitions)
+            episodes += 1
 
-            # Train - Single DQN + CQL gradient step
-            metrics = {}
+            # Train - Multiple gradient steps per episode for better data efficiency.
             if len(buffer) > cfg.batch_size:
-                batch = buffer.sample(cfg.batch_size)
-                metrics = learner.update(batch, max_steps=cfg.num_steps)
+                num_updates = max(1, len(transitions) // cfg.batch_size)
+                for _ in range(num_updates):
+                    if step >= cfg.num_steps:
+                        break
 
-            if step % 200 == 0 and step > 0:
-                print(f"Step {step}: {metrics}")
-                wandb.log(metrics, step=step)
+                    # Periodic Evaluation & Snapshot
+                    if step > 0 and step - last_eval_step >= cfg.eval_interval:
+                        last_eval_step = step
+                        print(f"Step {step}: Saving snapshot and Evaluating...")
+                        sys.stdout.flush()
+
+                        save_path = f"{cfg.checkpoint_dir}/model_{step}.pth"
+                        torch.save(learner.get_weights(), save_path)
+                        print(f"Saved snapshot to {save_path}")
+
+                        if baseline_learner is not None:
+                            try:
+                                eval_reward, eval_rank = evaluate_vs_baseline(
+                                    learner.model, baseline_learner.model, cfg.device, encoder, num_episodes=30
+                                )
+                                print(f"Evaluation (vs Baseline): Reward={eval_reward:.2f}, Rank={eval_rank:.2f}")
+                                wandb.log({
+                                    "eval/reward": eval_reward,
+                                    "eval/rank": eval_rank
+                                }, step=step)
+                            except Exception as e:
+                                print(f"Evaluation failed at step {step}: {e}")
+
+                    batch = buffer.sample(cfg.batch_size)
+                    metrics = learner.update(batch, max_steps=cfg.num_steps)
+                    step += 1
+
+                    # Logging
+                    if step - last_log_step >= 200:
+                        last_log_step = step
+                        print(f"Step {step}: {metrics}, ep={episodes}, buf={len(buffer)}, trans={len(transitions)}")
+                        wandb.log(metrics, step=step)
 
             # Exploration scheduling
             progress = min(1.0, step / cfg.num_steps)
 
             # Re-dispatch worker with weight sync
-            if step % cfg.weight_sync_freq == 0:
+            if step - last_sync_step >= cfg.weight_sync_freq:
+                last_sync_step = step
                 weights = {k: v.cpu() for k, v in learner.get_weights().items()}
 
                 has_nan = False
@@ -240,13 +254,11 @@ def run_training(cfg):
             new_future = workers[worker_idx].collect_episode.remote()
             future_to_worker[new_future] = worker_idx
 
-            step += 1
-
     except KeyboardInterrupt:
         print("Stopping...")
 
     # Final Snapshot and Evaluation
-    print(f"Final Step {step}: Saving snapshot and Evaluating...")
+    print(f"Final Step {step} (episodes={episodes}): Saving snapshot and Evaluating...")
     sys.stdout.flush()
 
     save_path = f"{cfg.checkpoint_dir}/model_{step}.pth"
