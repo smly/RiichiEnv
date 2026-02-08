@@ -36,29 +36,27 @@ cql:
     num_actions: 82
 
 online:
+  algorithm: ppo
   load_model: /data/workspace/riichienv/discard_history/cql_model.pth
   device: cuda
-  model_class: riichienv_ml.models.cql_model.QNetwork
+  model_class: riichienv_ml.models.actor_critic.ActorCriticNetwork
   encoder_class: riichienv_ml.data.cql_dataset.DiscardHistoryEncoder
   num_workers: 12
-  num_steps: 5000000
-  batch_size: 128
+  num_steps: 2000
   lr: 1e-4
-  alpha_cql_init: 0.1
-  alpha_cql_final: 0.0
-  exploration: boltzmann
-  boltzmann_epsilon: 0.02
-  boltzmann_temp_start: 0.1
-  boltzmann_temp_final: 0.05
-  top_p: 1.0
-  capacity: 1000000
-  eval_interval: 10000
-  weight_sync_freq: 10
+  gamma: 0.97
+  # PPO params
+  ppo_clip: 0.1
+  ppo_epochs: 4
+  gae_lambda: 0.95
+  entropy_coef: 0.01
+  value_coef: 0.5
+  # Common
+  eval_interval: 10
   worker_device: cuda
   gpu_per_worker: 0.08
   num_envs_per_worker: 16
-  gamma: 0.99
-  checkpoint_dir: /data/workspace/riichienv/discard_history/checkpoints
+  checkpoint_dir: /data/workspace/riichienv/ppo_discard_history/checkpoints
   wandb_project: riichienv-online
   model:
     in_channels: 78
