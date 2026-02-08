@@ -31,8 +31,8 @@ class GrpConfig(BaseModel):
 
 class ModelConfig(BaseModel):
     in_channels: int = 74
-    num_blocks: int = 3
-    conv_channels: int = 64
+    num_blocks: int = 8
+    conv_channels: int = 128
     fc_dim: int = 256
     num_actions: int = 82
 
@@ -81,6 +81,7 @@ class OnlineConfig(BaseModel):
     weight_sync_freq: int = 10
     worker_device: Literal["cpu", "cuda"] = "cpu"
     gpu_per_worker: float = 0.1
+    num_envs_per_worker: int = 16
     gamma: float = 0.99
     checkpoint_dir: str = "checkpoints"
     wandb_project: str = "riichienv-online"

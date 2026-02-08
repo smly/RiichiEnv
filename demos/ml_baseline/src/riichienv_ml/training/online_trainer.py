@@ -126,6 +126,7 @@ def run_training(cfg):
         boltzmann_epsilon=cfg.boltzmann_epsilon,
         boltzmann_temp=cfg.boltzmann_temp_start,
         top_p=cfg.top_p,
+        num_envs=cfg.num_envs_per_worker,
         model_config=model_config, model_class=cfg.model_class,
         encoder_class=cfg.encoder_class,
     )
@@ -149,7 +150,7 @@ def run_training(cfg):
     for w in workers:
         w.update_weights.remote(weight_ref)
 
-    future_to_worker = {w.collect_episode.remote(): i for i, w in enumerate(workers)}
+    future_to_worker = {w.collect_episodes.remote(): i for i, w in enumerate(workers)}
 
     step = 0  # counts gradient updates
     episodes = 0
@@ -178,7 +179,7 @@ def run_training(cfg):
 
             transitions = ray.get(future)
             buffer.add(transitions)
-            episodes += 1
+            episodes += cfg.num_envs_per_worker
 
             # Train - Multiple gradient steps per episode for better data efficiency.
             if len(buffer) > cfg.batch_size:
@@ -251,7 +252,7 @@ def run_training(cfg):
                     else:
                         w.set_epsilon.remote(epsilon)
 
-            new_future = workers[worker_idx].collect_episode.remote()
+            new_future = workers[worker_idx].collect_episodes.remote()
             future_to_worker[new_future] = worker_idx
 
     except KeyboardInterrupt:

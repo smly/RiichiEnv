@@ -22,7 +22,7 @@ cql:
   gamma: 0.97
   num_epochs: 10
   num_workers: 12
-  limit: 1000000  # 1M samples
+  limit: 500000  # 500k samples
   pts_weight: [10.0, 4.0, -4.0, -10.0]
   wandb_entity: smly
   wandb_project: riichienv-offline
@@ -30,8 +30,8 @@ cql:
   dataset_class: riichienv_ml.data.cql_dataset.MCDataset
   model:
     in_channels: 74
-    num_blocks: 24
-    conv_channels: 512
+    num_blocks: 8
+    conv_channels: 128
     fc_dim: 256
     num_actions: 82
 
@@ -56,12 +56,13 @@ online:
   weight_sync_freq: 10
   worker_device: cuda
   gpu_per_worker: 0.08
+  num_envs_per_worker: 16
   gamma: 0.97
   checkpoint_dir: /data/workspace/riichienv/baseline/checkpoints
   wandb_project: riichienv-online
   model:
     in_channels: 74
-    num_blocks: 24
-    conv_channels: 512
+    num_blocks: 8
+    conv_channels: 128
     fc_dim: 256
     num_actions: 82
