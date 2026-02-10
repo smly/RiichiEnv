@@ -283,7 +283,7 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> PyResult<Mel
             );
         }
         tiles_136.sort(); // standardize
-        Ok(Meld::new(MeldType::Chi, tiles_136, true, -1))
+        Ok(Meld::new(MeldType::Chi, tiles_136, true, -1, None))
     } else {
         // Pon/Kan/AddedKan
         // Usually 1 digit for type (e.g. '1' in 'p1z1'). Or '0' for red pon.
@@ -396,7 +396,7 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> PyResult<Mel
 
         let opened = mtype != MeldType::Angang;
 
-        Ok(Meld::new(mtype, tiles_136, opened, -1))
+        Ok(Meld::new(mtype, tiles_136, opened, -1, None))
     }
 }
 

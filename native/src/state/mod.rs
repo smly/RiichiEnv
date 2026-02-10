@@ -1013,6 +1013,7 @@ impl GameState {
                     tiles: tiles.clone(),
                     opened: true,
                     from_who: discarder as i8,
+                    called_tile: Some(tile),
                 });
 
                 if !self.skip_mjai_logging {
@@ -1229,20 +1230,21 @@ impl GameState {
                     self.players[p_idx].hand.remove(idx);
                 }
             }
-            let (m_type, tiles, from_who) = if action.action_type == ActionType::Ankan {
-                (MeldType::Angang, action.consume_tiles.clone(), -1i8)
+            let (m_type, tiles, from_who, ct) = if action.action_type == ActionType::Ankan {
+                (MeldType::Angang, action.consume_tiles.clone(), -1i8, None)
             } else {
                 let (discarder, tile) = self.last_discard.unwrap();
                 let mut t_vec = action.consume_tiles.clone();
                 t_vec.push(tile);
                 t_vec.sort();
-                (MeldType::Gang, t_vec, discarder as i8)
+                (MeldType::Gang, t_vec, discarder as i8, Some(tile))
             };
             self.players[p_idx].melds.push(Meld {
                 meld_type: m_type,
                 tiles,
                 opened: m_type == MeldType::Gang,
                 from_who,
+                called_tile: ct,
             });
         }
 

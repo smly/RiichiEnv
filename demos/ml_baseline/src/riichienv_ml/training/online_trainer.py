@@ -16,10 +16,11 @@ from riichienv_ml.training.learner import MahjongLearner
 from riichienv_ml.training.buffer import GlobalReplayBuffer
 
 
-def evaluate_vs_baseline(hero_model, baseline_model, device, encoder, num_episodes=30):
+def evaluate_vs_baseline(hero_model, baseline_model, device, encoder, num_episodes=100):
     """
     Evaluates Hero Model (Player 0) vs Baseline Model (Players 1-3).
     Both use greedy argmax Q-value action selection.
+    Returns (mean_reward, mean_rank, rank_standard_error).
     """
     hero_rewards = []
     hero_ranks = []
@@ -66,7 +67,8 @@ def evaluate_vs_baseline(hero_model, baseline_model, device, encoder, num_episod
         hero_rewards.append(reward)
         hero_ranks.append(rank)
 
-    return np.mean(hero_rewards), np.mean(hero_ranks)
+    rank_se = np.std(hero_ranks) / np.sqrt(num_episodes)
+    return np.mean(hero_rewards), np.mean(hero_ranks), rank_se
 
 
 def run_training(cfg):
@@ -97,6 +99,9 @@ def run_training(cfg):
     learner = MahjongLearner(
         device=cfg.device,
         lr=cfg.lr,
+        lr_min=cfg.lr_min,
+        num_steps=cfg.num_steps,
+        max_grad_norm=cfg.max_grad_norm,
         alpha_cql_init=cfg.alpha_cql_init,
         alpha_cql_final=cfg.alpha_cql_final,
         gamma=cfg.gamma,
@@ -165,9 +170,10 @@ def run_training(cfg):
 
     # Dry Run Evaluation
     if baseline_learner is not None:
-        print("Running dry-run evaluation (30 episodes)...")
+        print(f"Running dry-run evaluation ({cfg.eval_episodes} episodes)...")
         try:
-            evaluate_vs_baseline(learner.model, baseline_learner.model, cfg.device, encoder, num_episodes=30)
+            evaluate_vs_baseline(learner.model, baseline_learner.model, cfg.device, encoder,
+                                 num_episodes=cfg.eval_episodes)
             print("Dry-run evaluation passed.")
         except Exception as e:
             print(f"Dry-run evaluation failed: {e}")
@@ -206,13 +212,16 @@ def run_training(cfg):
 
                         if baseline_learner is not None:
                             try:
-                                eval_reward, eval_rank = evaluate_vs_baseline(
-                                    learner.model, baseline_learner.model, cfg.device, encoder, num_episodes=30
+                                eval_reward, eval_rank, eval_rank_se = evaluate_vs_baseline(
+                                    learner.model, baseline_learner.model, cfg.device, encoder,
+                                    num_episodes=cfg.eval_episodes
                                 )
-                                print(f"Evaluation (vs Baseline): Reward={eval_reward:.2f}, Rank={eval_rank:.2f}")
+                                print(f"Evaluation (vs Baseline): Reward={eval_reward:.2f}, "
+                                      f"Rank={eval_rank:.2f}\u00b1{eval_rank_se:.2f}")
                                 wandb.log({
                                     "eval/reward": eval_reward,
-                                    "eval/rank": eval_rank
+                                    "eval/rank": eval_rank,
+                                    "eval/rank_se": eval_rank_se,
                                 }, step=step)
                             except Exception as e:
                                 print(f"Evaluation failed at step {step}: {e}")
@@ -228,8 +237,11 @@ def run_training(cfg):
                         log_msg = (
                             f"Step {step}: loss={metrics['loss']:.4f}, "
                             f"cql={metrics['cql']:.4f}, mse={metrics['mse']:.4f}, "
-                            f"q_mean={metrics['q_mean']:.4f}, "
-                            f"ep={episodes}, buf={len(buffer)}, trans={len(transitions)}"
+                            f"q={metrics['q_mean']:.3f}\u00b1{metrics.get('q_std', 0):.3f}, "
+                            f"ent={metrics.get('q_entropy', 0):.3f}, "
+                            f"lr={metrics.get('lr', 0):.1e}, "
+                            f"gn={metrics.get('grad_norm', 0):.2f}, "
+                            f"ep={episodes}, buf={len(buffer)}"
                         )
                         if worker_stats_agg:
                             for key in worker_stats_agg[0]:
@@ -296,13 +308,16 @@ def run_training(cfg):
 
     if baseline_learner is not None:
         try:
-            eval_reward, eval_rank = evaluate_vs_baseline(
-                learner.model, baseline_learner.model, cfg.device, encoder, num_episodes=30
+            eval_reward, eval_rank, eval_rank_se = evaluate_vs_baseline(
+                learner.model, baseline_learner.model, cfg.device, encoder,
+                num_episodes=cfg.eval_episodes
             )
-            print(f"Final Evaluation (vs Baseline): Reward={eval_reward:.2f}, Rank={eval_rank:.2f}")
+            print(f"Final Evaluation (vs Baseline): Reward={eval_reward:.2f}, "
+                  f"Rank={eval_rank:.2f}\u00b1{eval_rank_se:.2f}")
             wandb.log({
                 "eval/reward": eval_reward,
-                "eval/rank": eval_rank
+                "eval/rank": eval_rank,
+                "eval/rank_se": eval_rank_se,
             }, step=step)
         except Exception as e:
             print(f"Final Evaluation failed: {e}")

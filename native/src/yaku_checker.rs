@@ -427,6 +427,7 @@ mod tests {
             tiles: vec![0, 1, 2], // 1m (terminal)
             opened: true,
             from_who: -1,
+            called_tile: None,
         };
         assert_eq!(check_tanyao(&[meld]), YakuPossibility::Impossible);
 
@@ -436,6 +437,7 @@ mod tests {
             tiles: vec![16, 17, 18], // 5m (simple)
             opened: true,
             from_who: -1,
+            called_tile: None,
         };
         assert_eq!(check_tanyao(&[meld]), YakuPossibility::Unknown);
     }
@@ -448,6 +450,7 @@ mod tests {
             tiles: vec![0, 4, 8], // 1m-2m-3m
             opened: true,
             from_who: -1,
+            called_tile: None,
         };
         assert_eq!(check_toitoi(&[meld]), YakuPossibility::Impossible);
 
@@ -457,6 +460,7 @@ mod tests {
             tiles: vec![16, 17, 18], // 5m pon
             opened: true,
             from_who: -1,
+            called_tile: None,
         };
         assert_eq!(check_toitoi(&[meld]), YakuPossibility::Possible);
     }

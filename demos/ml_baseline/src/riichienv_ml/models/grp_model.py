@@ -65,6 +65,38 @@ class RewardPredictor:
         x = np.concatenate([scores, delta_scores, round_meta, player])
         return x
 
+    def calc_all_player_rewards(self, grp_features: dict) -> list[float]:
+        """Compute final rewards for all 4 players in one batched forward pass."""
+        scores = np.array([
+            grp_features["p0_init_score"], grp_features["p1_init_score"],
+            grp_features["p2_init_score"], grp_features["p3_init_score"],
+            grp_features["p0_end_score"], grp_features["p1_end_score"],
+            grp_features["p2_end_score"], grp_features["p3_end_score"],
+        ]) / 25000.0
+        delta_scores = np.array([
+            grp_features["p0_delta_score"], grp_features["p1_delta_score"],
+            grp_features["p2_delta_score"], grp_features["p3_delta_score"],
+        ]) / 12000.0
+        round_meta = np.array([
+            grp_features["chang"] / 3.0, grp_features["ju"] / 3.0,
+            grp_features["ben"] / 4.0, grp_features["liqibang"] / 4.0,
+        ])
+        base = np.concatenate([scores, delta_scores, round_meta])  # (16,)
+
+        # Build batch of 4 inputs: same base, different player one-hot
+        xs = np.zeros((4, 20), dtype=np.float32)
+        for pid in range(4):
+            xs[pid, :16] = base
+            xs[pid, 16 + pid] = 1.0
+
+        xs_t = torch.from_numpy(xs).to(self.device)
+        mean_pts = float(np.mean(self.pts_weight))
+        with torch.inference_mode():
+            pts_w = torch.tensor(self.pts_weight, device=self.device).float()
+            pts = torch.softmax(self.model(xs_t), dim=1) @ pts_w  # (4,)
+        rewards = (pts - mean_pts).cpu().tolist()
+        return rewards
+
     def calc_pts_rewards(self, kyoku_features: list[dict], player_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         xs = []
         for row in kyoku_features:

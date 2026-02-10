@@ -66,6 +66,8 @@ class OnlineConfig(BaseModel):
     num_steps: int = 5000000
     batch_size: int = 128
     lr: float = 1e-4
+    lr_min: float = 1e-6
+    max_grad_norm: float = 1.0
     # DQN-specific params
     alpha_cql_init: float = 1.0
     alpha_cql_final: float = 0.1
@@ -88,6 +90,7 @@ class OnlineConfig(BaseModel):
     value_coef: float = 0.5
     # Common params
     eval_interval: int = 2000
+    eval_episodes: int = 100
     weight_sync_freq: int = 10
     worker_device: Literal["cpu", "cuda"] = "cpu"
     gpu_per_worker: float = 0.1

@@ -41,11 +41,14 @@ online:
   model_class: riichienv_ml.models.cql_model.QNetwork
   encoder_class: riichienv_ml.data.cql_dataset.DiscardHistoryShantenEncoder
   num_workers: 12
-  num_steps: 5000000
+  num_steps: 1000000  # 1M steps
   batch_size: 128
-  lr: 1e-4
+  lr: 5e-4
+  lr_min: 1e-6
+  max_grad_norm: 1.0
   alpha_cql_init: 0.1
   alpha_cql_final: 0.0
+
   exploration: boltzmann
   boltzmann_epsilon: 0.02
   boltzmann_temp_start: 0.1
@@ -55,7 +58,8 @@ online:
   # GRP reward shaping (per-kyoku reward)
   grp_model: /data/workspace/riichienv/baseline/grp_model.pth
   pts_weight: [10.0, 4.0, -4.0, -10.0]
-  eval_interval: 10000
+  eval_interval: 20000
+  eval_episodes: 100
   weight_sync_freq: 10
   worker_device: cuda
   gpu_per_worker: 0.08

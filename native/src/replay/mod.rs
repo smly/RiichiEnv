@@ -1037,11 +1037,15 @@ impl AgariContextIterator {
                             break;
                         }
                     }
+                    let ct = tiles.iter().zip(froms.iter())
+                        .find(|(_, &f)| f != *seat)
+                        .map(|(&t, _)| t);
                     self.melds[*seat].push(Meld {
                         meld_type: *meld_type,
                         tiles: tiles.clone(),
                         opened: true,
                         from_who,
+                        called_tile: ct,
                     });
                     if *meld_type == MeldType::Gang {
                         self.rinshan[*seat] = true;
@@ -1126,6 +1130,7 @@ impl AgariContextIterator {
                             tiles: m_tiles,
                             opened: false,
                             from_who: -1,
+                            called_tile: None,
                         });
                         self.rinshan[*seat] = true;
 
@@ -1152,6 +1157,7 @@ impl AgariContextIterator {
                                 tiles: tiles.clone(),
                                 opened: true,
                                 from_who: -1,
+                                called_tile: None,
                             });
                         }
                         TileConverter::match_and_remove_u8(

@@ -169,6 +169,7 @@ impl GameStateLegalActions for GameState {
                                 vec![lowest, lowest + 1, lowest + 2, lowest + 3],
                                 false,
                                 -1,
+                                None,
                             ));
                             let calc_post = crate::agari_calculator::AgariCalculator::new(
                                 hand_post, melds_post,

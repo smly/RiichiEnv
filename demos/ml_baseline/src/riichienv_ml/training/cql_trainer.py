@@ -2,6 +2,7 @@
 Offline CQL Trainer.
 """
 import glob
+import os
 
 import torch
 import torch.nn as nn
@@ -75,6 +76,8 @@ class Trainer:
         self.dataset_class = dataset_class
 
     def train(self, output_path: str) -> None:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
         # Initialize Reward Predictor
         reward_predictor = RewardPredictor(self.grp_model_path, self.pts_weight, device=self.device_str, input_dim=20)
 
@@ -90,6 +93,9 @@ class Trainer:
             dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            pin_memory=True,
+            prefetch_factor=4,
+            persistent_workers=True,
         )
 
         ModelClass = import_class(self.model_class)
@@ -123,11 +129,11 @@ class Trainer:
                 # (feat, act, return, mask)
                 features, actions, targets, masks = batch
 
-                features = features.to(self.device)
+                features = features.to(self.device, non_blocking=True)
 
-                actions = actions.long().to(self.device)
-                targets = targets.float().to(self.device)
-                masks = masks.float().to(self.device)
+                actions = actions.long().to(self.device, non_blocking=True)
+                targets = targets.float().to(self.device, non_blocking=True)
+                masks = masks.float().to(self.device, non_blocking=True)
 
                 optimizer.zero_grad()
 

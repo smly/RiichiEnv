@@ -107,18 +107,23 @@ pub struct Meld {
     pub opened: bool,
     #[pyo3(get, set)]
     pub from_who: i8,
+    /// The tile claimed from another player's discard (for chi/pon/daiminkan).
+    /// None for ankan/kakan or melds not involving a discard claim.
+    #[pyo3(get)]
+    pub called_tile: Option<u8>,
 }
 
 #[pymethods]
 impl Meld {
     #[new]
-    #[pyo3(signature = (meld_type, tiles, opened, from_who=-1))]
-    pub fn new(meld_type: MeldType, tiles: Vec<u8>, opened: bool, from_who: i8) -> Self {
+    #[pyo3(signature = (meld_type, tiles, opened, from_who=-1, called_tile=None))]
+    pub fn new(meld_type: MeldType, tiles: Vec<u8>, opened: bool, from_who: i8, called_tile: Option<u8>) -> Self {
         Self {
             meld_type,
             tiles,
             opened,
             from_who,
+            called_tile,
         }
     }
 

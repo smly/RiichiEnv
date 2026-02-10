@@ -16,11 +16,12 @@ from riichienv_ml.training.ppo_worker import PPOWorker
 from riichienv_ml.training.ppo_learner import PPOLearner
 
 
-def evaluate_vs_baseline(hero_model, baseline_model, device, encoder, num_episodes=30):
+def evaluate_vs_baseline(hero_model, baseline_model, device, encoder, num_episodes=100):
     """
     Evaluates Hero Model (Player 0) vs Baseline Model (Players 1-3).
     Hero uses ActorCriticNetwork (greedy argmax on logits).
     Baseline uses QNetwork (greedy argmax on Q-values).
+    Returns (mean_reward, mean_rank, rank_standard_error).
     """
     hero_rewards = []
     hero_ranks = []
@@ -80,7 +81,8 @@ def evaluate_vs_baseline(hero_model, baseline_model, device, encoder, num_episod
         hero_rewards.append(reward)
         hero_ranks.append(rank)
 
-    return np.mean(hero_rewards), np.mean(hero_ranks)
+    rank_se = np.std(hero_ranks) / np.sqrt(num_episodes)
+    return np.mean(hero_rewards), np.mean(hero_ranks), rank_se
 
 
 def run_ppo_training(cfg):
@@ -181,9 +183,10 @@ def run_ppo_training(cfg):
 
     # Dry Run Evaluation
     if baseline_model is not None:
-        logger.info("Running dry-run evaluation (30 episodes)...")
+        logger.info(f"Running dry-run evaluation ({cfg.eval_episodes} episodes)...")
         try:
-            evaluate_vs_baseline(learner.model, baseline_model, cfg.device, encoder, num_episodes=30)
+            evaluate_vs_baseline(learner.model, baseline_model, cfg.device, encoder,
+                                 num_episodes=cfg.eval_episodes)
             logger.info("Dry-run evaluation passed.")
         except Exception as e:
             logger.error(f"Dry-run evaluation failed: {e}")
@@ -268,13 +271,16 @@ def run_ppo_training(cfg):
 
                 if baseline_model is not None:
                     try:
-                        eval_reward, eval_rank = evaluate_vs_baseline(
-                            learner.model, baseline_model, cfg.device, encoder, num_episodes=30
+                        eval_reward, eval_rank, eval_rank_se = evaluate_vs_baseline(
+                            learner.model, baseline_model, cfg.device, encoder,
+                            num_episodes=cfg.eval_episodes
                         )
-                        logger.info(f"Evaluation (vs Baseline): Reward={eval_reward:.2f}, Rank={eval_rank:.2f}")
+                        logger.info(f"Evaluation (vs Baseline): Reward={eval_reward:.2f}, "
+                                    f"Rank={eval_rank:.2f}\u00b1{eval_rank_se:.2f}")
                         wandb.log({
                             "eval/reward": eval_reward,
-                            "eval/rank": eval_rank
+                            "eval/rank": eval_rank,
+                            "eval/rank_se": eval_rank_se,
                         }, step=step)
                     except Exception as e:
                         logger.error(f"Evaluation failed at step {step}: {e}")
@@ -308,13 +314,16 @@ def run_ppo_training(cfg):
 
     if baseline_model is not None:
         try:
-            eval_reward, eval_rank = evaluate_vs_baseline(
-                learner.model, baseline_model, cfg.device, encoder, num_episodes=30
+            eval_reward, eval_rank, eval_rank_se = evaluate_vs_baseline(
+                learner.model, baseline_model, cfg.device, encoder,
+                num_episodes=cfg.eval_episodes
             )
-            logger.info(f"Final Evaluation (vs Baseline): Reward={eval_reward:.2f}, Rank={eval_rank:.2f}")
+            logger.info(f"Final Evaluation (vs Baseline): Reward={eval_reward:.2f}, "
+                        f"Rank={eval_rank:.2f}\u00b1{eval_rank_se:.2f}")
             wandb.log({
                 "eval/reward": eval_reward,
-                "eval/rank": eval_rank
+                "eval/rank": eval_rank,
+                "eval/rank_se": eval_rank_se,
             }, step=step)
         except Exception as e:
             logger.error(f"Final Evaluation failed: {e}")

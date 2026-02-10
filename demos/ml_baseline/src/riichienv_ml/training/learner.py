@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from riichienv_ml.config import import_class
 
@@ -9,6 +10,9 @@ class MahjongLearner:
     def __init__(self,
                  device: str = "cuda",
                  lr: float = 1e-4,
+                 lr_min: float = 1e-6,
+                 num_steps: int = 1000000,
+                 max_grad_norm: float = 1.0,
                  alpha_cql_init: float = 1.0,
                  alpha_cql_final: float = 0.1,
                  gamma: float = 0.99,
@@ -19,12 +23,14 @@ class MahjongLearner:
         self.alpha_cql_init = alpha_cql_init
         self.alpha_cql_final = alpha_cql_final
         self.gamma = gamma
+        self.max_grad_norm = max_grad_norm
 
         mc = model_config or {}
         ModelClass = import_class(model_class)
         self.model = ModelClass(**mc).to(self.device)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=num_steps, eta_min=lr_min)
         self.mse_loss = nn.MSELoss(reduction='none')
         self.total_steps = 0
 
@@ -79,6 +85,12 @@ class MahjongLearner:
 
     def update(self, batch, max_steps=100000):
         """DQN + CQL update using a batch from the replay buffer."""
+        # Ensure training mode with frozen BatchNorm stats (from CQL pretraining)
+        self.model.train()
+        for module in self.model.modules():
+            if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                module.eval()
+
         features = batch["features"].to(self.device)
         actions = batch["action"].long().to(self.device)
         targets = batch["reward"].float().to(self.device)
@@ -121,10 +133,18 @@ class MahjongLearner:
             }
 
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            self.model.parameters(), max_norm=self.max_grad_norm)
         self.optimizer.step()
+        self.scheduler.step()
 
         self.total_steps += 1
+
+        # Q-value distribution metrics
+        with torch.no_grad():
+            q_probs = torch.softmax(q_masked, dim=1)
+            q_log_probs = torch.log_softmax(q_masked, dim=1)
+            q_entropy = -(q_probs * q_log_probs).sum(dim=1).mean().item()
 
         return {
             "loss": loss.item(),
@@ -132,4 +152,10 @@ class MahjongLearner:
             "cql_alpha": alpha_cql,
             "mse": mse_term.mean().item(),
             "q_mean": q_data.mean().item(),
+            "q_std": q_data.std().item(),
+            "q_min": q_data.min().item(),
+            "q_max": q_data.max().item(),
+            "q_entropy": q_entropy,
+            "grad_norm": grad_norm.item() if isinstance(grad_norm, torch.Tensor) else grad_norm,
+            "lr": self.scheduler.get_last_lr()[0],
         }

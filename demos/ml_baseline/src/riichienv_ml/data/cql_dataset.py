@@ -92,13 +92,13 @@ class MCDataset(BaseDataset):
                     # Encode Group Features for Reward Prediction
                     grp_features = GrpFeatureEncoder(kyoku).encode()
 
+                    # Batch all 4 players' reward predictions in one forward pass
+                    assert self.reward_predictor is not None
+                    all_rewards = self.reward_predictor.calc_all_player_rewards(grp_features)
+
                     for player_id in range(4):
                         trajectory = []
-
-                        # Compute Final Reward for this Kyoku
-                        assert self.reward_predictor is not None
-                        _, final_reward = self.reward_predictor.calc_pts_rewards([grp_features], player_id)
-                        final_reward = final_reward.detach().cpu().item()
+                        final_reward = all_rewards[player_id]
 
                         # Collect Trajectory
                         for obs, action in kyoku.steps(player_id):
@@ -159,3 +159,35 @@ class DiscardHistoryDataset(MCDataset):
 class DiscardHistoryShantenDataset(MCDataset):
     """MCDataset with discard history + shanten features (94 channels)."""
     encoder = DiscardHistoryShantenEncoder
+
+
+class ExtendedEncoder:
+    """Encodes observation into (215, 34) tensor using a single consolidated Rust call."""
+
+    @staticmethod
+    def encode(obs) -> torch.Tensor:
+        raw = obs.encode_extended()
+        return torch.from_numpy(
+            np.frombuffer(raw, dtype=np.float32).reshape(215, 34).copy()
+        )
+
+
+class ExtendedDataset(MCDataset):
+    """MCDataset with extended features (215 channels)."""
+    encoder = ExtendedEncoder
+
+
+class ExtendedSPEncoder:
+    """Encodes observation into (338, 34) tensor using a single consolidated Rust call."""
+
+    @staticmethod
+    def encode(obs) -> torch.Tensor:
+        raw = obs.encode_extended_sp()
+        return torch.from_numpy(
+            np.frombuffer(raw, dtype=np.float32).reshape(338, 34).copy()
+        )
+
+
+class ExtendedSPDataset(MCDataset):
+    """MCDataset with extended + SP features (338 channels)."""
+    encoder = ExtendedSPEncoder
