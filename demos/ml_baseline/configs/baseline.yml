@@ -48,7 +48,7 @@ online:
   lr: 5e-4
   lr_min: 1e-6
   max_grad_norm: 1.0
-  alpha_cql_init: 0.1
+  alpha_cql_init: 0.0
   alpha_cql_final: 0.0
 
   exploration: boltzmann
