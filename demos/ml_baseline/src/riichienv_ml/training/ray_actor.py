@@ -109,17 +109,16 @@ class MahjongWorker:
             self.model(dummy)
         self._compiled_warmup = True
 
-    def _compute_grp_expected_pts(self, prev_scores, cur_scores,
-                                  round_wind, oya, honba, riichi_sticks,
-                                  pid: int) -> float:
-        """Compute GRP expected points for the current game state after a kyoku.
+    def _compute_kyoku_rewards(self, prev_scores, cur_scores,
+                               round_wind, oya, honba, riichi_sticks) -> list[float]:
+        """Compute absolute GRP rewards for all 4 players after a kyoku.
 
-        Returns the expected ranking-based points (potential) for the given player.
-        The per-kyoku reward is the *change* in this potential between
-        consecutive kyoku boundaries (computed by the caller).
+        Returns [reward_p0, ..., reward_p3] where each reward = GRP_pts - mean_pts.
+        This matches the reward scale used during CQL offline pretraining
+        (each kyoku's reward is independent, not incremental).
         """
         if self.reward_predictor is None:
-            return 0.0
+            return [0.0] * 4
 
         deltas = [cur_scores[i] - prev_scores[i] for i in range(4)]
         grp_features = {
@@ -140,8 +139,7 @@ class MahjongWorker:
             "ben": honba,
             "liqibang": riichi_sticks,
         }
-        pts, _ = self.reward_predictor.calc_pts_rewards([grp_features], pid)
-        return pts[0].detach().cpu().item()
+        return self.reward_predictor.calc_all_player_rewards(grp_features)
 
     def collect_episodes(self):
         """
@@ -176,9 +174,7 @@ class MahjongWorker:
         kyoku_start_scores = [list(env.scores()) for env in self.envs]
         kyoku_start_meta = [(env.round_wind, env.oya, env.honba, env.riichi_sticks)
                             for env in self.envs]
-        # GRP potential per player: expected pts at start of hanchan = mean(pts_weight) = 0.0
-        init_pts = float(np.mean(self.reward_predictor.pts_weight)) if self.reward_predictor else 0.0
-        prev_grp_pts = [[init_pts] * 4 for _ in range(self.num_envs)]
+        kyoku_count = [0] * self.num_envs  # for debug logging
 
         while any(active):
             # Collect observations from all active envs
@@ -275,16 +271,19 @@ class MahjongWorker:
                     cur_scores = list(env.scores())
                     ranks = _compute_ranks(cur_scores)
                     rw, oya, honba, rsticks = kyoku_start_meta[ei]
+                    # Compute absolute GRP rewards for all 4 players (matches CQL offline)
+                    all_rewards = self._compute_kyoku_rewards(
+                        kyoku_start_scores[ei], cur_scores, rw, oya, honba, rsticks)
                     for pid in range(4):
                         if kyoku_buffers[ei][pid]:
-                            cur_pts = self._compute_grp_expected_pts(
-                                kyoku_start_scores[ei], cur_scores,
-                                rw, oya, honba, rsticks, pid)
-                            reward = cur_pts - prev_grp_pts[ei][pid]
                             completed_kyokus[ei].append(
-                                (pid, kyoku_buffers[ei][pid], reward, ranks[pid]))
+                                (pid, kyoku_buffers[ei][pid], all_rewards[pid], ranks[pid]))
                             kyoku_buffers[ei][pid] = []
-                            prev_grp_pts[ei][pid] = cur_pts
+                    kyoku_count[ei] += 1
+                    # Debug: log first 3 kyokus of env 0
+                    if ei == 0 and kyoku_count[ei] <= 3:
+                        print(f"  [DEBUG] env0 kyoku {kyoku_count[ei]}: "
+                              f"rewards={[f'{r:.3f}' for r in all_rewards]}")
                     # Update tracking for next kyoku
                     prev_kyoku_idx[ei] = cur_kyoku_idx
                     kyoku_start_scores[ei] = cur_scores
@@ -296,14 +295,12 @@ class MahjongWorker:
                     cur_scores = list(env.scores())
                     ranks = _compute_ranks(cur_scores)
                     rw, oya, honba, rsticks = kyoku_start_meta[ei]
+                    all_rewards = self._compute_kyoku_rewards(
+                        kyoku_start_scores[ei], cur_scores, rw, oya, honba, rsticks)
                     for pid in range(4):
                         if kyoku_buffers[ei][pid]:
-                            cur_pts = self._compute_grp_expected_pts(
-                                kyoku_start_scores[ei], cur_scores,
-                                rw, oya, honba, rsticks, pid)
-                            reward = cur_pts - prev_grp_pts[ei][pid]
                             completed_kyokus[ei].append(
-                                (pid, kyoku_buffers[ei][pid], reward, ranks[pid]))
+                                (pid, kyoku_buffers[ei][pid], all_rewards[pid], ranks[pid]))
                             kyoku_buffers[ei][pid] = []
                     active[ei] = False
 
