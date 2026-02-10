@@ -71,6 +71,8 @@ def main():
         limit=cfg.limit,
         num_epochs=cfg.num_epochs,
         num_workers=cfg.num_workers,
+        weight_decay=cfg.weight_decay,
+        aux_weight=cfg.aux_weight,
         wandb_entity=cfg.wandb_entity,
         wandb_project=cfg.wandb_project,
         model_config=cfg.model.model_dump(),

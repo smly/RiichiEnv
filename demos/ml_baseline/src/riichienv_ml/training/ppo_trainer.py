@@ -119,6 +119,7 @@ def run_ppo_training(cfg):
         ppo_epochs=cfg.ppo_epochs,
         entropy_coef=cfg.entropy_coef,
         value_coef=cfg.value_coef,
+        weight_decay=cfg.weight_decay,
         model_config=model_config,
         model_class=cfg.model_class,
     )
@@ -131,8 +132,25 @@ def run_ppo_training(cfg):
         baseline_model = baseline_class(**model_config).to(cfg.device)
         state = torch.load(cfg.load_model, map_location=cfg.device)
         # Handle QNetwork -> ActorCriticNetwork mapping for baseline
+        has_a_head = any(k.startswith("a_head.") for k in state.keys())
+        has_v_head = any(k.startswith("v_head.") for k in state.keys())
         has_head = any(k.startswith("head.") for k in state.keys())
-        if has_head and not any(k.startswith("actor_head.") for k in state.keys()):
+
+        if has_a_head and has_v_head:
+            # New dueling QNetwork → ActorCritic: a_head→actor_head, v_head→critic_head
+            new_state = {}
+            for k, v in state.items():
+                if k.startswith("a_head."):
+                    new_state[k.replace("a_head.", "actor_head.")] = v
+                elif k.startswith("v_head."):
+                    new_state[k.replace("v_head.", "critic_head.")] = v
+                elif k.startswith("aux_head."):
+                    continue
+                else:
+                    new_state[k] = v
+            baseline_model.load_state_dict(new_state, strict=False)
+        elif has_head and not any(k.startswith("actor_head.") for k in state.keys()):
+            # Old QNetwork: head → actor_head
             new_state = {}
             for k, v in state.items():
                 if k.startswith("head."):

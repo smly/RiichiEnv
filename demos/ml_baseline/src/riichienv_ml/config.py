@@ -35,6 +35,7 @@ class ModelConfig(BaseModel):
     conv_channels: int = 128
     fc_dim: int = 256
     num_actions: int = 82
+    aux_dims: int | None = None
 
 
 class CqlConfig(BaseModel):
@@ -50,6 +51,8 @@ class CqlConfig(BaseModel):
     num_workers: int = 12
     limit: int = 3000000
     pts_weight: list[float] = [10.0, 4.0, -4.0, -10.0]
+    weight_decay: float = 0.0
+    aux_weight: float = 0.0
     wandb_entity: str = "smly"
     wandb_project: str = "riichienv-offline"
     model: ModelConfig = ModelConfig()
@@ -96,6 +99,8 @@ class OnlineConfig(BaseModel):
     gpu_per_worker: float = 0.1
     num_envs_per_worker: int = 16
     gamma: float = 0.99
+    weight_decay: float = 0.0
+    aux_weight: float = 0.0
     checkpoint_dir: str = "checkpoints"
     wandb_project: str = "riichienv-online"
     model: ModelConfig = ModelConfig()

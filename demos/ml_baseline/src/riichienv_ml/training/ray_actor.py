@@ -9,6 +9,12 @@ from riichienv_ml.config import import_class
 from riichienv_ml.models.grp_model import RewardPredictor
 
 
+def _compute_ranks(scores: list) -> list[int]:
+    """Compute ranks (0=1st, 3=4th) from scores for all 4 players."""
+    arr = np.array(scores, dtype=np.float64)
+    return (-arr).argsort(kind='stable').argsort(kind='stable').tolist()
+
+
 def sample_top_p(logits, p):
     """Nucleus (top-p) sampling from logits."""
     if p >= 1:
@@ -267,6 +273,7 @@ class MahjongWorker:
                 cur_kyoku_idx = env.kyoku_idx
                 if cur_kyoku_idx != prev_kyoku_idx[ei]:
                     cur_scores = list(env.scores())
+                    ranks = _compute_ranks(cur_scores)
                     rw, oya, honba, rsticks = kyoku_start_meta[ei]
                     for pid in range(4):
                         if kyoku_buffers[ei][pid]:
@@ -275,7 +282,7 @@ class MahjongWorker:
                                 rw, oya, honba, rsticks, pid)
                             reward = cur_pts - prev_grp_pts[ei][pid]
                             completed_kyokus[ei].append(
-                                (pid, kyoku_buffers[ei][pid], reward))
+                                (pid, kyoku_buffers[ei][pid], reward, ranks[pid]))
                             kyoku_buffers[ei][pid] = []
                             prev_grp_pts[ei][pid] = cur_pts
                     # Update tracking for next kyoku
@@ -287,6 +294,7 @@ class MahjongWorker:
                 if env.done():
                     # Flush remaining kyoku buffer (final kyoku of the hanchan)
                     cur_scores = list(env.scores())
+                    ranks = _compute_ranks(cur_scores)
                     rw, oya, honba, rsticks = kyoku_start_meta[ei]
                     for pid in range(4):
                         if kyoku_buffers[ei][pid]:
@@ -295,7 +303,7 @@ class MahjongWorker:
                                 rw, oya, honba, rsticks, pid)
                             reward = cur_pts - prev_grp_pts[ei][pid]
                             completed_kyokus[ei].append(
-                                (pid, kyoku_buffers[ei][pid], reward))
+                                (pid, kyoku_buffers[ei][pid], reward, ranks[pid]))
                             kyoku_buffers[ei][pid] = []
                     active[ei] = False
 
@@ -318,7 +326,7 @@ class MahjongWorker:
             episode_rewards.append(final_reward)
             episode_ranks.append(rank)
 
-            for pid, traj, kyoku_reward in completed_kyokus[ei]:
+            for pid, traj, kyoku_reward, kyoku_rank in completed_kyokus[ei]:
                 T = len(traj)
                 if T == 0:
                     continue
@@ -330,6 +338,7 @@ class MahjongWorker:
                     decayed_return = kyoku_reward * (self.gamma ** (T - t - 1))
                     step["reward"] = np.array(decayed_return, dtype=np.float32)
                     step["done"] = bool(t == T - 1)
+                    step["rank"] = kyoku_rank
                     transitions.append(step)
 
         # Worker-level stats

@@ -10,6 +10,12 @@ from riichienv import MjSoulReplay
 from mjsoul_parser.parse import MjsoulPaifuParser
 
 
+def _compute_rank(end_scores: list, player_id: int) -> int:
+    """Compute rank (0=1st, 3=4th) from end-of-kyoku scores."""
+    scores = np.array(end_scores, dtype=np.float64)
+    return int((-scores).argsort(kind='stable').argsort(kind='stable')[player_id])
+
+
 class GrpFeatureEncoder:
     def __init__(self, kyoku):
         self.kyoku = kyoku
@@ -96,9 +102,13 @@ class MCDataset(BaseDataset):
                     assert self.reward_predictor is not None
                     all_rewards = self.reward_predictor.calc_all_player_rewards(grp_features)
 
+                    # Compute rank (0=1st, 3=4th) from end-of-kyoku scores
+                    end_scores = [grp_features[f"p{i}_end_score"] for i in range(4)]
+
                     for player_id in range(4):
                         trajectory = []
                         final_reward = all_rewards[player_id]
+                        rank = _compute_rank(end_scores, player_id)
 
                         # Collect Trajectory
                         for obs, action in kyoku.steps(player_id):
@@ -116,7 +126,7 @@ class MCDataset(BaseDataset):
                         for t, (feat, act, mask) in enumerate(trajectory):
                             # Decayed Reward: R * gamma^(T-t-1)
                             decayed = final_reward * (self.gamma ** (T - t - 1))
-                            buffer.append((feat, act, decayed, mask))
+                            buffer.append((feat, act, decayed, mask, rank))
             except RuntimeError as e:
                 print(f"Error processing paifu: {file_path}")
                 raise e

@@ -105,6 +105,8 @@ def run_training(cfg):
         alpha_cql_init=cfg.alpha_cql_init,
         alpha_cql_final=cfg.alpha_cql_final,
         gamma=cfg.gamma,
+        weight_decay=cfg.weight_decay,
+        aux_weight=cfg.aux_weight,
         model_config=model_config,
         model_class=cfg.model_class,
     )

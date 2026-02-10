@@ -18,22 +18,25 @@ cql:
   device: cuda
   batch_size: 128
   lr: 5e-4
-  alpha: 0.1
-  gamma: 0.97
+  alpha: 5.0
+  gamma: 1.0
   num_epochs: 10
   num_workers: 12
-  limit: 500000  # 500k samples
-  pts_weight: [10.0, 4.0, -4.0, -10.0]
+  limit: 2000000
+  pts_weight: [6.0, 4.0, 2.0, 0.0]
+  weight_decay: 0.1
+  aux_weight: 0.2
   wandb_entity: smly
   wandb_project: riichienv-offline
   model_class: riichienv_ml.models.cql_model.QNetwork
   dataset_class: riichienv_ml.data.cql_dataset.DiscardHistoryShantenDataset
   model:
     in_channels: 94
-    num_blocks: 8
-    conv_channels: 128
-    fc_dim: 256
+    num_blocks: 16
+    conv_channels: 192
+    fc_dim: 512
     num_actions: 82
+    aux_dims: 4
 
 online:
   algorithm: ppo
@@ -44,7 +47,7 @@ online:
   num_workers: 12
   num_steps: 2000
   lr: 1e-4
-  gamma: 0.97
+  gamma: 1.0
   # PPO params
   ppo_clip: 0.1
   ppo_epochs: 4
@@ -53,7 +56,9 @@ online:
   value_coef: 0.5
   # GRP reward shaping (per-kyoku reward)
   grp_model: /data/workspace/riichienv/baseline/grp_model.pth
-  pts_weight: [10.0, 4.0, -4.0, -10.0]
+  pts_weight: [6.0, 4.0, 2.0, 0.0]
+  weight_decay: 0.1
+  aux_weight: 0.2
   # Common
   eval_interval: 10
   worker_device: cuda
@@ -63,7 +68,8 @@ online:
   wandb_project: riichienv-online
   model:
     in_channels: 94
-    num_blocks: 8
-    conv_channels: 128
-    fc_dim: 256
+    num_blocks: 16
+    conv_channels: 192
+    fc_dim: 512
     num_actions: 82
+    aux_dims: 4

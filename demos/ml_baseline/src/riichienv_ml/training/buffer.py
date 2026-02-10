@@ -35,13 +35,20 @@ class GlobalReplayBuffer:
             "done": np.array([t["done"] for t in transitions], dtype=bool),
         }
 
-        batch = TensorDict({
+        td = {
             "features": torch.from_numpy(features),
             "mask": torch.from_numpy(batch_data["mask"]),
             "action": torch.from_numpy(batch_data["action"]),
             "reward": torch.from_numpy(batch_data["reward"]),
             "done": torch.from_numpy(batch_data["done"]),
-        }, batch_size=[batch_size])
+        }
+
+        # Optional rank field for auxiliary loss
+        if "rank" in transitions[0]:
+            td["rank"] = torch.from_numpy(
+                np.array([t["rank"] for t in transitions], dtype=np.int64))
+
+        batch = TensorDict(td, batch_size=[batch_size])
 
         self.buffer.extend(batch)
 

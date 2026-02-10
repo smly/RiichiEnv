@@ -17,6 +17,7 @@ class PPOLearner:
                  entropy_coef: float = 0.01,
                  value_coef: float = 0.5,
                  max_grad_norm: float = 0.5,
+                 weight_decay: float = 0.0,
                  model_config: dict | None = None,
                  model_class: str = "riichienv_ml.models.actor_critic.ActorCriticNetwork"):
 
@@ -33,7 +34,7 @@ class PPOLearner:
         ModelClass = import_class(model_class)
         self.model = ModelClass(**mc).to(self.device)
 
-        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
         self.total_steps = 0
 
     def get_weights(self):
@@ -45,13 +46,30 @@ class PPOLearner:
 
         has_actor = any(k.startswith("actor_head.") for k in state.keys())
         has_critic = any(k.startswith("critic_head.") for k in state.keys())
+        has_v_head = any(k.startswith("v_head.") for k in state.keys())
+        has_a_head = any(k.startswith("a_head.") for k in state.keys())
 
         if has_actor and has_critic:
             # Native ActorCriticNetwork checkpoint
             missing, unexpected = self.model.load_state_dict(state, strict=False)
             logger.info(f"Loaded ActorCriticNetwork weights from {path}")
+        elif has_v_head and has_a_head:
+            # New dueling QNetwork: a_head -> actor_head, v_head -> critic_head
+            new_state = {}
+            for k, v in state.items():
+                if k.startswith("a_head."):
+                    new_state[k.replace("a_head.", "actor_head.")] = v
+                elif k.startswith("v_head."):
+                    new_state[k.replace("v_head.", "critic_head.")] = v
+                elif k.startswith("aux_head."):
+                    continue  # skip aux_head
+                else:
+                    new_state[k] = v
+            missing, unexpected = self.model.load_state_dict(new_state, strict=False)
+            logger.info(f"Loaded dueling QNetwork weights from {path} "
+                        f"(a_head -> actor_head, v_head -> critic_head)")
         elif any(k.startswith("head.") for k in state.keys()):
-            # QNetwork checkpoint: map head -> actor_head, init critic_head randomly
+            # Old QNetwork checkpoint: map head -> actor_head, init critic_head randomly
             new_state = {}
             for k, v in state.items():
                 if k.startswith("head."):
