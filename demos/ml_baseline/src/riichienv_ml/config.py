@@ -74,6 +74,8 @@ class OnlineConfig(BaseModel):
     # DQN-specific params
     alpha_cql_init: float = 1.0
     alpha_cql_final: float = 0.1
+    alpha_kl: float = 0.0
+    alpha_kl_warmup_steps: int = 0
     # Exploration strategy (DQN only): "epsilon_greedy" or "boltzmann"
     exploration: Literal["epsilon_greedy", "boltzmann"] = "boltzmann"
     # epsilon-greedy params
@@ -91,6 +93,8 @@ class OnlineConfig(BaseModel):
     gae_lambda: float = 0.95
     entropy_coef: float = 0.01
     value_coef: float = 0.5
+    # Target network (for TD target computation)
+    target_update_freq: int = 2000
     # Common params
     eval_interval: int = 2000
     eval_episodes: int = 100
@@ -106,6 +110,8 @@ class OnlineConfig(BaseModel):
     model: ModelConfig = ModelConfig()
     model_class: str = "riichienv_ml.models.cql_model.QNetwork"
     encoder_class: str = "riichienv_ml.data.cql_dataset.ObservationEncoder"
+    # Data collection
+    collect_hero_only: bool = False  # True: only hero transitions, False: all 4 players
     # GRP reward shaping (per-kyoku reward)
     grp_model: str | None = None
     pts_weight: list[float] = [10.0, 4.0, -4.0, -10.0]

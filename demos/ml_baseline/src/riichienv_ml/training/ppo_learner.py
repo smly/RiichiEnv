@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from loguru import logger
 
@@ -18,6 +19,8 @@ class PPOLearner:
                  value_coef: float = 0.5,
                  max_grad_norm: float = 0.5,
                  weight_decay: float = 0.0,
+                 alpha_kl: float = 0.0,
+                 alpha_kl_warmup_steps: int = 0,
                  model_config: dict | None = None,
                  model_class: str = "riichienv_ml.models.actor_critic.ActorCriticNetwork"):
 
@@ -29,10 +32,20 @@ class PPOLearner:
         self.entropy_coef = entropy_coef
         self.value_coef = value_coef
         self.max_grad_norm = max_grad_norm
+        self.alpha_kl = alpha_kl
+        self.alpha_kl_warmup_steps = alpha_kl_warmup_steps
 
         mc = model_config or {}
         ModelClass = import_class(model_class)
         self.model = ModelClass(**mc).to(self.device)
+
+        # Frozen reference model for KL regularization (prevents policy drift)
+        self.ref_model = None
+        if alpha_kl > 0:
+            self.ref_model = ModelClass(**mc).to(self.device)
+            self.ref_model.eval()
+            for p in self.ref_model.parameters():
+                p.requires_grad = False
 
         self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
         self.total_steps = 0
@@ -88,6 +101,11 @@ class PPOLearner:
         if unexpected:
             logger.warning(f"Unexpected keys: {unexpected}")
 
+        # Copy loaded weights to frozen reference model for KL regularization
+        if self.ref_model is not None:
+            self.ref_model.load_state_dict(self.model.state_dict())
+            logger.info("Loaded reference model for KL regularization (frozen)")
+
     def update(self, rollout_batch: dict) -> dict:
         """
         PPO update over a batch of on-policy trajectory data.
@@ -135,6 +153,7 @@ class PPOLearner:
             "ratio/std": 0.0,
             "ratio/max": 0.0,
             "kl/max": 0.0,
+            "kl_ref": 0.0,
             "value/predicted_mean": 0.0,
             "grad_norm": 0.0,
         }
@@ -181,8 +200,26 @@ class PPOLearner:
                 # Value loss
                 value_loss = nn.functional.mse_loss(values, batch_returns)
 
+                # KL regularization to pretrained policy (prevents entropy drift)
+                kl_ref_val = 0.0
+                kl_ref_loss = 0.0
+                effective_kl = self.alpha_kl
+                if self.alpha_kl_warmup_steps > 0:
+                    effective_kl = self.alpha_kl * min(1.0, self.total_steps / self.alpha_kl_warmup_steps)
+                if self.ref_model is not None and effective_kl > 0:
+                    with torch.no_grad():
+                        ref_logits, _ = self.ref_model(batch_features)
+                        ref_logits = ref_logits.masked_fill(~mask_bool, -1e9)
+                    # KL(π_current || π_ref) over legal actions
+                    ref_log_probs = F.log_softmax(ref_logits, dim=-1)
+                    kl_per_action = probs * (log_probs_all - ref_log_probs)
+                    kl_per_action = kl_per_action.masked_fill(~mask_bool, 0.0)
+                    kl_ref_term = kl_per_action.sum(dim=-1).mean()
+                    kl_ref_val = kl_ref_term.item()
+                    kl_ref_loss = effective_kl * kl_ref_term
+
                 # Total loss
-                loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
+                loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy + kl_ref_loss
 
                 if torch.isnan(loss):
                     continue
@@ -204,6 +241,7 @@ class PPOLearner:
                 total_metrics["loss"] += loss.item()
                 total_metrics["approx_kl"] += approx_kl
                 total_metrics["clip_frac"] += clip_frac
+                total_metrics["kl_ref"] += kl_ref_val
                 total_metrics["ratio/mean"] += ratio.mean().item()
                 total_metrics["ratio/std"] += ratio.std().item()
                 total_metrics["ratio/max"] = max(total_metrics["ratio/max"], ratio.max().item())
@@ -214,7 +252,8 @@ class PPOLearner:
         # Average across all mini-batches
         num_batches = self.ppo_epochs * max(1, (N + 127) // 128)
         avg_keys = ["policy_loss", "value_loss", "entropy", "loss", "approx_kl",
-                     "clip_frac", "ratio/mean", "ratio/std", "value/predicted_mean", "grad_norm"]
+                     "clip_frac", "ratio/mean", "ratio/std", "value/predicted_mean", "grad_norm",
+                     "kl_ref"]
         for k in avg_keys:
             total_metrics[k] /= num_batches
 

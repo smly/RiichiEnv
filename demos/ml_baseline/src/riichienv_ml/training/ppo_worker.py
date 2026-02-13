@@ -304,7 +304,13 @@ class PPOWorker:
                     active[ei] = False
 
         # Compute GAE advantages per kyoku
-        transitions = []
+        # Collect into lists for efficient batching (reduces Ray serialization overhead)
+        feat_list = []
+        mask_list = []
+        action_list = []
+        log_prob_list = []
+        advantage_list = []
+        return_list = []
         episode_rewards = []
         episode_ranks = []
         kyoku_lengths = []
@@ -352,14 +358,26 @@ class PPOWorker:
                     returns[t] = gae + values[t]
 
                 for t, step in enumerate(traj):
-                    transitions.append({
-                        "features": step["features"],
-                        "mask": step["mask"],
-                        "action": step["action"],
-                        "log_prob": step["log_prob"],
-                        "advantage": np.float32(advantages[t]),
-                        "return": np.float32(returns[t]),
-                    })
+                    feat_list.append(step["features"])
+                    mask_list.append(step["mask"])
+                    action_list.append(step["action"])
+                    log_prob_list.append(step["log_prob"])
+                    advantage_list.append(advantages[t])
+                    return_list.append(returns[t])
+
+        # Pre-batch into contiguous arrays (much faster Ray serialization)
+        n_transitions = len(feat_list)
+        if n_transitions > 0:
+            transitions = {
+                "features": np.stack(feat_list),
+                "mask": np.stack(mask_list),
+                "action": np.array(action_list, dtype=np.int64),
+                "log_prob": np.array(log_prob_list, dtype=np.float32),
+                "advantage": np.array(advantage_list, dtype=np.float32),
+                "return": np.array(return_list, dtype=np.float32),
+            }
+        else:
+            transitions = {}
 
         # Worker-level stats
         stats = {}
@@ -377,9 +395,117 @@ class PPOWorker:
 
         t_end = time.time()
         episode_time = t_end - t_start
-        if transitions:
+        if n_transitions > 0:
             logger.info(f"Worker {self.worker_id}: {self.num_envs} hanchan, "
                         f"{len(kyoku_lengths)} kyokus took {episode_time:.3f}s, "
-                        f"{len(transitions)} transitions, {len(transitions)/episode_time:.1f} trans/s")
+                        f"{n_transitions} transitions, {n_transitions/episode_time:.1f} trans/s")
 
         return transitions, stats
+
+    def evaluate_episodes(self):
+        """
+        Runs num_envs hanchan games: hero (player 0, greedy) vs frozen
+        baseline (players 1-3, greedy). Returns list of (reward, rank) tuples.
+        """
+        if not self._compiled_warmup:
+            self._warmup_compile()
+
+        obs_dicts = [
+            env.reset(scores=[25000, 25000, 25000, 25000],
+                      bakaze=0, oya=0, honba=0, kyotaku=0)
+            for env in self.envs
+        ]
+        active = [True] * self.num_envs
+
+        while any(active):
+            hero_items = []
+            opp_items = []
+
+            for ei in range(self.num_envs):
+                if not active[ei]:
+                    continue
+                for pid, obs in obs_dicts[ei].items():
+                    la = obs.legal_actions()
+                    if la:
+                        if pid == 0:
+                            hero_items.append((ei, obs, la))
+                        else:
+                            opp_items.append((ei, pid, obs, la))
+
+            if not hero_items and not opp_items:
+                for ei in range(self.num_envs):
+                    if active[ei] and self.envs[ei].done():
+                        active[ei] = False
+                break
+
+            env_steps = {ei: {} for ei in range(self.num_envs)}
+
+            # Hero inference (greedy argmax on logits)
+            if hero_items:
+                feat_list = [self.encoder.encode(obs) for _, obs, _ in hero_items]
+                mask_list = [torch.from_numpy(
+                    np.frombuffer(obs.mask(), dtype=np.uint8).copy())
+                    for _, obs, _ in hero_items]
+
+                feat_batch = torch.stack(feat_list).to(self.device)
+                mask_batch = torch.stack(mask_list).to(self.device)
+
+                with torch.no_grad():
+                    logits, _ = self.model(feat_batch)
+                    logits = logits.masked_fill(~mask_batch.bool(), -1e9)
+                    actions = logits.argmax(dim=1)
+
+                actions_cpu = actions.cpu().numpy()
+                for idx, (ei, obs, la) in enumerate(hero_items):
+                    action_idx = int(actions_cpu[idx])
+                    found_action = obs.find_action(action_idx)
+                    if found_action is None:
+                        found_action = la[0]
+                    env_steps[ei][0] = found_action
+
+            # Opponent inference (frozen baseline, greedy argmax)
+            if opp_items:
+                feat_list = [self.encoder.encode(obs) for _, _, obs, _ in opp_items]
+                mask_list = [torch.from_numpy(
+                    np.frombuffer(obs.mask(), dtype=np.uint8).copy())
+                    for _, _, obs, _ in opp_items]
+
+                feat_batch = torch.stack(feat_list).to(self.device)
+                mask_batch = torch.stack(mask_list).to(self.device)
+
+                with torch.no_grad():
+                    output = self.baseline_model(feat_batch)
+                    if isinstance(output, tuple):
+                        opp_logits = output[0]
+                    else:
+                        opp_logits = output
+                    opp_logits = opp_logits.masked_fill(~mask_batch.bool(), -1e9)
+                    opp_actions = opp_logits.argmax(dim=1)
+
+                opp_actions_cpu = opp_actions.cpu().numpy()
+                for idx, (ei, pid, obs, la) in enumerate(opp_items):
+                    action_idx = int(opp_actions_cpu[idx])
+                    found_action = obs.find_action(action_idx)
+                    if found_action is None:
+                        found_action = la[0]
+                    env_steps[ei][pid] = found_action
+
+            for ei in range(self.num_envs):
+                if not active[ei]:
+                    continue
+                if env_steps[ei]:
+                    obs_dicts[ei] = self.envs[ei].step(env_steps[ei])
+                if self.envs[ei].done():
+                    active[ei] = False
+
+        results = []
+        for ei in range(self.num_envs):
+            ranks = self.envs[ei].ranks()
+            rank = ranks[0]
+            reward = 0.0
+            if rank == 1: reward = 10.0
+            elif rank == 2: reward = 4.0
+            elif rank == 3: reward = -4.0
+            elif rank == 4: reward = -10.0
+            results.append((reward, rank))
+        return results

@@ -91,18 +91,36 @@ class QNetwork(nn.Module):
         # Auxiliary head (rank prediction)
         self.aux_head = nn.Linear(fc_dim, aux_dims) if aux_dims else None
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _compute_q(self, v: torch.Tensor, a: torch.Tensor,
+                   mask: torch.Tensor | None = None) -> torch.Tensor:
+        """Dueling DQN: q = v + a - mean(a).
+
+        When mask is provided (online DQN), mean is computed only over legal
+        actions (Mortal-style). Without mask (offline CQL), uses the full mean
+        for backward compatibility.
+        """
+        if mask is not None:
+            mask_bool = mask.bool() if mask.dtype != torch.bool else mask
+            a_masked = a.masked_fill(~mask_bool, 0.0)
+            a_mean = a_masked.sum(dim=-1, keepdim=True) / mask_bool.sum(dim=-1, keepdim=True).clamp(min=1)
+            q = v + a - a_mean
+            q = q.masked_fill(~mask_bool, -torch.inf)
+        else:
+            q = v + a - a.mean(dim=-1, keepdim=True)
+        return q
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         features = self.backbone(x)
         v = self.v_head(features)       # (B, 1)
         a = self.a_head(features)       # (B, num_actions)
-        q = v + a - a.mean(dim=-1, keepdim=True)
-        return q
+        return self._compute_q(v, a, mask)
 
-    def forward_with_aux(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None]:
+    def forward_with_aux(self, x: torch.Tensor,
+                         mask: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Returns (q_values, aux_logits). aux_logits is None if no aux_head."""
         features = self.backbone(x)
         v = self.v_head(features)
         a = self.a_head(features)
-        q = v + a - a.mean(dim=-1, keepdim=True)
+        q = self._compute_q(v, a, mask)
         aux = self.aux_head(features) if self.aux_head is not None else None
         return q, aux

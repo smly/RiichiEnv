@@ -1,5 +1,12 @@
 """
 Online PPO Trainer with Ray distributed workers.
+
+Synchronous on-policy loop:
+  1. All workers collect episodes in parallel
+  2. Wait for all workers to finish
+  3. Concatenate transitions, run PPO update (multiple epochs)
+  4. Sync weights to all workers
+  5. Repeat
 """
 import sys
 import os
@@ -9,89 +16,51 @@ import wandb
 import numpy as np
 import torch
 from loguru import logger
-from riichienv import RiichiEnv
 
-from riichienv_ml.config import import_class
 from riichienv_ml.training.ppo_worker import PPOWorker
 from riichienv_ml.training.ppo_learner import PPOLearner
 
 
-def evaluate_vs_baseline(hero_model, baseline_model, device, encoder, num_episodes=100):
+def evaluate_parallel(workers, hero_weights, baseline_weights, num_episodes):
     """
-    Evaluates Hero Model (Player 0) vs Baseline Model (Players 1-3).
-    Hero uses ActorCriticNetwork (greedy argmax on logits).
-    Baseline uses QNetwork (greedy argmax on Q-values).
-    Returns (mean_reward, mean_rank, rank_standard_error).
+    Evaluates hero vs baseline using all workers in parallel.
+    Returns (mean_reward, mean_rank, rank_se).
     """
-    hero_rewards = []
-    hero_ranks = []
+    hero_ref = ray.put(hero_weights)
+    baseline_ref = ray.put(baseline_weights)
+    ray.get([w.update_weights.remote(hero_ref) for w in workers])
+    ray.get([w.update_baseline_weights.remote(baseline_ref) for w in workers])
 
-    hero_model.eval()
-    baseline_model.eval()
+    eval_futures = [w.evaluate_episodes.remote() for w in workers]
+    eval_results = ray.get(eval_futures)
 
-    for _ in range(num_episodes):
-        env = RiichiEnv(game_mode="4p-red-half")
-        obs_dict = env.reset()
+    all_rewards = []
+    all_ranks = []
+    for worker_results in eval_results:
+        for reward, rank in worker_results:
+            all_rewards.append(reward)
+            all_ranks.append(rank)
+            if len(all_rewards) >= num_episodes:
+                break
+        if len(all_rewards) >= num_episodes:
+            break
 
-        while not env.done():
-            steps = {}
-            for pid, obs in obs_dict.items():
-                feat = encoder.encode(obs)
-                mask = np.frombuffer(obs.mask(), dtype=np.uint8).copy()
+    all_rewards = all_rewards[:num_episodes]
+    all_ranks = all_ranks[:num_episodes]
 
-                feat_t = feat.to(device).unsqueeze(0)
-                mask_t = torch.from_numpy(mask).to(device).unsqueeze(0)
+    mean_reward = float(np.mean(all_rewards))
+    mean_rank = float(np.mean(all_ranks))
+    rank_se = float(np.std(all_ranks) / np.sqrt(len(all_ranks)))
 
-                with torch.no_grad():
-                    if pid == 0:
-                        # Hero: ActorCriticNetwork
-                        output = hero_model(feat_t)
-                        if isinstance(output, tuple):
-                            logits = output[0]
-                        else:
-                            logits = output
-                        logits = logits.masked_fill(mask_t == 0, -1e9)
-                        action_idx = logits.argmax(dim=1).item()
-                    else:
-                        # Baseline: QNetwork or ActorCriticNetwork
-                        output = baseline_model(feat_t)
-                        if isinstance(output, tuple):
-                            q_values = output[0]
-                        else:
-                            q_values = output
-                        q_values = q_values.masked_fill(mask_t == 0, -1e9)
-                        action_idx = q_values.argmax(dim=1).item()
-
-                found_action = obs.find_action(action_idx)
-                if found_action is None:
-                    found_action = obs.legal_actions()[0]
-
-                steps[pid] = found_action
-
-            obs_dict = env.step(steps)
-
-        ranks = env.ranks()
-        rank = ranks[0]
-        reward = 0.0
-        if rank == 1: reward = 10.0
-        elif rank == 2: reward = 4.0
-        elif rank == 3: reward = -4.0
-        elif rank == 4: reward = -10.0
-
-        hero_rewards.append(reward)
-        hero_ranks.append(rank)
-
-    rank_se = np.std(hero_ranks) / np.sqrt(num_episodes)
-    return np.mean(hero_rewards), np.mean(hero_ranks), rank_se
+    return mean_reward, mean_rank, rank_se
 
 
 def run_ppo_training(cfg):
     """
     Main online PPO training loop.
 
-    Key difference from DQN: on-policy training. Workers collect trajectories,
-    learner trains on them immediately (no replay buffer), then workers collect
-    new trajectories with updated policy.
+    Args:
+        cfg: OnlineConfig pydantic model.
     """
     python_path = ":".join(sys.path)
     src_dir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
@@ -108,7 +77,6 @@ def run_ppo_training(cfg):
     ray.init(runtime_env=runtime_env, ignore_reinit_error=True)
 
     model_config = cfg.model.model_dump()
-    encoder = import_class(cfg.encoder_class)
 
     learner = PPOLearner(
         device=cfg.device,
@@ -119,49 +87,16 @@ def run_ppo_training(cfg):
         ppo_epochs=cfg.ppo_epochs,
         entropy_coef=cfg.entropy_coef,
         value_coef=cfg.value_coef,
+        max_grad_norm=cfg.max_grad_norm,
         weight_decay=cfg.weight_decay,
+        alpha_kl=cfg.alpha_kl,
+        alpha_kl_warmup_steps=cfg.alpha_kl_warmup_steps,
         model_config=model_config,
         model_class=cfg.model_class,
     )
 
-    baseline_model = None
     if cfg.load_model:
         learner.load_weights(cfg.load_model)
-        # Load baseline for evaluation
-        baseline_class = import_class(cfg.model_class)
-        baseline_model = baseline_class(**model_config).to(cfg.device)
-        state = torch.load(cfg.load_model, map_location=cfg.device)
-        # Handle QNetwork -> ActorCriticNetwork mapping for baseline
-        has_a_head = any(k.startswith("a_head.") for k in state.keys())
-        has_v_head = any(k.startswith("v_head.") for k in state.keys())
-        has_head = any(k.startswith("head.") for k in state.keys())
-
-        if has_a_head and has_v_head:
-            # New dueling QNetwork → ActorCritic: a_head→actor_head, v_head→critic_head
-            new_state = {}
-            for k, v in state.items():
-                if k.startswith("a_head."):
-                    new_state[k.replace("a_head.", "actor_head.")] = v
-                elif k.startswith("v_head."):
-                    new_state[k.replace("v_head.", "critic_head.")] = v
-                elif k.startswith("aux_head."):
-                    continue
-                else:
-                    new_state[k] = v
-            baseline_model.load_state_dict(new_state, strict=False)
-        elif has_head and not any(k.startswith("actor_head.") for k in state.keys()):
-            # Old QNetwork: head → actor_head
-            new_state = {}
-            for k, v in state.items():
-                if k.startswith("head."):
-                    new_state[k.replace("head.", "actor_head.")] = v
-                else:
-                    new_state[k] = v
-            baseline_model.load_state_dict(new_state, strict=False)
-        else:
-            baseline_model.load_state_dict(state, strict=False)
-        baseline_model.eval()
-        logger.info(f"Loaded baseline model from {cfg.load_model}")
 
     worker_kwargs = dict(
         gamma=cfg.gamma,
@@ -187,11 +122,14 @@ def run_ppo_training(cfg):
         ]
 
     # Initial Weight Sync (hero = current policy, baseline = frozen opponents)
-    weights = {k: v.cpu() for k, v in learner.get_weights().items()}
-    weight_ref = ray.put(weights)
+    hero_weights = {k: v.cpu() for k, v in learner.get_weights().items()}
+    baseline_weights = {k: v.cpu() for k, v in learner.get_weights().items()}
+    hero_ref = ray.put(hero_weights)
+    baseline_ref = ray.put(baseline_weights)
+
     for w in workers:
-        w.update_weights.remote(weight_ref)
-        w.update_baseline_weights.remote(weight_ref)
+        w.update_weights.remote(hero_ref)
+        w.update_baseline_weights.remote(baseline_ref)
 
     step = 0
     episodes = 0
@@ -199,51 +137,53 @@ def run_ppo_training(cfg):
 
     os.makedirs(cfg.checkpoint_dir, exist_ok=True)
 
-    # Dry Run Evaluation
-    if baseline_model is not None:
-        logger.info(f"Running dry-run evaluation ({cfg.eval_episodes} episodes)...")
-        try:
-            evaluate_vs_baseline(learner.model, baseline_model, cfg.device, encoder,
-                                 num_episodes=cfg.eval_episodes)
-            logger.info("Dry-run evaluation passed.")
-        except Exception as e:
-            logger.error(f"Dry-run evaluation failed: {e}")
-            raise e
+    # Dry Run Evaluation (parallel)
+    logger.info(f"Running dry-run evaluation ({cfg.eval_episodes} episodes, parallel)...")
+    try:
+        eval_reward, eval_rank, eval_rank_se = evaluate_parallel(
+            workers, hero_weights, baseline_weights,
+            num_episodes=cfg.eval_episodes)
+        logger.info(f"Dry-run evaluation passed: Reward={eval_reward:.2f}, "
+                     f"Rank={eval_rank:.2f}\u00b1{eval_rank_se:.2f}")
+    except Exception as e:
+        logger.error(f"Dry-run evaluation failed: {e}")
+        raise e
 
-    num_workers = cfg.num_workers
-    total_envs = num_workers * cfg.num_envs_per_worker
+    total_envs = cfg.num_workers * cfg.num_envs_per_worker
 
     try:
         while step < cfg.num_steps:
-            # === Phase 1: Dispatch all workers with current policy ===
+            # === 1. Dispatch collect_episodes to ALL workers ===
             futures = [w.collect_episodes.remote() for w in workers]
 
-            # === Phase 2: Wait for ALL workers to finish ===
+            # === 2. Wait for ALL workers to complete ===
             all_results = ray.get(futures)
 
-            # === Phase 3: Aggregate all transitions and worker stats ===
-            all_transitions = []
+            # === 3. Aggregate transitions and worker stats ===
+            batch_parts = []
             worker_stats_list = []
             for transitions, stats in all_results:
-                all_transitions.extend(transitions)
+                if transitions:
+                    batch_parts.append(transitions)
                 if stats:
                     worker_stats_list.append(stats)
             episodes += total_envs
 
-            if not all_transitions:
+            if not batch_parts:
                 continue
 
-            n_trans = len(all_transitions)
+            # Concatenate pre-batched arrays from all workers
             rollout_batch = {
-                "features": torch.from_numpy(np.stack([t["features"] for t in all_transitions])),
-                "masks": torch.from_numpy(np.stack([t["mask"] for t in all_transitions])),
-                "actions": torch.from_numpy(np.array([t["action"] for t in all_transitions])),
-                "old_log_probs": torch.from_numpy(np.array([t["log_prob"] for t in all_transitions], dtype=np.float32)),
-                "advantages": torch.from_numpy(np.array([t["advantage"] for t in all_transitions], dtype=np.float32)),
-                "returns": torch.from_numpy(np.array([t["return"] for t in all_transitions], dtype=np.float32)),
+                "features": torch.from_numpy(np.concatenate([b["features"] for b in batch_parts])),
+                "masks": torch.from_numpy(np.concatenate([b["mask"] for b in batch_parts])),
+                "actions": torch.from_numpy(np.concatenate([b["action"] for b in batch_parts])),
+                "old_log_probs": torch.from_numpy(np.concatenate([b["log_prob"] for b in batch_parts])),
+                "advantages": torch.from_numpy(np.concatenate([b["advantage"] for b in batch_parts])),
+                "returns": torch.from_numpy(np.concatenate([b["return"] for b in batch_parts])),
             }
+            n_trans = len(rollout_batch["actions"])
 
-            # === Phase 4: PPO update on the full batch ===
+            # === 4. PPO update on the full batch ===
             metrics = learner.update(rollout_batch)
             step += 1
 
@@ -258,6 +198,7 @@ def run_ppo_training(cfg):
                 f"Step {step}: loss={metrics['loss']:.4f}, "
                 f"pi={metrics['policy_loss']:.4f}, v={metrics['value_loss']:.4f}, "
                 f"ent={metrics['entropy']:.4f}, kl={metrics['approx_kl']:.4f}, "
+                f"kl_ref={metrics.get('kl_ref', 0):.4f}, "
                 f"clip={metrics['clip_frac']:.3f}, "
                 f"adv={metrics.get('adv/raw_mean', 0):.3f}\u00b1{metrics.get('adv/raw_std', 0):.3f}, "
                 f"ret={metrics.get('return/mean', 0):.3f}, "
@@ -266,8 +207,8 @@ def run_ppo_training(cfg):
             )
             if worker_stats_list:
                 log_msg += (
-                    f", rew={metrics.get('rollout/reward_mean', 0):.2f}, "
-                    f"rank={metrics.get('rollout/rank_mean', 0):.2f}"
+                    f", rew={metrics.get('rollout/reward_mean', 0):.2f}"
+                    f", rank={metrics.get('rollout/rank_mean', 0):.2f}"
                 )
                 if "rollout/kyoku_reward_mean" in metrics:
                     log_msg += (
@@ -278,7 +219,7 @@ def run_ppo_training(cfg):
             logger.info(log_msg)
             wandb.log(metrics, step=step)
 
-            # Periodic Evaluation & Snapshot
+            # === 5. Periodic Evaluation & Snapshot ===
             if step > 0 and step % cfg.eval_interval == 0:
                 logger.info(f"Step {step}: Saving snapshot and Evaluating...")
                 sys.stdout.flush()
@@ -287,23 +228,22 @@ def run_ppo_training(cfg):
                 torch.save(learner.get_weights(), save_path)
                 logger.info(f"Saved snapshot to {save_path}")
 
-                if baseline_model is not None:
-                    try:
-                        eval_reward, eval_rank, eval_rank_se = evaluate_vs_baseline(
-                            learner.model, baseline_model, cfg.device, encoder,
-                            num_episodes=cfg.eval_episodes
-                        )
-                        logger.info(f"Evaluation (vs Baseline): Reward={eval_reward:.2f}, "
-                                    f"Rank={eval_rank:.2f}\u00b1{eval_rank_se:.2f}")
-                        wandb.log({
-                            "eval/reward": eval_reward,
-                            "eval/rank": eval_rank,
-                            "eval/rank_se": eval_rank_se,
-                        }, step=step)
-                    except Exception as e:
-                        logger.error(f"Evaluation failed at step {step}: {e}")
+                try:
+                    hw = {k: v.cpu() for k, v in learner.get_weights().items()}
+                    eval_reward, eval_rank, eval_rank_se = evaluate_parallel(
+                        workers, hw, baseline_weights,
+                        num_episodes=cfg.eval_episodes)
+                    logger.info(f"Evaluation (vs Baseline): Reward={eval_reward:.2f}, "
+                                f"Rank={eval_rank:.2f}\u00b1{eval_rank_se:.2f}")
+                    wandb.log({
+                        "eval/reward": eval_reward,
+                        "eval/rank": eval_rank,
+                        "eval/rank_se": eval_rank_se,
+                    }, step=step)
+                except Exception as e:
+                    logger.error(f"Evaluation failed at step {step}: {e}")
 
-            # === Phase 5: Sync updated weights to ALL workers ===
+            # === 6. Sync updated weights to ALL workers ===
             weights = {k: v.cpu() for k, v in learner.get_weights().items()}
 
             has_nan = False
@@ -330,20 +270,19 @@ def run_ppo_training(cfg):
     torch.save(learner.get_weights(), save_path)
     logger.info(f"Saved snapshot to {save_path}")
 
-    if baseline_model is not None:
-        try:
-            eval_reward, eval_rank, eval_rank_se = evaluate_vs_baseline(
-                learner.model, baseline_model, cfg.device, encoder,
-                num_episodes=cfg.eval_episodes
-            )
-            logger.info(f"Final Evaluation (vs Baseline): Reward={eval_reward:.2f}, "
-                        f"Rank={eval_rank:.2f}\u00b1{eval_rank_se:.2f}")
-            wandb.log({
-                "eval/reward": eval_reward,
-                "eval/rank": eval_rank,
-                "eval/rank_se": eval_rank_se,
-            }, step=step)
-        except Exception as e:
-            logger.error(f"Final Evaluation failed: {e}")
+    try:
+        hw = {k: v.cpu() for k, v in learner.get_weights().items()}
+        eval_reward, eval_rank, eval_rank_se = evaluate_parallel(
+            workers, hw, baseline_weights,
+            num_episodes=cfg.eval_episodes)
+        logger.info(f"Final Evaluation (vs Baseline): Reward={eval_reward:.2f}, "
+                    f"Rank={eval_rank:.2f}\u00b1{eval_rank_se:.2f}")
+        wandb.log({
+            "eval/reward": eval_reward,
+            "eval/rank": eval_rank,
+            "eval/rank_se": eval_rank_se,
+        }, step=step)
+    except Exception as e:
+        logger.error(f"Final Evaluation failed: {e}")
 
     ray.shutdown()
