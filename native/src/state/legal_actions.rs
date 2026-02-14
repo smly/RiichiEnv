@@ -39,20 +39,20 @@ impl GameStateLegalActions for GameState {
                         rinshan: self.is_rinshan_flag,
                         tsumo_first_turn: self.is_first_turn
                             && self.players[pid_us].discards.is_empty(),
-                        kyoutaku: self.riichi_sticks,
-                        tsumi: self.honba as u32,
+                        riichi_sticks: self.riichi_sticks,
+                        honba: self.honba as u32,
                     };
                     let mut hand = self.players[pid_us].hand.clone();
                     if let Some(idx) = hand.iter().rposition(|&t| t == tile) {
                         hand.remove(idx);
                     }
-                    let calc = crate::agari_calculator::AgariCalculator::new(
+                    let calc = crate::hand_evaluator::HandEvaluator::new(
                         hand,
                         self.players[pid_us].melds.clone(),
                     );
                     let res =
                         calc.calc(tile, self.wall.dora_indicators.clone(), vec![], Some(cond));
-                    if res.agari && (res.yakuman || res.han >= 1) {
+                    if res.is_win && (res.yakuman || res.han >= 1) {
                         legals.push(Action::new(ActionType::Tsumo, Some(tile), vec![]));
                     }
                 }
@@ -93,7 +93,7 @@ impl GameStateLegalActions for GameState {
                     for &skip_idx in &indices {
                         let mut temp_hand = self.players[pid_us].hand.clone();
                         temp_hand.remove(skip_idx);
-                        let calc = crate::agari_calculator::AgariCalculator::new(
+                        let calc = crate::hand_evaluator::HandEvaluator::new(
                             temp_hand,
                             self.players[pid_us].melds.clone(),
                         );
@@ -129,7 +129,7 @@ impl GameStateLegalActions for GameState {
                     }
                     // Kakan
                     for m in &self.players[pid_us].melds {
-                        if m.meld_type == MeldType::Peng {
+                        if m.meld_type == MeldType::Pon {
                             let target = m.tiles[0] / 4;
                             for &t in &self.players[pid_us].hand {
                                 if t / 4 == target {
@@ -153,7 +153,7 @@ impl GameStateLegalActions for GameState {
                             if let Some(pos) = hand_pre.iter().position(|&x| x == t) {
                                 hand_pre.remove(pos);
                             }
-                            let calc_pre = crate::agari_calculator::AgariCalculator::new(
+                            let calc_pre = crate::hand_evaluator::HandEvaluator::new(
                                 hand_pre,
                                 self.players[pid_us].melds.clone(),
                             );
@@ -165,14 +165,14 @@ impl GameStateLegalActions for GameState {
                             let mut melds_post = self.players[pid_us].melds.clone();
                             let lowest = t34 * 4;
                             melds_post.push(Meld::new(
-                                MeldType::Angang,
+                                MeldType::Ankan,
                                 vec![lowest, lowest + 1, lowest + 2, lowest + 3],
                                 false,
                                 -1,
+                                None,
                             ));
-                            let calc_post = crate::agari_calculator::AgariCalculator::new(
-                                hand_post, melds_post,
-                            );
+                            let calc_post =
+                                crate::hand_evaluator::HandEvaluator::new(hand_post, melds_post);
                             let mut waits_post = calc_post.get_waits();
                             waits_post.sort();
 
@@ -230,7 +230,7 @@ impl GameStateLegalActions for GameState {
             || (self.players[i_us].riichi_declared && self.players[i_us].missed_agari_riichi);
 
         if !in_discards && !in_missed {
-            let calc = crate::agari_calculator::AgariCalculator::new(hand.clone(), melds.clone());
+            let calc = crate::hand_evaluator::HandEvaluator::new(hand.clone(), melds.clone());
             let p_wind = (i + 4 - self.oya) % 4;
             let cond = Conditions {
                 tsumo: false,
@@ -244,8 +244,8 @@ impl GameStateLegalActions for GameState {
                 houtei: self.wall.tiles.len() <= 14 && !self.is_rinshan_flag,
                 rinshan: false,
                 tsumo_first_turn: false,
-                kyoutaku: self.riichi_sticks,
-                tsumi: self.honba as u32,
+                riichi_sticks: self.riichi_sticks,
+                honba: self.honba as u32,
             };
 
             let mut is_furiten = false;
@@ -262,9 +262,9 @@ impl GameStateLegalActions for GameState {
 
             if !is_furiten {
                 let res = calc.calc(tile, self.wall.dora_indicators.clone(), vec![], Some(cond));
-                if res.agari {
+                if res.is_win {
                     legals.push(Action::new(ActionType::Ron, Some(tile), vec![]));
-                } else if res.has_agari_shape {
+                } else if res.has_win_shape {
                     missed_agari = true;
                 }
             }

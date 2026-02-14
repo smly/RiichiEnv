@@ -423,19 +423,21 @@ mod tests {
 
         // Tanyao impossible with terminal tile
         let meld = Meld {
-            meld_type: MeldType::Peng,
+            meld_type: MeldType::Pon,
             tiles: vec![0, 1, 2], // 1m (terminal)
             opened: true,
             from_who: -1,
+            called_tile: None,
         };
         assert_eq!(check_tanyao(&[meld]), YakuPossibility::Impossible);
 
         // Tanyao possible with all simples
         let meld = Meld {
-            meld_type: MeldType::Peng,
+            meld_type: MeldType::Pon,
             tiles: vec![16, 17, 18], // 5m (simple)
             opened: true,
             from_who: -1,
+            called_tile: None,
         };
         assert_eq!(check_tanyao(&[meld]), YakuPossibility::Unknown);
     }
@@ -448,15 +450,17 @@ mod tests {
             tiles: vec![0, 4, 8], // 1m-2m-3m
             opened: true,
             from_who: -1,
+            called_tile: None,
         };
         assert_eq!(check_toitoi(&[meld]), YakuPossibility::Impossible);
 
         // Toitoi possible with pon
         let meld = Meld {
-            meld_type: MeldType::Peng,
+            meld_type: MeldType::Pon,
             tiles: vec![16, 17, 18], // 5m pon
             opened: true,
             from_who: -1,
+            called_tile: None,
         };
         assert_eq!(check_toitoi(&[meld]), YakuPossibility::Possible);
     }

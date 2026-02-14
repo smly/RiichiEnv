@@ -19,7 +19,7 @@ class TestRiichiEnv:
 
         # P0 has a Pon of 7p
         # Tiles 60, 61, 62 in meld
-        p0_meld = Meld(MeldType.Peng, [60, 61, 62], True)
+        p0_meld = Meld(MeldType.Pon, [60, 61, 62], True)
         m = env.melds
         m[0] = [p0_meld]
         env.melds = m
@@ -54,10 +54,10 @@ class TestRiichiEnv:
         assert "hora" in ev_types
 
         # 3: 槍槓. Should be the ONLY yaku.
-        assert env.agari_results[1].yaku == [3]
+        assert env.win_results[1].yaku == [3]
 
         # Init Round: South 1. Bakaze=South (1).
-        env.reset(bakaze=1, oya=0, honba=0, kyotaku=0)
+        env.reset(round_wind=1, oya=0, honba=0, kyotaku=0)
 
         # Ensure P2 has tile 33 (9p) for discard
         h = env.hands
@@ -69,7 +69,7 @@ class TestRiichiEnv:
         # North player in South 1.
 
         # Melds (3 tiles): Pon South (112, 113, 114)
-        m1 = Meld(MeldType.Peng, [112, 113, 114], True)
+        m1 = Meld(MeldType.Pon, [112, 113, 114], True)
 
         melds = env.melds
         melds[pid] = [m1]
@@ -94,4 +94,4 @@ class TestRiichiEnv:
         # 21: 対々和
         # 22: 三暗刻
         # 27: 混一色
-        assert env.agari_results[pid].yaku == [11, 21, 22, 27]
+        assert env.win_results[pid].yaku == [11, 21, 22, 27]

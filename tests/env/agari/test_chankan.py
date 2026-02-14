@@ -16,8 +16,8 @@ class TestChankan:
                 [],
             ],
             melds=[
-                [Meld(MeldType.Peng, tiles=[0, 1, 2], opened=True)],
-                [Meld(MeldType.Peng, tiles=list(parse_hand("999m")[0]), opened=True)],
+                [Meld(MeldType.Pon, tiles=[0, 1, 2], opened=True)],
+                [Meld(MeldType.Pon, tiles=list(parse_hand("999m")[0]), opened=True)],
                 [],
                 [],
             ],
@@ -50,9 +50,9 @@ class TestChankan:
 
         # Check result
         assert env.done(), "Env should be done after Ron"
-        assert 1 in env.agari_results
-        res = env.agari_results[1]
-        assert res.agari
+        assert 1 in env.win_results
+        res = env.win_results[1]
+        assert res.is_win
         # Chankan (ID 3)
         assert 3 in res.yaku, f"Expected Chankan (3) in yaku, got {res.yaku}"
 
@@ -69,7 +69,7 @@ class TestChankan:
         h[0] = [3, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]
         env.hands = h
         m = env.melds
-        m[0] = [Meld(MeldType.Peng, tiles=m1_tiles, opened=True)]
+        m[0] = [Meld(MeldType.Pon, tiles=m1_tiles, opened=True)]
         env.melds = m
         env.drawn_tile = 3
 
@@ -77,7 +77,7 @@ class TestChankan:
         h[1] = list(parse_hand("23m11p234s456s")[0])
         env.hands = h
         m = env.melds
-        m[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]
+        m[1] = [Meld(MeldType.Pon, tiles=[132, 133, 134], opened=True)]
         env.melds = m
 
         env.current_player = 0
@@ -94,7 +94,7 @@ class TestChankan:
         assert env.phase == Phase.WaitAct
         assert env.current_player == 0
         assert len(env.melds[0]) == 1
-        assert env.melds[0][0].meld_type == MeldType.Addgang
+        assert env.melds[0][0].meld_type == MeldType.Kakan
         assert env.drawn_tile is not None
         assert env.is_rinshan_flag
 
@@ -142,9 +142,9 @@ class TestChankan:
 
         env.step({1: ron_actions[0]})
         assert env.is_done
-        assert env.agari_results[1].agari
+        assert env.win_results[1].is_win
         # Kokushi (ID 42)
-        assert 42 in env.agari_results[1].yaku
+        assert 42 in env.win_results[1].yaku
 
     def test_kokushi_ankan_ron_tenhou(self):
         """
@@ -201,7 +201,7 @@ class TestChankan:
         h[1] = [112, 113, 116, 116, 120, 120, 124, 124, 128, 128]  # Wait is 1z for Shanpon
         env.hands = h
         m = env.melds
-        m[1] = [Meld(MeldType.Peng, tiles=[132, 133, 134], opened=True)]
+        m[1] = [Meld(MeldType.Pon, tiles=[132, 133, 134], opened=True)]
         env.melds = m
 
         env.current_player = 0
@@ -215,7 +215,7 @@ class TestChankan:
         assert env.phase == Phase.WaitAct
         assert env.current_player == 0
         assert len(env.melds[0]) == 1
-        assert env.melds[0][0].meld_type == MeldType.Angang
+        assert env.melds[0][0].meld_type == MeldType.Ankan
         assert env.drawn_tile is not None
 
     def test_ankan_generation(self):
@@ -291,7 +291,7 @@ class TestChankan:
                 [],
                 [],
                 [],
-                [Meld(MeldType.Peng, [56, 57, 58], True)],
+                [Meld(MeldType.Pon, [56, 57, 58], True)],
             ],
             discards=[[60], [], [], []],
             current_player=2,

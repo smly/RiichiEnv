@@ -10,7 +10,7 @@ from typing import Any
 
 from IPython.display import HTML
 
-from riichienv import AgariCalculator, Conditions, Meld, MeldType, Wind
+from riichienv import Conditions, HandEvaluator, Meld, MeldType, Wind
 from riichienv import convert as cvt
 
 
@@ -209,11 +209,11 @@ class MetadataInjector:
 
                 m_tiles = sorted(consumed_tids + [stolen_tid])
 
-                m_type = MeldType.Peng
+                m_type = MeldType.Pon
                 if etype == "chi":
                     m_type = MeldType.Chi
                 if etype == "daiminkan":
-                    m_type = MeldType.Gang
+                    m_type = MeldType.Daiminkan
                     self.is_rinshan = True
 
                 self.melds[actor].append(Meld(m_type, m_tiles, True, actor))
@@ -232,13 +232,13 @@ class MetadataInjector:
                 # Replace Pon with AddGang
                 found_idx = -1
                 for midx, m in enumerate(self.melds[actor]):
-                    if m.meld_type == MeldType.Peng and m.tiles[0] // 4 == tid // 4:
+                    if m.meld_type == MeldType.Pon and m.tiles[0] // 4 == tid // 4:
                         found_idx = midx
                         break
                 if found_idx != -1:
                     old_m = self.melds[actor].pop(found_idx)
                     new_tiles = sorted(old_m.tiles + [tid])
-                    self.melds[actor].append(Meld(MeldType.Addgang, new_tiles, True, actor))
+                    self.melds[actor].append(Meld(MeldType.Kakan, new_tiles, True, actor))
                     self.is_rinshan = True
                     self.is_chankan = True  # Eligible for Chankan
 
@@ -258,7 +258,7 @@ class MetadataInjector:
                         m_tiles.append(self._get_tid(c_str))
 
                 m_tiles.sort()
-                self.melds[actor].append(Meld(MeldType.Angang, m_tiles, False, actor))
+                self.melds[actor].append(Meld(MeldType.Ankan, m_tiles, False, actor))
                 self.is_rinshan = True
                 self.ippatsu_eligible = [False] * 4
 
@@ -322,10 +322,10 @@ class MetadataInjector:
                 if "ura_markers" in ev:
                     ura_in = [self._get_tid(u) for u in ev["ura_markers"]]
 
-                calc = AgariCalculator(self.hands[actor], self.melds[actor])
+                calc = HandEvaluator(self.hands[actor], self.melds[actor])
                 res = calc.calc(pai_tid, dora_indicators=self.dora_markers, conditions=cond, ura_indicators=ura_in)
 
-                if res.agari:
+                if res.is_win:
                     pt_str = ""
                     if is_tsumo:
                         if actor == self.oya:
@@ -347,11 +347,11 @@ class MetadataInjector:
         return self.events
 
     def _calculate_waits(self, pid: int) -> list[str]:
-        """Use AgariCalculator API to find waits."""
+        """Use HandEvaluator API to find waits."""
         hand = self.hands[pid]
         melds = self.melds[pid]
 
-        calc = AgariCalculator(hand, melds)
+        calc = HandEvaluator(hand, melds)
 
         # get_waits returns list of u32 (0-33)
         wait_tids = calc.get_waits()

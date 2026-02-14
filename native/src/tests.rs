@@ -260,10 +260,10 @@ mod unit_tests {
 
     #[test]
     fn test_is_tenpai() {
-        use crate::agari_calculator::AgariCalculator;
+        use crate::hand_evaluator::HandEvaluator;
         // 111,222,333m, 444p, 11s (Tenpai on 1s)
         let hand = vec![0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 72];
-        let calc = AgariCalculator::new(hand, Vec::new());
+        let calc = HandEvaluator::new(hand, Vec::new());
         assert!(calc.is_tenpai());
         let waits = calc.get_waits_u8();
         assert!(waits.contains(&18)); // 1s
@@ -309,7 +309,7 @@ mod unit_tests {
     }
     #[test]
     fn test_match_84_agari_check() {
-        use crate::agari_calculator::AgariCalculator;
+        use crate::hand_evaluator::HandEvaluator;
         use crate::types::{Conditions, Wind};
 
         // Hand: 111m, 78p, 11123s, 789s
@@ -331,7 +331,7 @@ mod unit_tests {
         ];
         tiles.sort();
 
-        let calc = AgariCalculator::new(tiles, Vec::new());
+        let calc = HandEvaluator::new(tiles, Vec::new());
 
         let cond = Conditions {
             tsumo: false,
@@ -345,27 +345,27 @@ mod unit_tests {
             tsumo_first_turn: false,
             player_wind: Wind::West,
             round_wind: Wind::East,
-            kyoutaku: 0,
-            tsumi: 0,
+            riichi_sticks: 0,
+            honba: 0,
         };
 
         // 1. Check 6p (14 -> 56)
         let res6p = calc.calc(56, vec![], vec![], Some(cond.clone()));
         println!(
-            "6p Result: Agari={}, Shape={}, Han={}, Yaku={:?}",
-            res6p.agari, res6p.has_agari_shape, res6p.han, res6p.yaku
+            "6p Result: is_win={}, Shape={}, Han={}, Yaku={:?}",
+            res6p.is_win, res6p.has_win_shape, res6p.han, res6p.yaku
         );
-        assert!(!res6p.agari, "6p should NOT be Agari (No Yaku)");
-        assert!(res6p.has_agari_shape, "6p should have Agari Shape");
+        assert!(!res6p.is_win, "6p should NOT be a win (No Yaku)");
+        assert!(res6p.has_win_shape, "6p should have win shape");
         assert_eq!(res6p.han, 0, "6p should have 0 Han");
 
         // 2. Check 9p (17 -> 68)
         let res9p = calc.calc(68, vec![], vec![], Some(cond));
         println!(
-            "9p Result: Agari={}, Han={}, Yaku={:?}",
-            res9p.agari, res9p.han, res9p.yaku
+            "9p Result: is_win={}, Han={}, Yaku={:?}",
+            res9p.is_win, res9p.han, res9p.yaku
         );
-        assert!(res9p.agari, "9p should be Agari");
+        assert!(res9p.is_win, "9p should be a win");
         assert!(res9p.han >= 3, "9p should be Junchan (>= 3 Han)"); // Junchan (3)
     }
 

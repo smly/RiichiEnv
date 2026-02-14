@@ -1,11 +1,11 @@
 import riichienv
-from riichienv import AgariCalculator, Conditions, MeldType
+from riichienv import Conditions, HandEvaluator, MeldType
 
 
 def test_hand_parsing():
     # Test hand_from_text (13 tiles)
     text = "123m456p789s111z2z"  # 13 tiles
-    hand = AgariCalculator.hand_from_text(text)
+    hand = HandEvaluator.hand_from_text(text)
     tiles_list = list(hand.tiles_136)
     assert len(tiles_list) == 13
 
@@ -16,7 +16,7 @@ def test_hand_parsing():
     # Test with Red 5
     # Need 13 tiles: 055m (3) + 456p (3) + 789s (3) + 1122z (4) = 13
     text_red = "055m456p789s1122z"
-    hand_red = AgariCalculator.hand_from_text(text_red)
+    hand_red = HandEvaluator.hand_from_text(text_red)
     tiles_list_red = list(hand_red.tiles_136)
     assert 16 in tiles_list_red
     assert hand_red.to_text() == "055m456p789s1122z"
@@ -24,18 +24,18 @@ def test_hand_parsing():
     # Test calc_from_text (14 tiles)
     # 123m 456p 789s 111z 22z. Win on 2z.
     # Hand including win tile: 123m456p789s111z22z (14)
-    res = AgariCalculator.calc_from_text("123m456p789s111z22z")
-    assert res.agari
+    res = HandEvaluator.calc_from_text("123m456p789s111z22z")
+    assert res.is_win
     assert res.han > 0
 
     # Test with Melds (13 tiles total)
     # 123m (3) + 456p (3) + 789s (3) + 2z (1) + Pon 1z (3) = 13
     melded_text = "123m456p789s2z(p1z0)"
-    hand_melded = AgariCalculator.hand_from_text(melded_text)
+    hand_melded = HandEvaluator.hand_from_text(melded_text)
     assert len(hand_melded.tiles_136) == 10  # 13 total - 3 melded
     assert len(hand_melded.melds) == 1
     m = hand_melded.melds[0]
-    assert m.meld_type == MeldType.Peng
+    assert m.meld_type == MeldType.Pon
 
     # to_text: 123m456p789s2z(p1z0)
     assert hand_melded.to_text() == "123m456p789s2z(p1z0)"
@@ -100,7 +100,7 @@ def test_yaku_scenarios():
         win_tile_str = s["win_tile"]
         print(f"Testing {s['name']}...")
 
-        calc = AgariCalculator.hand_from_text(hand_str)
+        calc = HandEvaluator.hand_from_text(hand_str)
         win_tile_val = get_tile(win_tile_str)
 
         res = calc.calc(win_tile_val, conditions=Conditions())
@@ -134,10 +134,10 @@ def test_multiple_aka_dora():
     ]
     tiles_136.sort()
 
-    calc = AgariCalculator(tiles_136)
+    calc = HandEvaluator(tiles_136)
     res = calc.calc(65, [], Conditions(), [])  # Win on 8p(65) -> Tanyao
 
-    assert res.agari
+    assert res.is_win
     assert not res.yakuman
     assert 32 in res.yaku
     assert 12 in res.yaku
@@ -169,7 +169,7 @@ def test_only_aka_dora_fails():
     ]
     tiles_136.sort()
 
-    calc = AgariCalculator(tiles_136)
+    calc = HandEvaluator(tiles_136)
 
     # Conditions: Non-East player (South), Non-East Round (South) -> 1z is NOT Yakuhai
     cond = Conditions(player_wind=riichienv.Wind.South, round_wind=riichienv.Wind.South)
@@ -181,7 +181,7 @@ def test_only_aka_dora_fails():
     # Should have 3 Han (Aka Doras) but NO Yaku -> Agari=False
     # Note: If is_agari=False or Yaku Shibari fails, result must be agari=False.
     # We verify detection of 'Not Agari' primarily.
-    assert not res.agari, "Should fail Yaku Shibari with only Aka Doras"
+    assert not res.is_win, "Should fail Yaku Shibari with only Aka Doras"
     # assert res.han == 3 # Omitted as implementation might return 0 if !agari
 
 
@@ -195,11 +195,11 @@ def test_kyoku4_regression():
 
     # Case 1: All 14 tiles passed to constructor
     temp_tiles = sorted(standing + [win_tile])
-    calc2 = AgariCalculator(temp_tiles, [])
+    calc2 = HandEvaluator(temp_tiles, [])
     res = calc2.calc(
         win_tile, dora_indicators=[], ura_indicators=[], conditions=Conditions(tsumo=True, tsumo_first_turn=True)
     )
 
-    print(f"DEBUG: Res agari={res.agari}, yaku={res.yaku}")
-    assert res.agari
+    print(f"DEBUG: Res agari={res.is_win}, yaku={res.yaku}")
+    assert res.is_win
     assert 35 in res.yaku  # Tenhou

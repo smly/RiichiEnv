@@ -28,7 +28,7 @@ def test_ron_mismatch_after_call():
     # 789p = (15*4=60, 16*4=64, 17*4=68)
     melds = env.melds
     melds[3] = [
-        Meld(MeldType.Peng, [124, 125, 126], True),
+        Meld(MeldType.Pon, [124, 125, 126], True),
         Meld(MeldType.Chi, [24, 28, 32], True),
         Meld(MeldType.Chi, [60, 64, 68], True),
     ]

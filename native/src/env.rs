@@ -8,7 +8,7 @@ use crate::replay::MjaiEvent;
 use crate::rule::GameRule;
 use crate::state::legal_actions::GameStateLegalActions; // Import trait
 use crate::state::GameState;
-use crate::types::{Agari, Meld};
+use crate::types::{Meld, WinResult};
 
 #[pyclass(module = "riichienv._riichienv")]
 #[derive(Debug, Clone)]
@@ -452,8 +452,8 @@ impl RiichiEnv {
     }
 
     #[getter]
-    pub fn get_agari_results(&self) -> HashMap<u8, Agari> {
-        self.state.agari_results.clone()
+    pub fn get_win_results(&self) -> HashMap<u8, WinResult> {
+        self.state.win_results.clone()
     }
 
     #[getter]
@@ -594,14 +594,14 @@ impl RiichiEnv {
         obs_map.into_pyobject(py).map(|o| o.unbind().into())
     }
 
-    #[pyo3(signature = (oya=None, wall=None, bakaze=None, scores=None, honba=None, kyotaku=None, seed=None))]
+    #[pyo3(signature = (oya=None, wall=None, round_wind=None, scores=None, honba=None, kyotaku=None, seed=None))]
     #[allow(clippy::too_many_arguments)]
     pub fn reset<'py>(
         &mut self,
         py: Python<'py>,
         oya: Option<u8>,
         wall: Option<Vec<u8>>,
-        bakaze: Option<u8>,
+        round_wind: Option<u8>,
         scores: Option<Vec<i32>>,
         honba: Option<u8>,
         kyotaku: Option<u32>,
@@ -624,7 +624,7 @@ impl RiichiEnv {
         self.state.reset();
         self.state._initialize_round(
             oya.unwrap_or(self.state.oya),
-            bakaze.unwrap_or(self.state.round_wind),
+            round_wind.unwrap_or(self.state.round_wind),
             honba.unwrap_or(self.state.honba),
             kyotaku.unwrap_or(self.state.riichi_sticks),
             wall,

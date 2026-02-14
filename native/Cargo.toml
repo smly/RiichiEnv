@@ -1,6 +1,6 @@
 [package]
 name = "riichienv"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 
 [lib]
@@ -16,6 +16,7 @@ rand = "0.8"
 sha2 = "0.10"
 hex = "0.4"
 ndarray = "0.17"
+ahash = "0.8"
 
 
 

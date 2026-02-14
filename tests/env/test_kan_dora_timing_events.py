@@ -80,7 +80,7 @@ class TestKanDoraTimingEvents:
         hands[0] = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 60]  # Include tile 3 (the 4th 1m)
         env.hands = hands
         melds = env.melds
-        melds[0] = [Meld(MeldType.Peng, tiles=[0, 1, 2], opened=True)]
+        melds[0] = [Meld(MeldType.Pon, tiles=[0, 1, 2], opened=True)]
         env.melds = melds
         env.active_players = [0]
         env.current_player = 0

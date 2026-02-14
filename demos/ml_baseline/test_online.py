@@ -64,7 +64,7 @@ def main() -> None:
     for i in range(10):
         obs_dict = env.reset(
             scores=[25000, 25000, 25000, 25000],
-            bakaze=0,
+            round_wind=0,
             oya=0,
             honba=0,
             kyotaku=0

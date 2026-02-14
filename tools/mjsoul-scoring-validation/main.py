@@ -6,7 +6,7 @@ from typing import Iterator
 
 import tqdm
 
-from riichienv import AgariCalculator, Conditions, MjSoulReplay, Kyoku
+from riichienv import HandEvaluator, Conditions, MjSoulReplay, Kyoku
 from mjsoul_parser import MjsoulPaifuParser, Paifu
 
 YAKUMAN_IDS = [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 47, 48, 49, 50]
@@ -57,14 +57,14 @@ def main():
                         setattr(cond_py, attr, getattr(ctx.conditions, attr))
 
                     t0 = time.time()
-                    res_r_py = AgariCalculator(
+                    res_r_py = HandEvaluator(
                         tiles=ctx.tiles,
                         melds=ctx.melds,
                     ).calc(ctx.agari_tile, ctx.dora_indicators, cond_py, ctx.ura_indicators)
                     t_riichienv_py += time.time() - t0
 
                     assert res_r_py.yakuman == expected_yakuman
-                    assert res_r_py.agari
+                    assert res_r_py.is_win
                     if not expected_yakuman:
                         assert res_r_py.han == expected_han, f"Han (py): {res_r_py.han} != {expected_han}"
                         assert res_r_py.fu == expected_fu, f"Fu (py): {res_r_py.fu} != {expected_fu}"

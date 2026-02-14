@@ -14,7 +14,7 @@ pub struct Score {
 }
 
 #[pyfunction]
-pub fn calculate_score(han: u8, fu: u8, is_oya: bool, is_tsumo: bool, tsumi: u32) -> Score {
+pub fn calculate_score(han: u8, fu: u8, is_oya: bool, is_tsumo: bool, honba: u32) -> Score {
     let mut s = if han >= 5 {
         let base_points = match han {
             5 => 2000,                     // Mangan
@@ -36,12 +36,12 @@ pub fn calculate_score(han: u8, fu: u8, is_oya: bool, is_tsumo: bool, tsumi: u32
 
     // Add Honba (300 per honba stack)
     if is_tsumo {
-        s.pay_tsumo_oya += tsumi * 100;
-        s.pay_tsumo_ko += tsumi * 100;
-        s.total += tsumi * 300;
+        s.pay_tsumo_oya += honba * 100;
+        s.pay_tsumo_ko += honba * 100;
+        s.total += honba * 300;
     } else {
-        s.pay_ron += tsumi * 300;
-        s.total += tsumi * 300;
+        s.pay_ron += honba * 300;
+        s.total += honba * 300;
     }
     s
 }

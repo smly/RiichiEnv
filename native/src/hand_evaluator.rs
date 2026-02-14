@@ -1,12 +1,12 @@
 #![allow(clippy::useless_conversion)]
 use crate::agari;
 use crate::score;
-use crate::types::{Agari, Conditions, Hand, Meld, MeldType, Wind};
+use crate::types::{Conditions, Hand, Meld, MeldType, WinResult, Wind};
 use crate::yaku;
 use pyo3::prelude::*;
 
 #[pyclass]
-pub struct AgariCalculator {
+pub struct HandEvaluator {
     pub hand: Hand,      // Normalised for agari detection
     pub full_hand: Hand, // Full counts for dora/yaku
     pub melds: Vec<Meld>,
@@ -14,7 +14,7 @@ pub struct AgariCalculator {
 }
 
 #[pymethods]
-impl AgariCalculator {
+impl HandEvaluator {
     #[staticmethod]
     pub fn hand_from_text(text: &str) -> PyResult<Self> {
         let (tiles, melds) = crate::parser::parse_hand_internal(text)?;
@@ -43,9 +43,9 @@ impl AgariCalculator {
             let mut new_meld = meld.clone();
 
             // Reduce Kongs to triplets for agari detection
-            if new_meld.meld_type == MeldType::Gang
-                || new_meld.meld_type == MeldType::Angang
-                || new_meld.meld_type == MeldType::Addgang
+            if new_meld.meld_type == MeldType::Daiminkan
+                || new_meld.meld_type == MeldType::Ankan
+                || new_meld.meld_type == MeldType::Kakan
             {
                 let t_34 = new_meld.tiles[0] / 4;
                 if hand.counts[t_34 as usize] == 4 {
@@ -85,7 +85,7 @@ impl AgariCalculator {
         dora_indicators: Vec<u8>,
         ura_indicators: Vec<u8>,
         conditions: Option<Conditions>,
-    ) -> Agari {
+    ) -> WinResult {
         let win_tile_136 = win_tile;
         let conditions = conditions.unwrap_or_default();
         let win_tile_34 = win_tile_136 / 4;
@@ -105,9 +105,9 @@ impl AgariCalculator {
         let is_agari = agari::is_agari(&mut hand_14);
 
         if !is_agari {
-            // has_agari_shape is false here because the hand structure (e.g. 4 melds + 1 pair) is invalid.
-            // If the structure were valid but the hand lacked Yaku, has_agari_shape would be true.
-            return Agari::new(false, false, 0, 0, 0, vec![], 0, 0, None, false);
+            // has_win_shape is false here because the hand structure (e.g. 4 melds + 1 pair) is invalid.
+            // If the structure were valid but the hand lacked Yaku, has_win_shape would be true.
+            return WinResult::new(false, false, 0, 0, 0, vec![], 0, 0, None, false);
         }
         // Count normal doras in 14-tile hand
         let mut dora_count = 0;
@@ -142,8 +142,8 @@ impl AgariCalculator {
             dora_count,
             aka_dora,
             ura_dora_count,
-            bakaze: 27 + conditions.round_wind as u8,
-            jikaze: 27 + conditions.player_wind as u8,
+            round_wind: 27 + conditions.round_wind as u8,
+            seat_wind: 27 + conditions.player_wind as u8,
             is_menzen: self.melds.iter().all(|m| !m.opened),
         };
 
@@ -156,7 +156,7 @@ impl AgariCalculator {
             yaku_res.fu,
             is_oya,
             conditions.tsumo,
-            conditions.tsumi,
+            conditions.honba,
         );
         let has_yaku = yaku_res
             .yaku_ids
@@ -165,8 +165,8 @@ impl AgariCalculator {
 
         let official_yaku: Vec<u32> = yaku_res.yaku_ids.into_iter().collect();
 
-        Agari {
-            agari: (has_yaku || yaku_res.yakuman_count > 0) && yaku_res.han >= 1,
+        WinResult {
+            is_win: (has_yaku || yaku_res.yakuman_count > 0) && yaku_res.han >= 1,
             yakuman: yaku_res.yakuman_count > 0,
             ron_agari: score_res.pay_ron,
             tsumo_agari_oya: score_res.pay_tsumo_oya,
@@ -175,7 +175,7 @@ impl AgariCalculator {
             han: yaku_res.han as u32,
             fu: yaku_res.fu as u32,
             pao_payer: None,
-            has_agari_shape: true,
+            has_win_shape: true,
         }
     }
 

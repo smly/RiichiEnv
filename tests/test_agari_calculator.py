@@ -32,21 +32,19 @@ def test_pinfu():
         player_wind=rv.Wind.North,  # Doesn't strict matter for Pinfu unless Jikaze head
         round_wind=rv.Wind.East,
     )
-    res = rv.AgariCalculator(hand, melds).calc(
-        win_tile=win_tile, dora_indicators=[], conditions=cond, ura_indicators=[]
-    )
+    res = rv.HandEvaluator(hand, melds).calc(win_tile=win_tile, dora_indicators=[], conditions=cond, ura_indicators=[])
 
     # Check Pinfu (ID 14)
     assert 14 not in res.yaku
 
 
 def test_agari_calc_from_text():
-    hand = rv.AgariCalculator.hand_from_text("123m456p789s111z2z")
+    hand = rv.HandEvaluator.hand_from_text("123m456p789s111z2z")
     win_tile = rv.parse_tile("2z")
 
     # Default: Oya (East), Ron Agari
     res = hand.calc(win_tile, conditions=rv.Conditions())
-    assert res.agari
+    assert res.is_win
     assert res.han == 2
     assert res.fu == 40
     assert res.tsumo_agari_oya == 0
@@ -55,7 +53,7 @@ def test_agari_calc_from_text():
 
     # Ko (South)
     res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.Wind.South))
-    assert res.agari
+    assert res.is_win
     assert res.han == 2
     assert res.fu == 40
     assert res.tsumo_agari_oya == 1300
@@ -64,7 +62,7 @@ def test_agari_calc_from_text():
 
     # Oya (East)
     res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.Wind.East))
-    assert res.agari
+    assert res.is_win
     assert res.han == 3
     assert res.fu == 40
     assert res.tsumo_agari_oya == 0
@@ -73,7 +71,7 @@ def test_agari_calc_from_text():
 
     # Ron (East)
     res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=False, player_wind=rv.Wind.East))
-    assert res.agari
+    assert res.is_win
     assert res.han == 2
     assert res.fu == 40
     assert res.tsumo_agari_oya == 0
@@ -82,7 +80,7 @@ def test_agari_calc_from_text():
 
     # Ko (West)
     res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.Wind.West))
-    assert res.agari
+    assert res.is_win
     assert res.han == 2
     assert res.fu == 40
     assert res.tsumo_agari_oya == 1300
@@ -91,7 +89,7 @@ def test_agari_calc_from_text():
 
     # Ko (North)
     res = hand.calc(win_tile, conditions=rv.Conditions(tsumo=True, player_wind=rv.Wind.North))
-    assert res.agari
+    assert res.is_win
     assert res.han == 2
     assert res.fu == 40
     assert res.tsumo_agari_oya == 1300
@@ -129,7 +127,7 @@ def test_yaku_shibari():
 
     win_tile = 0  # 1m
 
-    calc = rv.AgariCalculator(hand_tiles, [m])
+    calc = rv.HandEvaluator(hand_tiles, [m])
 
     # Default conditions (Ron, no Riichi = No Yaku context except Dora)
 
@@ -138,4 +136,4 @@ def test_yaku_shibari():
     # Should not be agari (either shape invalid or Yaku Shibari)
     # Ideally should be Yaku Shibari if shape is valid.
     # But for now we just verify it doesn't allow a win.
-    assert not res.agari, "Yaku Shibari failed: Allowed agari with only Aka Dora"
+    assert not res.is_win, "Yaku Shibari failed: Allowed agari with only Aka Dora"

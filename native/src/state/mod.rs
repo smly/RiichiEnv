@@ -10,7 +10,7 @@ use crate::parser::tid_to_mjai;
 use crate::replay::Action as LogAction;
 use crate::replay::MjaiEvent;
 use crate::rule::GameRule;
-use crate::types::{Agari, Conditions, Meld, MeldType, Wind};
+use crate::types::{Conditions, Meld, MeldType, WinResult, Wind};
 
 pub mod event_handler;
 pub mod legal_actions;
@@ -52,8 +52,8 @@ pub struct GameState {
     pub riichi_pending_acceptance: Option<u8>,
     pub drawn_tile: Option<u8>,
 
-    pub agari_results: HashMap<u8, Agari>,
-    pub last_agari_results: HashMap<u8, Agari>,
+    pub win_results: HashMap<u8, WinResult>,
+    pub last_win_results: HashMap<u8, WinResult>,
     pub round_end_scores: Option<[i32; 4]>,
 
     pub mjai_log: Vec<String>,
@@ -112,8 +112,8 @@ impl GameState {
             is_first_turn: true,
             riichi_pending_acceptance: None,
             drawn_tile: None,
-            agari_results: HashMap::new(),
-            last_agari_results: HashMap::new(),
+            win_results: HashMap::new(),
+            last_win_results: HashMap::new(),
             round_end_scores: None,
             mjai_log: Vec::new(),
             player_event_counts: [0; 4],
@@ -182,7 +182,7 @@ impl GameState {
         };
         self.player_event_counts[pid] = full_log_len;
 
-        let calc = crate::agari_calculator::AgariCalculator::new(
+        let calc = crate::hand_evaluator::HandEvaluator::new(
             self.players[pid].hand.clone(),
             self.players[pid].melds.clone(),
         );
@@ -461,7 +461,7 @@ impl GameState {
                                     round_wind: Wind::from(self.round_wind),
                                     ..Default::default()
                                 };
-                                let calc = crate::agari_calculator::AgariCalculator::new(
+                                let calc = crate::hand_evaluator::HandEvaluator::new(
                                     hand.clone(),
                                     melds.clone(),
                                 );
@@ -473,7 +473,8 @@ impl GameState {
                                 );
 
                                 // 42=Kokushi, 49=Kokushi13
-                                if res.agari && (res.yaku.contains(&42) || res.yaku.contains(&49)) {
+                                if res.is_win && (res.yaku.contains(&42) || res.yaku.contains(&49))
+                                {
                                     chankan_ronners.push(i);
                                     self.current_claims.entry(i).or_default().push(Action::new(
                                         ActionType::Ron,
@@ -503,10 +504,10 @@ impl GameState {
                             self.players[p_idx].hand.remove(idx);
                         }
                         for m in self.players[p_idx].melds.iter_mut() {
-                            if m.meld_type == crate::types::MeldType::Peng
+                            if m.meld_type == crate::types::MeldType::Pon
                                 && m.tiles[0] / 4 == tile / 4
                             {
-                                m.meld_type = crate::types::MeldType::Addgang;
+                                m.meld_type = crate::types::MeldType::Kakan;
                                 m.tiles.push(tile);
                                 m.tiles.sort();
                                 break;
@@ -533,7 +534,7 @@ impl GameState {
                             if i == pid {
                                 continue;
                             }
-                            // Check Agari
+                            // Check WinResult
                             let hand = &self.players[i as usize].hand;
                             let melds = &self.players[i as usize].melds;
                             let p_wind = (i + 4 - self.oya) % 4;
@@ -549,10 +550,10 @@ impl GameState {
                                 houtei: false,
                                 rinshan: false,
                                 tsumo_first_turn: false,
-                                kyoutaku: self.riichi_sticks,
-                                tsumi: self.honba as u32,
+                                riichi_sticks: self.riichi_sticks,
+                                honba: self.honba as u32,
                             };
-                            let calc = crate::agari_calculator::AgariCalculator::new(
+                            let calc = crate::hand_evaluator::HandEvaluator::new(
                                 hand.clone(),
                                 melds.clone(),
                             );
@@ -585,7 +586,7 @@ impl GameState {
                                     Some(cond),
                                 )
                             } else {
-                                crate::types::Agari::new(
+                                crate::types::WinResult::new(
                                     false,
                                     false,
                                     0,
@@ -599,7 +600,7 @@ impl GameState {
                                 )
                             };
 
-                            if res.agari && (res.yakuman || res.han >= 1) {
+                            if res.is_win && (res.yakuman || res.han >= 1) {
                                 // Add Ron action offer
                                 chankan_ronners.push(i);
                                 self.current_claims.entry(i).or_default().push(Action::new(
@@ -634,14 +635,12 @@ impl GameState {
                                 && self.players.iter().all(|p| p.melds.is_empty()),
                             player_wind: Wind::from(p_wind),
                             round_wind: Wind::from(self.round_wind),
-                            kyoutaku: self.riichi_sticks,
-                            tsumi: self.honba as u32,
+                            riichi_sticks: self.riichi_sticks,
+                            honba: self.honba as u32,
                             ..Default::default()
                         };
-                        let calc = crate::agari_calculator::AgariCalculator::new(
-                            hand.clone(),
-                            melds.clone(),
-                        );
+                        let calc =
+                            crate::hand_evaluator::HandEvaluator::new(hand.clone(), melds.clone());
                         let win_tile = self.drawn_tile.unwrap_or(0);
                         let res = calc.calc(
                             win_tile,
@@ -650,7 +649,7 @@ impl GameState {
                             Some(cond),
                         );
 
-                        if res.agari {
+                        if res.is_win {
                             let mut deltas = [0; 4];
                             let mut total_win = 0;
 
@@ -756,7 +755,7 @@ impl GameState {
                                     break;
                                 }
                             }
-                            self.agari_results.insert(pid, val);
+                            self.win_results.insert(pid, val);
 
                             if !self.skip_mjai_logging {
                                 let mut ev = serde_json::Map::new();
@@ -791,7 +790,7 @@ impl GameState {
                 }
             }
         } else if self.phase == Phase::WaitResponse {
-            // Check Missed Agari for all who could Ron but didn't
+            // Check Missed WinResult for all who could Ron but didn't
             for (&pid, legals) in &self.current_claims {
                 if legals.iter().any(|a| a.action_type == ActionType::Ron) {
                     let mut roned = false;
@@ -868,12 +867,12 @@ impl GameState {
                         tsumo_first_turn: false,
                         player_wind: Wind::from(p_wind),
                         round_wind: Wind::from(self.round_wind),
-                        kyoutaku: self.riichi_sticks,
-                        tsumi: self.honba as u32,
+                        riichi_sticks: self.riichi_sticks,
+                        honba: self.honba as u32,
                     };
 
                     let calc =
-                        crate::agari_calculator::AgariCalculator::new(hand.clone(), melds.clone());
+                        crate::hand_evaluator::HandEvaluator::new(hand.clone(), melds.clone());
                     let res = calc.calc(
                         win_tile,
                         self.wall.dora_indicators.clone(),
@@ -881,7 +880,7 @@ impl GameState {
                         Some(cond),
                     );
 
-                    if res.agari {
+                    if res.is_win {
                         let score = res.ron_agari as i32;
 
                         let mut pao_payer = target_pid;
@@ -935,7 +934,7 @@ impl GameState {
                                 break;
                             }
                         }
-                        self.agari_results.insert(w_pid, val);
+                        self.win_results.insert(w_pid, val);
 
                         if w_pid == self.oya {
                             oya_won = true;
@@ -1004,7 +1003,7 @@ impl GameState {
                 tiles.push(tile);
                 tiles.sort();
                 let meld_type = match action.action_type {
-                    ActionType::Pon => MeldType::Peng,
+                    ActionType::Pon => MeldType::Pon,
                     ActionType::Chi => MeldType::Chi,
                     _ => MeldType::Chi, // Should not happen for this block anymore
                 };
@@ -1013,6 +1012,7 @@ impl GameState {
                     tiles: tiles.clone(),
                     opened: true,
                     from_who: discarder as i8,
+                    called_tile: Some(tile),
                 });
 
                 if !self.skip_mjai_logging {
@@ -1051,9 +1051,9 @@ impl GameState {
                 }
 
                 // PAO implementation
-                if meld_type == MeldType::Peng
-                    || meld_type == MeldType::Gang
-                    || meld_type == MeldType::Addgang
+                if meld_type == MeldType::Pon
+                    || meld_type == MeldType::Daiminkan
+                    || meld_type == MeldType::Kakan
                 {
                     let tile_val = tile / 4;
                     if (31..=33).contains(&tile_val) {
@@ -1229,20 +1229,21 @@ impl GameState {
                     self.players[p_idx].hand.remove(idx);
                 }
             }
-            let (m_type, tiles, from_who) = if action.action_type == ActionType::Ankan {
-                (MeldType::Angang, action.consume_tiles.clone(), -1i8)
+            let (m_type, tiles, from_who, ct) = if action.action_type == ActionType::Ankan {
+                (MeldType::Ankan, action.consume_tiles.clone(), -1i8, None)
             } else {
                 let (discarder, tile) = self.last_discard.unwrap();
                 let mut t_vec = action.consume_tiles.clone();
                 t_vec.push(tile);
                 t_vec.sort();
-                (MeldType::Gang, t_vec, discarder as i8)
+                (MeldType::Daiminkan, t_vec, discarder as i8, Some(tile))
             };
             self.players[p_idx].melds.push(Meld {
                 meld_type: m_type,
                 tiles,
-                opened: m_type == MeldType::Gang,
+                opened: m_type == MeldType::Daiminkan,
                 from_who,
+                called_tile: ct,
             });
         }
 
@@ -1460,7 +1461,7 @@ impl GameState {
     pub fn _initialize_round(
         &mut self,
         oya: u8,
-        bakaze: u8,
+        round_wind: u8,
         honba: u8,
         kyotaku: u32,
         wall: Option<Vec<u8>>,
@@ -1471,7 +1472,7 @@ impl GameState {
         self.current_player = oya;
         self.honba = honba;
         self.riichi_sticks = kyotaku;
-        self.round_wind = bakaze;
+        self.round_wind = round_wind;
 
         for p in &mut self.players {
             p.reset_round();
@@ -1490,8 +1491,8 @@ impl GameState {
         self.pending_oya_won = false;
         self.pending_is_draw = false;
         self.last_discard = None;
-        self.agari_results.clear();
-        self.last_agari_results.clear();
+        self.win_results.clear();
+        self.last_win_results.clear();
         self.round_end_scores = None;
         self.riichi_sutehais = [None; 4];
         self.last_tedashis = [None; 4];
@@ -1531,7 +1532,7 @@ impl GameState {
         }
 
         if !self.skip_mjai_logging {
-            let bakaze_str = match bakaze % 4 {
+            let wind_str = match round_wind % 4 {
                 0 => "E",
                 1 => "S",
                 2 => "W",
@@ -1539,7 +1540,7 @@ impl GameState {
             };
             let mut ev = serde_json::Map::new();
             ev.insert("type".to_string(), Value::String("start_kyoku".to_string()));
-            ev.insert("bakaze".to_string(), Value::String(bakaze_str.to_string()));
+            ev.insert("bakaze".to_string(), Value::String(wind_str.to_string()));
             ev.insert("kyoku".to_string(), Value::Number((oya + 1).into()));
             ev.insert("honba".to_string(), Value::Number(honba.into()));
             ev.insert("kyotaku".to_string(), Value::Number(kyotaku.into()));
@@ -1597,7 +1598,7 @@ impl GameState {
         if reason == "exhaustive_draw" {
             for (i, p) in self.players.iter().enumerate() {
                 let calc =
-                    crate::agari_calculator::AgariCalculator::new(p.hand.clone(), p.melds.clone());
+                    crate::hand_evaluator::HandEvaluator::new(p.hand.clone(), p.melds.clone());
                 if calc.is_tenpai() {
                     tenpai[i] = true;
                 }
@@ -1698,9 +1699,9 @@ impl GameState {
         let mut kan_owners = Vec::new();
         for (pid, p) in self.players.iter().enumerate() {
             for m in &p.melds {
-                if m.meld_type == crate::types::MeldType::Gang
-                    || m.meld_type == crate::types::MeldType::Angang
-                    || m.meld_type == crate::types::MeldType::Addgang
+                if m.meld_type == crate::types::MeldType::Daiminkan
+                    || m.meld_type == crate::types::MeldType::Ankan
+                    || m.meld_type == crate::types::MeldType::Kakan
                 {
                     kan_owners.push(pid);
                 }

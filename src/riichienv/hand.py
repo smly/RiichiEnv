@@ -92,8 +92,8 @@ class YakuList:
 
 
 @dataclass
-class Agari:
-    agari: bool
+class WinResult:
+    is_win: bool
     yakuman: bool = False
     ron_agari: int = 0
     tsumo_agari_oya: int = 0
@@ -118,19 +118,19 @@ class Conditions:
     player_wind: int | Wind = 0  # E,S,W,N = (0,1,2,3) or Wind enum values
     round_wind: int | Wind = 0  # E,S,W,N = (0,1,2,3) or Wind enum values
 
-    kyoutaku: int = 0
-    tsumi: int = 0
+    riichi_sticks: int = 0
+    honba: int = 0
 
 
-class AgariCalculator:
+class HandEvaluator:
     def __init__(self, tiles: list[int], melds: list[Meld] | None = None) -> None:
         self.tiles_136 = tiles
         self.melds = melds or []
         self._rust_melds = self.melds
-        self.calc_rust = rust_core.AgariCalculator(self.tiles_136, self._rust_melds)
+        self.calc_rust = rust_core.HandEvaluator(self.tiles_136, self._rust_melds)
 
     @staticmethod
-    def hand_from_text(hand_str_repr: str) -> "AgariCalculator":
+    def hand_from_text(hand_str_repr: str) -> "HandEvaluator":
         """
         # Hand representation parsing
         `Hand::from_text()` method accepts a string representation.
@@ -142,8 +142,7 @@ class AgariCalculator:
         current_tiles_count = len(tiles)
         for m in melds:
             current_tiles_count += len(m.tiles)
-            m_type = getattr(m, "meld_type", getattr(m, "type", None))
-            if m_type in [rust_core.MeldType.Gang, rust_core.MeldType.Angang, rust_core.MeldType.Addgang]:
+            if m.meld_type in [rust_core.MeldType.Daiminkan, rust_core.MeldType.Ankan, rust_core.MeldType.Kakan]:
                 num_kans += 1
 
         expected_count = 13 + num_kans
@@ -152,7 +151,7 @@ class AgariCalculator:
 
         tiles = list(tiles)
         tiles.sort()
-        return AgariCalculator(tiles, melds)
+        return HandEvaluator(tiles, melds)
 
     def to_text(self, win_tile: str | None = None) -> str:
         """
@@ -186,7 +185,7 @@ class AgariCalculator:
         dora_indicators: str | None = None,
         conditions: Conditions | None = None,
         ura_indicators: str | None = None,
-    ) -> Agari:
+    ) -> WinResult:
         """
         hand_str_repr_with_win_tile: str は 14 枚分の牌を想定する。最後の1枚を win_tile として扱う。
         """
@@ -195,23 +194,14 @@ class AgariCalculator:
         if not tiles and not melds:
             raise ValueError("Empty hand")
 
-        # If open hand, win tile is last added?
-        # Assuming last tile in string is win tile.
-        # Parser returns tiles relative to input order?
-        # I removed sort(). So yes.
-        # But `melds` are separate.
-        # Win tile must be a closed tile? Or standard agari check assumes win tile is separate.
-        # If Ron on Meld? That's not supported by `calc` interface usually (win_tile is passed separately).
-        # Assuming win_tile is one of the standing tiles (or the drawn tile).
-
         if not tiles:
             raise ValueError("No standing tiles to check for win tile")
 
         win_tile = tiles[-1]
         tiles = list(tiles)
-        tiles.sort()  # sort all tiles including win tile
+        tiles.sort()
 
-        calc = AgariCalculator(tiles, melds)
+        calc = HandEvaluator(tiles, melds)
 
         dora_inds = []
         if dora_indicators:
@@ -285,7 +275,7 @@ class AgariCalculator:
         elif val0 >= 27:
             suffix = "z"
 
-        m_type = getattr(meld, "meld_type", getattr(meld, "type", None))
+        m_type = meld.meld_type
 
         # Digits
         digits = ""
@@ -330,14 +320,14 @@ class AgariCalculator:
         # Prefix
         prefix = ""
 
-        if m_type == rust_core.MeldType.Peng:
+        if m_type == rust_core.MeldType.Pon:
             prefix = "p"
-        elif m_type == rust_core.MeldType.Gang:
-            prefix = "k"  # Daiminkan
-        elif m_type == rust_core.MeldType.Addgang:
+        elif m_type == rust_core.MeldType.Daiminkan:
+            prefix = "k"
+        elif m_type == rust_core.MeldType.Kakan:
             prefix = "s"
-        elif m_type == rust_core.MeldType.Angang:
-            prefix = "k"  # Closed Kan logic?
+        elif m_type == rust_core.MeldType.Ankan:
+            prefix = "k"
         # Closed Kan also 'k'? Usually closed kan not indicated in open string?
         # But user example (k2z) was "closed kan or daiminkan".
         # If Angang, maybe suffix missing?
@@ -352,7 +342,7 @@ class AgariCalculator:
         dora_indicators: list[int] | None = None,
         conditions: Conditions | None = None,
         ura_indicators: list[int] | None = None,
-    ) -> Agari:
+    ) -> WinResult:
         conditions = conditions or Conditions()
         if dora_indicators is None:
             dora_indicators = []
@@ -379,42 +369,33 @@ class AgariCalculator:
             tsumo_first_turn=conditions.tsumo_first_turn,
             player_wind=p_wind,
             round_wind=r_wind,
-            kyoutaku=conditions.kyoutaku,
-            tsumi=conditions.tsumi,
+            riichi_sticks=conditions.riichi_sticks,
+            honba=conditions.honba,
         )
 
         dora_inds_136 = dora_indicators if dora_indicators else []
         ura_inds_136 = ura_indicators if ura_indicators else []
 
-        # Determine if we need to add the win tile to a temporary calculator
-        # Rust AgariCalculator expects 14 tiles (strictly).
-        # We check total tiles in the current calculator.
         rust_melds = self._rust_melds
-        # All melds (including Kans) count as 3 tiles for sizing purposes
         total_tiles = len(self.tiles_136) + len(rust_melds) * 3
 
         calc_obj = self.calc_rust
         if total_tiles % 3 == 1:
-            # 13 tiles -> Add win_tile to standing tiles
             temp_tiles = sorted(self.tiles_136 + [win_tile])
-            # Recreate calculator with 14 tiles
-            calc_obj = rust_core.AgariCalculator(temp_tiles, rust_melds)
+            calc_obj = rust_core.HandEvaluator(temp_tiles, rust_melds)
 
         res = calc_obj.calc(win_tile, dora_inds_136, ura_inds_136, rust_conditions)
 
-        if not res.agari:
-            return Agari(agari=False)
+        if not res.is_win:
+            return WinResult(is_win=False)
 
-        # Rust core now returns MJSoul IDs directly
-        mjsoul_yaku = res.yaku
-
-        return Agari(
-            agari=True,
+        return WinResult(
+            is_win=True,
             yakuman=res.yakuman,
             ron_agari=res.ron_agari,
             tsumo_agari_oya=res.tsumo_agari_oya,
             tsumo_agari_ko=res.tsumo_agari_ko,
-            yaku=mjsoul_yaku,
+            yaku=res.yaku,
             han=res.han,
             fu=res.fu,
         )

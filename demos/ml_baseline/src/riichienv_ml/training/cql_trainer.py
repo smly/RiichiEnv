@@ -2,9 +2,11 @@
 Offline CQL Trainer.
 """
 import glob
+import os
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
@@ -50,6 +52,8 @@ class Trainer:
         limit: int = 1000000,
         num_epochs: int = 10,
         num_workers: int = 8,
+        weight_decay: float = 0.0,
+        aux_weight: float = 0.0,
         wandb_entity: str = "smly",
         wandb_project: str = "riichienv-offline",
         model_config: dict | None = None,
@@ -68,6 +72,8 @@ class Trainer:
         self.limit = int(limit)
         self.num_epochs = num_epochs
         self.num_workers = num_workers
+        self.weight_decay = weight_decay
+        self.aux_weight = aux_weight
         self.wandb_entity = wandb_entity
         self.wandb_project = wandb_project
         self.model_config = model_config or {}
@@ -75,6 +81,8 @@ class Trainer:
         self.dataset_class = dataset_class
 
     def train(self, output_path: str) -> None:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
         # Initialize Reward Predictor
         reward_predictor = RewardPredictor(self.grp_model_path, self.pts_weight, device=self.device_str, input_dim=20)
 
@@ -90,12 +98,16 @@ class Trainer:
             dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            pin_memory=True,
+            prefetch_factor=4,
+            persistent_workers=True,
         )
 
         ModelClass = import_class(self.model_class)
         model = ModelClass(**self.model_config).to(self.device)
+        has_aux = hasattr(model, 'aux_head') and model.aux_head is not None
 
-        optimizer = optim.Adam(model.parameters(), lr=self.lr)
+        optimizer = optim.AdamW(model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         scheduler = CosineAnnealingLR(optimizer, T_max=self.limit, eta_min=1e-7)
         mse_criterion = nn.MSELoss()
         model.train()
@@ -109,6 +121,8 @@ class Trainer:
                 "batch_size": self.batch_size,
                 "gamma": self.gamma,
                 "alpha": self.alpha,
+                "weight_decay": self.weight_decay,
+                "aux_weight": self.aux_weight,
                 "dataset": self.data_glob,
                 **self.model_config,
             },
@@ -117,22 +131,32 @@ class Trainer:
         loss_meter = AverageMeter(name="loss")
         cql_meter = AverageMeter(name="cql")
         mse_meter = AverageMeter(name="mse")
+        aux_meter = AverageMeter(name="aux")
 
         for epoch in range(self.num_epochs):
             for i, batch in enumerate(dataloader):
-                # (feat, act, return, mask)
-                features, actions, targets, masks = batch
+                # (feat, act, return, mask, rank)
+                if len(batch) == 5:
+                    features, actions, targets, masks, ranks = batch
+                    ranks = ranks.long().to(self.device, non_blocking=True)
+                else:
+                    features, actions, targets, masks = batch
+                    ranks = None
 
-                features = features.to(self.device)
+                features = features.to(self.device, non_blocking=True)
 
-                actions = actions.long().to(self.device)
-                targets = targets.float().to(self.device)
-                masks = masks.float().to(self.device)
+                actions = actions.long().to(self.device, non_blocking=True)
+                targets = targets.float().to(self.device, non_blocking=True)
+                masks = masks.float().to(self.device, non_blocking=True)
 
                 optimizer.zero_grad()
 
-                # 1. Compute Q(s, a)
-                q_values = model(features)
+                # Forward pass
+                if has_aux and ranks is not None:
+                    q_values, aux_logits = model.forward_with_aux(features)
+                else:
+                    q_values = model(features)
+                    aux_logits = None
 
                 # 2. CQL Loss
                 cql_term, q_data = cql_loss(q_values, actions, masks)
@@ -142,8 +166,16 @@ class Trainer:
                     targets = targets.squeeze(-1)
                 mse_term = mse_criterion(q_data, targets)
 
+                # 4. Auxiliary Loss (rank prediction)
+                aux_loss_val = 0.0
+                if aux_logits is not None and ranks is not None:
+                    aux_loss = F.cross_entropy(aux_logits, ranks)
+                    aux_loss_val = aux_loss.item()
+                else:
+                    aux_loss = 0.0
+
                 # Total Loss
-                loss = mse_term + self.alpha * cql_term
+                loss = mse_term + self.alpha * cql_term + self.aux_weight * aux_loss
 
                 loss.backward()
                 # Gradient clipping to prevent explosion
@@ -153,15 +185,23 @@ class Trainer:
                 loss_meter.update(loss.item())
                 cql_meter.update(cql_term.item())
                 mse_meter.update(mse_term.item())
+                aux_meter.update(aux_loss_val)
 
                 if step % 100 == 0:
-                    print(f"Epoch {epoch}, Step {step}, Loss: {loss_meter.avg:.4f} (MSE: {mse_meter.avg:.4f}, CQL: {cql_meter.avg:.4f})")
-                    run.log({
+                    log_msg = (f"Epoch {epoch}, Step {step}, Loss: {loss_meter.avg:.4f} "
+                               f"(MSE: {mse_meter.avg:.4f}, CQL: {cql_meter.avg:.4f}")
+                    log_dict = {
                         "epoch": epoch,
                         "loss": loss_meter.avg,
                         "mse": mse_meter.avg,
                         "cql": cql_meter.avg,
-                    }, step=step)
+                    }
+                    if has_aux:
+                        log_msg += f", AUX: {aux_meter.avg:.4f}"
+                        log_dict["aux"] = aux_meter.avg
+                    log_msg += ")"
+                    print(log_msg)
+                    run.log(log_dict, step=step)
 
                 step += 1
                 scheduler.step()
@@ -171,6 +211,7 @@ class Trainer:
             loss_meter.reset()
             cql_meter.reset()
             mse_meter.reset()
+            aux_meter.reset()
 
             torch.save(model.state_dict(), output_path)
             print(f"Saved model to {output_path}")

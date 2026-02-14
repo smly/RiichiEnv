@@ -50,9 +50,9 @@ class TestKuikae:
             ],
             melds=[
                 [
-                    Meld(MeldType.Peng, [108, 109, 110], True, 1),  # East
-                    Meld(MeldType.Peng, [112, 113, 114], True, 1),  # South
-                    Meld(MeldType.Peng, [116, 117, 118], True, 1),  # West
+                    Meld(MeldType.Pon, [108, 109, 110], True, 1),  # East
+                    Meld(MeldType.Pon, [112, 113, 114], True, 1),  # South
+                    Meld(MeldType.Pon, [116, 117, 118], True, 1),  # West
                 ],
                 [],
                 [],

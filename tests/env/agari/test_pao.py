@@ -20,8 +20,8 @@ class TestPao:
             ],
             melds=[
                 [
-                    Meld(MeldType.Peng, [124, 125, 126], True),
-                    Meld(MeldType.Peng, [128, 129, 130], True),
+                    Meld(MeldType.Pon, [124, 125, 126], True),
+                    Meld(MeldType.Pon, [128, 129, 130], True),
                 ],
                 [],
                 [],
@@ -56,8 +56,8 @@ class TestPao:
         env.step({0: Action(ActionType.Tsumo)})
 
         # Verify scoring
-        agari_res = env.agari_results[0]
-        assert agari_res.agari
+        agari_res = env.win_results[0]
+        assert agari_res.is_win
         assert agari_res.yaku == [37]  # Daisangen
 
         hora = next(m for m in reversed(env.mjai_log) if m["type"] == "hora")
@@ -97,8 +97,8 @@ class TestPao:
             ],
             melds=[
                 [
-                    Meld(MeldType.Peng, [124, 125, 126], True),
-                    Meld(MeldType.Peng, [128, 129, 130], True),
+                    Meld(MeldType.Pon, [124, 125, 126], True),
+                    Meld(MeldType.Pon, [128, 129, 130], True),
                 ],
                 [],
                 [],

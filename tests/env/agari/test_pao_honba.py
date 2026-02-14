@@ -25,8 +25,8 @@ class TestPaoHonba:
         # Winner (Seat 3) has 2 dragon melds: White (124-126), Green (128-130)
         melds = env.melds
         melds[3] = [
-            Meld(MeldType.Peng, [124, 125, 126], True),
-            Meld(MeldType.Peng, [128, 129, 130], True),
+            Meld(MeldType.Pon, [124, 125, 126], True),
+            Meld(MeldType.Pon, [128, 129, 130], True),
         ]
         env.melds = melds
         # Hand (7 tiles): 3x 1m (0,1,2), 1x 2m (4), 2x Red (132,133), 1x Junk (99)
