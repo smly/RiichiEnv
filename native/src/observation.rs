@@ -123,19 +123,28 @@ impl Observation {
                     }
                 }
             }
-            for i in 0..34 {
-                let c = counts[i];
-                if c >= 1 { set_val(buf, ch_offset, 0, i, 1.0); }
-                if c >= 2 { set_val(buf, ch_offset, 1, i, 1.0); }
-                if c >= 3 { set_val(buf, ch_offset, 2, i, 1.0); }
-                if c >= 4 { set_val(buf, ch_offset, 3, i, 1.0); }
+            for (i, &c) in counts.iter().enumerate() {
+                if c >= 1 {
+                    set_val(buf, ch_offset, 0, i, 1.0);
+                }
+                if c >= 2 {
+                    set_val(buf, ch_offset, 1, i, 1.0);
+                }
+                if c >= 3 {
+                    set_val(buf, ch_offset, 2, i, 1.0);
+                }
+                if c >= 4 {
+                    set_val(buf, ch_offset, 3, i, 1.0);
+                }
             }
         }
 
         // Melds (Self) (ch 5-8)
         if (self.player_id as usize) < self.melds.len() {
             for (m_idx, meld) in self.melds[self.player_id as usize].iter().enumerate() {
-                if m_idx >= 4 { break; }
+                if m_idx >= 4 {
+                    break;
+                }
                 for &t in &meld.tiles {
                     let idx = (t as usize) / 4;
                     if idx < 34 {
@@ -187,12 +196,16 @@ impl Observation {
 
         // Tiles left in wall (ch 30)
         let mut tiles_used = 0;
-        for discs in &self.discards { tiles_used += discs.len(); }
+        for discs in &self.discards {
+            tiles_used += discs.len();
+        }
         for melds_list in &self.melds {
             for meld in melds_list {
                 tiles_used += meld.tiles.len();
                 // Subtract 1 for claimed tile (already counted in discards)
-                if meld.called_tile.is_some() { tiles_used -= 1; }
+                if meld.called_tile.is_some() {
+                    tiles_used -= 1;
+                }
             }
         }
         if (self.player_id as usize) < self.hands.len() {
@@ -234,8 +247,18 @@ impl Observation {
         // Scores (ch 39-46)
         for i in 0..4 {
             if i < self.scores.len() {
-                broadcast_scalar(buf, ch_offset, 39 + i, (self.scores[i].clamp(0, 100000) as f32) / 100000.0);
-                broadcast_scalar(buf, ch_offset, 43 + i, (self.scores[i].clamp(0, 30000) as f32) / 30000.0);
+                broadcast_scalar(
+                    buf,
+                    ch_offset,
+                    39 + i,
+                    (self.scores[i].clamp(0, 100000) as f32) / 100000.0,
+                );
+                broadcast_scalar(
+                    buf,
+                    ch_offset,
+                    43 + i,
+                    (self.scores[i].clamp(0, 30000) as f32) / 30000.0,
+                );
             }
         }
 
@@ -250,10 +273,16 @@ impl Observation {
         broadcast_scalar(buf, ch_offset, 48, if self.is_tenpai { 1.0 } else { 0.0 });
 
         // Rank (ch 49-52)
-        let my_score = self.scores.get(self.player_id as usize).copied().unwrap_or(0);
+        let my_score = self
+            .scores
+            .get(self.player_id as usize)
+            .copied()
+            .unwrap_or(0);
         let mut rank = 0;
         for &s in &self.scores {
-            if s > my_score { rank += 1; }
+            if s > my_score {
+                rank += 1;
+            }
         }
         if rank < 4 {
             broadcast_scalar(buf, ch_offset, 49 + rank, 1.0);
@@ -302,13 +331,18 @@ impl Observation {
                 }
             }
         }
-        for i in 0..4 {
-            broadcast_scalar(buf, ch_offset, 55 + i, (dora_counts[i] as f32) / 12.0);
+        for (i, &dc) in dora_counts.iter().enumerate() {
+            broadcast_scalar(buf, ch_offset, 55 + i, (dc as f32) / 12.0);
         }
 
         // Melds Count (ch 59-62)
         for (player_idx, melds_list) in self.melds.iter().enumerate() {
-            broadcast_scalar(buf, ch_offset, 59 + player_idx, (melds_list.len() as f32) / 4.0);
+            broadcast_scalar(
+                buf,
+                ch_offset,
+                59 + player_idx,
+                (melds_list.len() as f32) / 4.0,
+            );
         }
 
         // Tiles Seen (ch 63)
@@ -320,17 +354,21 @@ impl Observation {
         }
         for mlist in &self.melds {
             for m in mlist {
-                for &t in &m.tiles { seen[(t as usize) / 4] += 1; }
+                for &t in &m.tiles {
+                    seen[(t as usize) / 4] += 1;
+                }
             }
         }
         for dlist in &self.discards {
-            for &t in dlist { seen[(t as usize) / 4] += 1; }
+            for &t in dlist {
+                seen[(t as usize) / 4] += 1;
+            }
         }
         for &t in &self.dora_indicators {
             seen[(t as usize) / 4] += 1;
         }
-        for i in 0..34 {
-            set_val(buf, ch_offset, 63, i, (seen[i] as f32) / 4.0);
+        for (i, &s) in seen.iter().enumerate() {
+            set_val(buf, ch_offset, 63, i, (s as f32) / 4.0);
         }
 
         // Extended discards self (ch 64-67)
@@ -362,7 +400,12 @@ impl Observation {
                 && !self.tsumogiri_flags[player_idx].is_empty()
             {
                 let last_tsumogiri = *self.tsumogiri_flags[player_idx].last().unwrap_or(&false);
-                broadcast_scalar(buf, ch_offset, 70 + player_idx, if last_tsumogiri { 1.0 } else { 0.0 });
+                broadcast_scalar(
+                    buf,
+                    ch_offset,
+                    70 + player_idx,
+                    if last_tsumogiri { 1.0 } else { 0.0 },
+                );
             }
         }
     }
@@ -371,10 +414,14 @@ impl Observation {
     fn encode_discard_decay_into(&self, buf: &mut [f32], ch_offset: usize) {
         let decay_rate = 0.2f32;
         for player_idx in 0..4 {
-            if player_idx >= self.discards.len() { continue; }
+            if player_idx >= self.discards.len() {
+                continue;
+            }
             let discs = &self.discards[player_idx];
             let max_len = discs.len();
-            if max_len == 0 { continue; }
+            if max_len == 0 {
+                continue;
+            }
             for (turn, &tile) in discs.iter().enumerate() {
                 let tile_idx = (tile as usize) / 4;
                 if tile_idx < 34 {
@@ -401,7 +448,9 @@ impl Observation {
         all_visible.extend(self.dora_indicators.iter().copied());
 
         for player_idx in 0..4 {
-            if player_idx >= self.hands.len() { continue; }
+            if player_idx >= self.hands.len() {
+                continue;
+            }
             let base_ch = player_idx * 4;
 
             if player_idx == self.player_id as usize {
@@ -431,7 +480,9 @@ impl Observation {
     /// Write 4 ankan overview channels into buf starting at ch_offset.
     fn encode_ankan_into(&self, buf: &mut [f32], ch_offset: usize) {
         for (player_idx, melds) in self.melds.iter().enumerate() {
-            if player_idx >= 4 { break; }
+            if player_idx >= 4 {
+                break;
+            }
             for meld in melds {
                 if matches!(meld.meld_type, MeldType::Angang) {
                     if let Some(&tile) = meld.tiles.first() {
@@ -449,11 +500,17 @@ impl Observation {
     /// Layout: player(4) × meld(4) × tile_slot(5) flattened = 80 channels, each spatial (34).
     fn encode_fuuro_into(&self, buf: &mut [f32], ch_offset: usize) {
         for (player_idx, melds) in self.melds.iter().enumerate() {
-            if player_idx >= 4 { break; }
+            if player_idx >= 4 {
+                break;
+            }
             for (meld_idx, meld) in melds.iter().enumerate() {
-                if meld_idx >= 4 { break; }
+                if meld_idx >= 4 {
+                    break;
+                }
                 for (tile_slot_idx, &tile) in meld.tiles.iter().enumerate() {
-                    if tile_slot_idx >= 4 { break; }
+                    if tile_slot_idx >= 4 {
+                        break;
+                    }
                     let tile_type = (tile / 4) as usize;
                     if tile_type < 34 {
                         // channel = player*20 + meld*5 + slot
@@ -482,8 +539,11 @@ impl Observation {
                         let t1 = tiles[1] / 4;
                         let diff = (t1 as i32 - t0 as i32).abs();
                         if diff == 1 {
-                            if t0 < t1 { broadcast_scalar(buf, ch_offset, 1, 1.0); }
-                            else { broadcast_scalar(buf, ch_offset, 3, 1.0); }
+                            if t0 < t1 {
+                                broadcast_scalar(buf, ch_offset, 1, 1.0);
+                            } else {
+                                broadcast_scalar(buf, ch_offset, 3, 1.0);
+                            }
                         } else if diff == 2 {
                             broadcast_scalar(buf, ch_offset, 2, 1.0);
                         }
@@ -504,7 +564,9 @@ impl Observation {
     /// Write 5 discard candidates channels (broadcast) into buf starting at ch_offset.
     fn encode_discard_cand_into(&self, buf: &mut [f32], ch_offset: usize) {
         let player_idx = self.player_id as usize;
-        if player_idx >= self.hands.len() { return; }
+        if player_idx >= self.hands.len() {
+            return;
+        }
 
         let hand = &self.hands[player_idx];
         let current_shanten = shanten::calculate_shanten(hand);
@@ -514,18 +576,39 @@ impl Observation {
         let mut keep_count = 0;
         let mut increase_count = 0;
         for (idx, _) in hand.iter().enumerate() {
-            let new_hand: Vec<u32> = hand.iter().enumerate()
-                .filter(|(i, _)| *i != idx).map(|(_, &t)| t).collect();
+            let new_hand: Vec<u32> = hand
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != idx)
+                .map(|(_, &t)| t)
+                .collect();
             let new_shanten = shanten::calculate_shanten(&new_hand);
-            if new_shanten == current_shanten { keep_count += 1; }
-            else if new_shanten > current_shanten { increase_count += 1; }
+            if new_shanten == current_shanten {
+                keep_count += 1;
+            } else if new_shanten > current_shanten {
+                increase_count += 1;
+            }
         }
         if !hand.is_empty() {
             broadcast_scalar(buf, ch_offset, 1, keep_count as f32 / hand.len() as f32);
             broadcast_scalar(buf, ch_offset, 2, increase_count as f32 / hand.len() as f32);
         }
-        broadcast_scalar(buf, ch_offset, 3, if current_shanten == -1 { 1.0 } else { 0.0 });
-        broadcast_scalar(buf, ch_offset, 4, if player_idx < self.riichi_declared.len() && self.riichi_declared[player_idx] { 1.0 } else { 0.0 });
+        broadcast_scalar(
+            buf,
+            ch_offset,
+            3,
+            if current_shanten == -1 { 1.0 } else { 0.0 },
+        );
+        broadcast_scalar(
+            buf,
+            ch_offset,
+            4,
+            if player_idx < self.riichi_declared.len() && self.riichi_declared[player_idx] {
+                1.0
+            } else {
+                0.0
+            },
+        );
     }
 
     /// Write 3 pass context channels (broadcast) into buf starting at ch_offset.
@@ -533,27 +616,67 @@ impl Observation {
         if let Some(tile) = self.last_discard {
             let tile_type = (tile / 4) as usize;
             broadcast_scalar(buf, ch_offset, 0, tile_type as f32 / 33.0);
-            broadcast_scalar(buf, ch_offset, 1, if matches!(tile, 16 | 52 | 88) { 1.0 } else { 0.0 });
+            broadcast_scalar(
+                buf,
+                ch_offset,
+                1,
+                if matches!(tile, 16 | 52 | 88) {
+                    1.0
+                } else {
+                    0.0
+                },
+            );
 
-            let dora_tiles: Vec<u8> = self.dora_indicators.iter()
-                .map(|&ind| get_next_tile(ind)).collect();
-            broadcast_scalar(buf, ch_offset, 2, if dora_tiles.contains(&(tile as u8)) { 1.0 } else { 0.0 });
+            let dora_tiles: Vec<u8> = self
+                .dora_indicators
+                .iter()
+                .map(|&ind| get_next_tile(ind))
+                .collect();
+            broadcast_scalar(
+                buf,
+                ch_offset,
+                2,
+                if dora_tiles.contains(&(tile as u8)) {
+                    1.0
+                } else {
+                    0.0
+                },
+            );
         }
     }
 
     /// Write 9 last tedashis channels (broadcast) into buf starting at ch_offset.
     fn encode_last_ted_into(&self, buf: &mut [f32], ch_offset: usize) {
-        let dora_tiles: Vec<u8> = self.dora_indicators.iter()
-            .map(|&ind| get_next_tile(ind)).collect();
+        let dora_tiles: Vec<u8> = self
+            .dora_indicators
+            .iter()
+            .map(|&ind| get_next_tile(ind))
+            .collect();
 
         let mut opp_idx = 0;
         for player_id in 0..4 {
-            if player_id == self.player_id as usize { continue; }
+            if player_id == self.player_id as usize {
+                continue;
+            }
             if let Some(tile) = self.last_tedashis[player_id] {
                 let tile_type = (tile / 4) as usize;
                 broadcast_scalar(buf, ch_offset, opp_idx * 3, tile_type as f32 / 33.0);
-                broadcast_scalar(buf, ch_offset, opp_idx * 3 + 1, if matches!(tile, 16 | 52 | 88) { 1.0 } else { 0.0 });
-                broadcast_scalar(buf, ch_offset, opp_idx * 3 + 2, if dora_tiles.contains(&tile) { 1.0 } else { 0.0 });
+                broadcast_scalar(
+                    buf,
+                    ch_offset,
+                    opp_idx * 3 + 1,
+                    if matches!(tile, 16 | 52 | 88) {
+                        1.0
+                    } else {
+                        0.0
+                    },
+                );
+                broadcast_scalar(
+                    buf,
+                    ch_offset,
+                    opp_idx * 3 + 2,
+                    if dora_tiles.contains(&tile) { 1.0 } else { 0.0 },
+                );
             }
             opp_idx += 1;
         }
@@ -561,17 +684,36 @@ impl Observation {
 
     /// Write 9 riichi sutehais channels (broadcast) into buf starting at ch_offset.
     fn encode_riichi_sute_into(&self, buf: &mut [f32], ch_offset: usize) {
-        let dora_tiles: Vec<u8> = self.dora_indicators.iter()
-            .map(|&ind| get_next_tile(ind)).collect();
+        let dora_tiles: Vec<u8> = self
+            .dora_indicators
+            .iter()
+            .map(|&ind| get_next_tile(ind))
+            .collect();
 
         let mut opp_idx = 0;
         for player_id in 0..4 {
-            if player_id == self.player_id as usize { continue; }
+            if player_id == self.player_id as usize {
+                continue;
+            }
             if let Some(tile) = self.riichi_sutehais[player_id] {
                 let tile_type = (tile / 4) as usize;
                 broadcast_scalar(buf, ch_offset, opp_idx * 3, tile_type as f32 / 33.0);
-                broadcast_scalar(buf, ch_offset, opp_idx * 3 + 1, if matches!(tile, 16 | 52 | 88) { 1.0 } else { 0.0 });
-                broadcast_scalar(buf, ch_offset, opp_idx * 3 + 2, if dora_tiles.contains(&tile) { 1.0 } else { 0.0 });
+                broadcast_scalar(
+                    buf,
+                    ch_offset,
+                    opp_idx * 3 + 1,
+                    if matches!(tile, 16 | 52 | 88) {
+                        1.0
+                    } else {
+                        0.0
+                    },
+                );
+                broadcast_scalar(
+                    buf,
+                    ch_offset,
+                    opp_idx * 3 + 2,
+                    if dora_tiles.contains(&tile) { 1.0 } else { 0.0 },
+                );
             }
             opp_idx += 1;
         }
@@ -583,7 +725,9 @@ impl Observation {
         use crate::types::TILE_MAX;
 
         let player_idx = self.player_id as usize;
-        if player_idx >= self.hands.len() { return; }
+        if player_idx >= self.hands.len() {
+            return;
+        }
 
         let hand_136 = &self.hands[player_idx];
 
@@ -591,7 +735,9 @@ impl Observation {
         let mut akas_in_hand = [false; 3];
         for &t in hand_136 {
             let tile_type = (t / 4) as usize;
-            if tile_type < TILE_MAX { tehai[tile_type] += 1; }
+            if tile_type < TILE_MAX {
+                tehai[tile_type] += 1;
+            }
             match t {
                 16 => akas_in_hand[0] = true,
                 52 => akas_in_hand[1] = true,
@@ -604,29 +750,57 @@ impl Observation {
         let mut akas_seen = [false; 3];
         for &t in hand_136 {
             let tt = (t / 4) as usize;
-            if tt < TILE_MAX { tiles_seen[tt] += 1; }
-            match t { 16 => akas_seen[0] = true, 52 => akas_seen[1] = true, 88 => akas_seen[2] = true, _ => {} }
+            if tt < TILE_MAX {
+                tiles_seen[tt] += 1;
+            }
+            match t {
+                16 => akas_seen[0] = true,
+                52 => akas_seen[1] = true,
+                88 => akas_seen[2] = true,
+                _ => {}
+            }
         }
         for melds_list in &self.melds {
             for meld in melds_list {
                 for &tile in &meld.tiles {
                     let tt = (tile / 4) as usize;
-                    if tt < TILE_MAX { tiles_seen[tt] += 1; }
-                    match tile { 16 => akas_seen[0] = true, 52 => akas_seen[1] = true, 88 => akas_seen[2] = true, _ => {} }
+                    if tt < TILE_MAX {
+                        tiles_seen[tt] += 1;
+                    }
+                    match tile {
+                        16 => akas_seen[0] = true,
+                        52 => akas_seen[1] = true,
+                        88 => akas_seen[2] = true,
+                        _ => {}
+                    }
                 }
             }
         }
         for discs in &self.discards {
             for &tile in discs {
                 let tt = (tile / 4) as usize;
-                if tt < TILE_MAX { tiles_seen[tt] += 1; }
-                match tile { 16 => akas_seen[0] = true, 52 => akas_seen[1] = true, 88 => akas_seen[2] = true, _ => {} }
+                if tt < TILE_MAX {
+                    tiles_seen[tt] += 1;
+                }
+                match tile {
+                    16 => akas_seen[0] = true,
+                    52 => akas_seen[1] = true,
+                    88 => akas_seen[2] = true,
+                    _ => {}
+                }
             }
         }
         for &t in &self.dora_indicators {
             let tt = (t / 4) as usize;
-            if tt < TILE_MAX { tiles_seen[tt] += 1; }
-            match t { 16 => akas_seen[0] = true, 52 => akas_seen[1] = true, 88 => akas_seen[2] = true, _ => {} }
+            if tt < TILE_MAX {
+                tiles_seen[tt] += 1;
+            }
+            match t {
+                16 => akas_seen[0] = true,
+                52 => akas_seen[1] = true,
+                88 => akas_seen[2] = true,
+                _ => {}
+            }
         }
         // Subtract double-counted tiles: claimed tiles appear in both discards and melds
         for melds_list in &self.melds {
@@ -639,20 +813,34 @@ impl Observation {
                 }
             }
         }
-        for i in 0..TILE_MAX { tiles_seen[i] = tiles_seen[i].min(4); }
+        for ts in tiles_seen.iter_mut().take(TILE_MAX) {
+            *ts = (*ts).min(4);
+        }
 
-        let num_melds = if player_idx < self.melds.len() { self.melds[player_idx].len() } else { 0 };
+        let num_melds = if player_idx < self.melds.len() {
+            self.melds[player_idx].len()
+        } else {
+            0
+        };
         let tehai_len_div3 = (4 - num_melds) as u8;
         let is_menzen = if player_idx < self.melds.len() {
-            self.melds[player_idx].iter().all(|m| matches!(m.meld_type, MeldType::Angang))
-        } else { true };
+            self.melds[player_idx]
+                .iter()
+                .all(|m| matches!(m.meld_type, MeldType::Angang))
+        } else {
+            true
+        };
 
         let seat = (self.player_id + 4 - self.oya) % 4;
         let is_oya = seat == 0;
         let bakaze = 27 + self.round_wind;
         let jikaze = 27 + seat;
 
-        let dora_indicators_34: Vec<u8> = self.dora_indicators.iter().map(|&t| (t / 4) as u8).collect();
+        let dora_indicators_34: Vec<u8> = self
+            .dora_indicators
+            .iter()
+            .map(|&t| (t / 4) as u8)
+            .collect();
 
         let mut num_doras_in_fuuro = 0u8;
         let mut num_aka_in_fuuro = 0u8;
@@ -660,20 +848,32 @@ impl Observation {
             for meld in &self.melds[player_idx] {
                 for &tile in &meld.tiles {
                     for &ind in &dora_indicators_34 {
-                        if (tile / 4) as u8 == sp::next_dora_tile(ind) { num_doras_in_fuuro += 1; }
+                        if tile / 4 == sp::next_dora_tile(ind) {
+                            num_doras_in_fuuro += 1;
+                        }
                     }
-                    match tile { 16 | 52 | 88 => num_aka_in_fuuro += 1, _ => {} }
+                    match tile {
+                        16 | 52 | 88 => num_aka_in_fuuro += 1,
+                        _ => {}
+                    }
                 }
             }
         }
 
         let melds_for_calc: Vec<Meld> = if player_idx < self.melds.len() {
-            self.melds[player_idx].iter().map(|m| Meld {
-                meld_type: m.meld_type, tiles: m.tiles.iter().map(|&t| t / 4).collect(),
-                opened: m.opened, from_who: m.from_who,
-                called_tile: m.called_tile.map(|t| t / 4),
-            }).collect()
-        } else { Vec::new() };
+            self.melds[player_idx]
+                .iter()
+                .map(|m| Meld {
+                    meld_type: m.meld_type,
+                    tiles: m.tiles.iter().map(|&t| t / 4).collect(),
+                    opened: m.opened,
+                    from_who: m.from_who,
+                    called_tile: m.called_tile.map(|t| t / 4),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         let total_visible: u32 = tiles_seen.iter().map(|&c| c as u32).sum();
         let tiles_in_wall = (136u32).saturating_sub(total_visible);
@@ -682,10 +882,24 @@ impl Observation {
         let can_discard = hand_tile_count % 3 == 2;
 
         let calculator = sp::SPCalculator::new(
-            tehai_len_div3, bakaze, jikaze, is_menzen, is_oya,
-            dora_indicators_34, num_doras_in_fuuro, num_aka_in_fuuro, melds_for_calc,
+            tehai_len_div3,
+            bakaze,
+            jikaze,
+            is_menzen,
+            is_oya,
+            dora_indicators_34,
+            num_doras_in_fuuro,
+            num_aka_in_fuuro,
+            melds_for_calc,
         );
-        let candidates = calculator.calc(&tehai, &tiles_seen, &akas_in_hand, &akas_seen, tsumos_left, can_discard);
+        let candidates = calculator.calc(
+            &tehai,
+            &tiles_seen,
+            &akas_in_hand,
+            &akas_seen,
+            tsumos_left,
+            can_discard,
+        );
         let sp_arr = sp::encode_sp_features(&candidates, can_discard);
 
         // Copy 123*34 floats into buf
@@ -2157,9 +2371,8 @@ impl Observation {
         if player_idx >= self.hands.len() {
             let arr = vec![0.0f32; total_floats];
             let byte_len = arr.len() * std::mem::size_of::<f32>();
-            let byte_slice = unsafe {
-                std::slice::from_raw_parts(arr.as_ptr() as *const u8, byte_len)
-            };
+            let byte_slice =
+                unsafe { std::slice::from_raw_parts(arr.as_ptr() as *const u8, byte_len) };
             return Ok(pyo3::types::PyBytes::new(py, byte_slice));
         }
 
@@ -2249,8 +2462,8 @@ impl Observation {
         }
 
         // Clamp tiles_seen to max 4 per type
-        for i in 0..TILE_MAX {
-            tiles_seen[i] = tiles_seen[i].min(4);
+        for ts in tiles_seen.iter_mut().take(TILE_MAX) {
+            *ts = (*ts).min(4);
         }
 
         // Determine game context
@@ -2262,9 +2475,9 @@ impl Observation {
         let tehai_len_div3 = (4 - num_melds) as u8; // 3n+2 tiles in hand = (4-melds)*3+2
 
         let is_menzen = if player_idx < self.melds.len() {
-            self.melds[player_idx].iter().all(|m| {
-                matches!(m.meld_type, MeldType::Angang)
-            })
+            self.melds[player_idx]
+                .iter()
+                .all(|m| matches!(m.meld_type, MeldType::Angang))
         } else {
             true
         };
@@ -2275,7 +2488,8 @@ impl Observation {
         let jikaze = 27 + seat;
 
         // Dora indicators in 34-tile format
-        let dora_indicators_34: Vec<u8> = self.dora_indicators
+        let dora_indicators_34: Vec<u8> = self
+            .dora_indicators
             .iter()
             .map(|&t| (t / 4) as u8)
             .collect();
@@ -2289,7 +2503,7 @@ impl Observation {
                     // Check dora
                     for &ind in &dora_indicators_34 {
                         let dora = sp::next_dora_tile(ind);
-                        if (tile / 4) as u8 == dora {
+                        if tile / 4 == dora {
                             num_doras_in_fuuro += 1;
                         }
                     }
@@ -2355,9 +2569,7 @@ impl Observation {
 
         // Convert to bytes
         let byte_len = arr.len() * std::mem::size_of::<f32>();
-        let byte_slice = unsafe {
-            std::slice::from_raw_parts(arr.as_ptr() as *const u8, byte_len)
-        };
+        let byte_slice = unsafe { std::slice::from_raw_parts(arr.as_ptr() as *const u8, byte_len) };
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
@@ -2398,9 +2610,7 @@ impl Observation {
         self.encode_sp_into(&mut buf, 215);
 
         let byte_len = total * std::mem::size_of::<f32>();
-        let byte_slice = unsafe {
-            std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len)
-        };
+        let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
@@ -2426,18 +2636,13 @@ impl Observation {
         self.encode_riichi_sute_into(&mut buf, 206);
 
         let byte_len = total * std::mem::size_of::<f32>();
-        let byte_slice = unsafe {
-            std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len)
-        };
+        let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
     /// Return diagnostic statistics from SP calculation as a Python dict.
     #[pyo3(name = "sp_calc_stats")]
-    pub fn sp_calc_stats<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+    pub fn sp_calc_stats<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
         use crate::sp;
         use crate::types::TILE_MAX;
 
@@ -2449,8 +2654,15 @@ impl Observation {
         if player_idx < self.hands.len() {
             for &t in &self.hands[player_idx] {
                 let tile_type = (t / 4) as usize;
-                if tile_type < TILE_MAX { tehai[tile_type] += 1; }
-                match t { 16 => akas_in_hand[0] = true, 52 => akas_in_hand[1] = true, 88 => akas_in_hand[2] = true, _ => {} }
+                if tile_type < TILE_MAX {
+                    tehai[tile_type] += 1;
+                }
+                match t {
+                    16 => akas_in_hand[0] = true,
+                    52 => akas_in_hand[1] = true,
+                    88 => akas_in_hand[2] = true,
+                    _ => {}
+                }
             }
         }
 
@@ -2459,30 +2671,58 @@ impl Observation {
         if player_idx < self.hands.len() {
             for &t in &self.hands[player_idx] {
                 let tt = (t / 4) as usize;
-                if tt < TILE_MAX { tiles_seen[tt] += 1; }
-                match t { 16 => akas_seen[0] = true, 52 => akas_seen[1] = true, 88 => akas_seen[2] = true, _ => {} }
+                if tt < TILE_MAX {
+                    tiles_seen[tt] += 1;
+                }
+                match t {
+                    16 => akas_seen[0] = true,
+                    52 => akas_seen[1] = true,
+                    88 => akas_seen[2] = true,
+                    _ => {}
+                }
             }
         }
         for melds_list in &self.melds {
             for meld in melds_list {
                 for &tile in &meld.tiles {
                     let tt = (tile / 4) as usize;
-                    if tt < TILE_MAX { tiles_seen[tt] += 1; }
-                    match tile { 16 => akas_seen[0] = true, 52 => akas_seen[1] = true, 88 => akas_seen[2] = true, _ => {} }
+                    if tt < TILE_MAX {
+                        tiles_seen[tt] += 1;
+                    }
+                    match tile {
+                        16 => akas_seen[0] = true,
+                        52 => akas_seen[1] = true,
+                        88 => akas_seen[2] = true,
+                        _ => {}
+                    }
                 }
             }
         }
         for discs in &self.discards {
             for &tile in discs {
                 let tt = (tile / 4) as usize;
-                if tt < TILE_MAX { tiles_seen[tt] += 1; }
-                match tile { 16 => akas_seen[0] = true, 52 => akas_seen[1] = true, 88 => akas_seen[2] = true, _ => {} }
+                if tt < TILE_MAX {
+                    tiles_seen[tt] += 1;
+                }
+                match tile {
+                    16 => akas_seen[0] = true,
+                    52 => akas_seen[1] = true,
+                    88 => akas_seen[2] = true,
+                    _ => {}
+                }
             }
         }
         for &t in &self.dora_indicators {
             let tt = (t / 4) as usize;
-            if tt < TILE_MAX { tiles_seen[tt] += 1; }
-            match t { 16 => akas_seen[0] = true, 52 => akas_seen[1] = true, 88 => akas_seen[2] = true, _ => {} }
+            if tt < TILE_MAX {
+                tiles_seen[tt] += 1;
+            }
+            match t {
+                16 => akas_seen[0] = true,
+                52 => akas_seen[1] = true,
+                88 => akas_seen[2] = true,
+                _ => {}
+            }
         }
         // Subtract double-counted tiles: claimed tiles appear in both discards and melds
         for melds_list in &self.melds {
@@ -2495,20 +2735,34 @@ impl Observation {
                 }
             }
         }
-        for i in 0..TILE_MAX { tiles_seen[i] = tiles_seen[i].min(4); }
+        for ts in tiles_seen.iter_mut().take(TILE_MAX) {
+            *ts = (*ts).min(4);
+        }
 
-        let num_melds = if player_idx < self.melds.len() { self.melds[player_idx].len() } else { 0 };
+        let num_melds = if player_idx < self.melds.len() {
+            self.melds[player_idx].len()
+        } else {
+            0
+        };
         let tehai_len_div3 = (4 - num_melds) as u8;
         let is_menzen = if player_idx < self.melds.len() {
-            self.melds[player_idx].iter().all(|m| matches!(m.meld_type, MeldType::Angang))
-        } else { true };
+            self.melds[player_idx]
+                .iter()
+                .all(|m| matches!(m.meld_type, MeldType::Angang))
+        } else {
+            true
+        };
 
         let seat = (self.player_id + 4 - self.oya) % 4;
         let is_oya = seat == 0;
         let bakaze = 27 + self.round_wind;
         let jikaze = 27 + seat;
 
-        let dora_indicators_34: Vec<u8> = self.dora_indicators.iter().map(|&t| (t / 4) as u8).collect();
+        let dora_indicators_34: Vec<u8> = self
+            .dora_indicators
+            .iter()
+            .map(|&t| (t / 4) as u8)
+            .collect();
 
         let mut num_doras_in_fuuro = 0u8;
         let mut num_aka_in_fuuro = 0u8;
@@ -2516,20 +2770,32 @@ impl Observation {
             for meld in &self.melds[player_idx] {
                 for &tile in &meld.tiles {
                     for &ind in &dora_indicators_34 {
-                        if (tile / 4) as u8 == sp::next_dora_tile(ind) { num_doras_in_fuuro += 1; }
+                        if tile / 4 == sp::next_dora_tile(ind) {
+                            num_doras_in_fuuro += 1;
+                        }
                     }
-                    match tile { 16 | 52 | 88 => num_aka_in_fuuro += 1, _ => {} }
+                    match tile {
+                        16 | 52 | 88 => num_aka_in_fuuro += 1,
+                        _ => {}
+                    }
                 }
             }
         }
 
         let melds_for_calc: Vec<Meld> = if player_idx < self.melds.len() {
-            self.melds[player_idx].iter().map(|m| Meld {
-                meld_type: m.meld_type, tiles: m.tiles.iter().map(|&t| t / 4).collect(),
-                opened: m.opened, from_who: m.from_who,
-                called_tile: m.called_tile.map(|t| t / 4),
-            }).collect()
-        } else { Vec::new() };
+            self.melds[player_idx]
+                .iter()
+                .map(|m| Meld {
+                    meld_type: m.meld_type,
+                    tiles: m.tiles.iter().map(|&t| t / 4).collect(),
+                    opened: m.opened,
+                    from_who: m.from_who,
+                    called_tile: m.called_tile.map(|t| t / 4),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         let total_visible: u32 = tiles_seen.iter().map(|&c| c as u32).sum();
         let tiles_in_wall = (136u32).saturating_sub(total_visible);
@@ -2538,10 +2804,24 @@ impl Observation {
         let can_discard = hand_tile_count % 3 == 2;
 
         let calculator = sp::SPCalculator::new(
-            tehai_len_div3, bakaze, jikaze, is_menzen, is_oya,
-            dora_indicators_34, num_doras_in_fuuro, num_aka_in_fuuro, melds_for_calc,
+            tehai_len_div3,
+            bakaze,
+            jikaze,
+            is_menzen,
+            is_oya,
+            dora_indicators_34,
+            num_doras_in_fuuro,
+            num_aka_in_fuuro,
+            melds_for_calc,
         );
-        let (_, stats) = calculator.calc_with_stats(&tehai, &tiles_seen, &akas_in_hand, &akas_seen, tsumos_left, can_discard);
+        let (_, stats) = calculator.calc_with_stats(
+            &tehai,
+            &tiles_seen,
+            &akas_in_hand,
+            &akas_seen,
+            tsumos_left,
+            can_discard,
+        );
 
         let dict = pyo3::types::PyDict::new(py);
         dict.set_item("shanten", stats.shanten)?;

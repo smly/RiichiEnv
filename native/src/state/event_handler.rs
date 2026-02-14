@@ -302,7 +302,9 @@ impl GameStateEventHandler for GameState {
                     .find(|&&f| f != *seat)
                     .map(|&f| f as i8)
                     .unwrap_or(-1);
-                let ct = tiles.iter().zip(froms.iter())
+                let ct = tiles
+                    .iter()
+                    .zip(froms.iter())
                     .find(|(_, &f)| f != *seat)
                     .map(|(&t, _)| t);
                 self.players[*seat].melds.push(Meld {

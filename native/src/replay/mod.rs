@@ -1037,7 +1037,9 @@ impl AgariContextIterator {
                             break;
                         }
                     }
-                    let ct = tiles.iter().zip(froms.iter())
+                    let ct = tiles
+                        .iter()
+                        .zip(froms.iter())
                         .find(|(_, &f)| f != *seat)
                         .map(|(&t, _)| t);
                     self.melds[*seat].push(Meld {

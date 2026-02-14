@@ -59,7 +59,7 @@ online:
   grp_model: /data/workspace/riichienv/baseline/grp_model.pth
   pts_weight: [6.0, 4.0, 2.0, 0.0]
   weight_decay: 0.1
-  alpha_kl: 0.2                # KL regularization to pretrained CQL policy (prevents drift)
+  alpha_kl: 0.1                # KL regularization to pretrained CQL policy (prevents drift)
   alpha_kl_warmup_steps: 50    # warmup: alpha_kl scales from 0→full over first 50 steps
   aux_weight: 0.0
   # Common

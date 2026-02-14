@@ -117,7 +117,13 @@ pub struct Meld {
 impl Meld {
     #[new]
     #[pyo3(signature = (meld_type, tiles, opened, from_who=-1, called_tile=None))]
-    pub fn new(meld_type: MeldType, tiles: Vec<u8>, opened: bool, from_who: i8, called_tile: Option<u8>) -> Self {
+    pub fn new(
+        meld_type: MeldType,
+        tiles: Vec<u8>,
+        opened: bool,
+        from_who: i8,
+        called_tile: Option<u8>,
+    ) -> Self {
         Self {
             meld_type,
             tiles,

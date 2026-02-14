@@ -292,7 +292,10 @@ impl State {
     }
 
     fn get_discard_tiles(&self, shanten: i8, tehai_len_div3: u8) -> ([DiscardTile; 34], usize) {
-        let mut result = [DiscardTile { tile: 0, shanten_diff: 0 }; 34];
+        let mut result = [DiscardTile {
+            tile: 0,
+            shanten_diff: 0,
+        }; 34];
         let mut len = 0;
         let mut tehai = self.tehai;
         for tid in 0..TILE_MAX {
@@ -312,7 +315,11 @@ impl State {
     }
 
     fn get_draw_tiles(&self, shanten: i8, tehai_len_div3: u8) -> ([DrawTile; 34], usize) {
-        let mut result = [DrawTile { tile: 0, count: 0, shanten_diff: 0 }; 34];
+        let mut result = [DrawTile {
+            tile: 0,
+            count: 0,
+            shanten_diff: 0,
+        }; 34];
         let mut len = 0;
         let mut tehai = self.tehai;
         for tid in 0..TILE_MAX {
@@ -498,7 +505,15 @@ impl SPCalculator {
         tsumos_left: usize,
         can_discard: bool,
     ) -> Vec<Candidate> {
-        self.calc_with_stats(tehai, tiles_seen, akas_in_hand, akas_seen, tsumos_left, can_discard).0
+        self.calc_with_stats(
+            tehai,
+            tiles_seen,
+            akas_in_hand,
+            akas_seen,
+            tsumos_left,
+            can_discard,
+        )
+        .0
     }
 
     /// Calculate SP table and return diagnostic statistics.
@@ -607,7 +622,9 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
     }
 
     fn analyze_discard(&mut self, shanten: i8) -> Vec<Candidate> {
-        let (discard_tiles, discard_len) = self.state.get_discard_tiles(shanten, self.sup.tehai_len_div3);
+        let (discard_tiles, discard_len) = self
+            .state
+            .get_discard_tiles(shanten, self.sup.tehai_len_div3);
         let mut candidates = Vec::with_capacity(discard_len);
 
         for &DiscardTile { tile, shanten_diff } in &discard_tiles[..discard_len] {
@@ -634,10 +651,7 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
                     required_vec,
                     false,
                 ));
-            } else if self.sup.calc_shanten_down
-                && shanten_diff == 1
-                && shanten < SHANTEN_THRES
-            {
+            } else if self.sup.calc_shanten_down && shanten_diff == 1 && shanten < SHANTEN_THRES {
                 // Shanten-down discard
                 self.state.discard(tile);
                 let (required, req_len) = self.state.get_required_tiles(self.sup.tehai_len_div3);
@@ -803,7 +817,8 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
                     match &scores_or_values {
                         ScoresOrValues::Scores(scores) => {
                             let win_ippatsu = assume_riichi && j == i;
-                            let win_double_riichi = assume_riichi && self.sup.calc_double_riichi && i == 0;
+                            let win_double_riichi =
+                                assume_riichi && self.sup.calc_double_riichi && i == 0;
                             let win_haitei = self.sup.calc_haitei && j == MAX_TSUMO - 1;
                             let han_plus = win_double_riichi as usize
                                 + win_ippatsu as usize
@@ -851,7 +866,9 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
 
     fn discard_slow(&mut self, shanten: i8) -> Rc<Values<MAX_TSUMO>> {
         self.discard_slow_calls += 1;
-        let (discard_tiles, discard_len) = self.state.get_discard_tiles(shanten, self.sup.tehai_len_div3);
+        let (discard_tiles, discard_len) = self
+            .state
+            .get_discard_tiles(shanten, self.sup.tehai_len_div3);
 
         let mut max_tenpai_probs = [f32::MIN; MAX_TSUMO];
         let mut max_win_probs = [f32::MIN; MAX_TSUMO];
@@ -995,19 +1012,14 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
 
         // Yakuman: all 4 entries are the same score
         if yaku_result.yakuman_count > 0 {
-            let s = score::calculate_score(
-                yaku_result.han,
-                yaku_result.fu,
-                self.sup.is_oya,
-                true,
-                0,
-            );
+            let s =
+                score::calculate_score(yaku_result.han, yaku_result.fu, self.sup.is_oya, true, 0);
             return Some([s.total as f32; 4]);
         }
 
         // Normal hand: compute scores for han+0, han+1, han+2, han+3
         let mut scores = [0.0f32; 4];
-        for i in 0..4 {
+        for (i, score_val) in scores.iter_mut().enumerate() {
             let s = score::calculate_score(
                 yaku_result.han + i as u8,
                 yaku_result.fu,
@@ -1015,7 +1027,7 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
                 true,
                 0,
             );
-            scores[i] = s.total as f32;
+            *score_val = s.total as f32;
         }
         Some(scores)
     }
@@ -1201,8 +1213,8 @@ mod tests {
     fn test_calc_shanten_tenpai() {
         // 1m2m3m 4m5m6m 7m8m9m 1p2p3p 4p -> tenpai
         let mut tehai = [0u8; 34];
-        for i in 0..9 {
-            tehai[i] = 1;
+        for t in tehai.iter_mut().take(9) {
+            *t = 1;
         }
         tehai[9] = 1;
         tehai[10] = 1;
@@ -1215,13 +1227,13 @@ mod tests {
     fn test_calc_shanten_complete() {
         // 1m2m3m 4m5m6m 7m8m9m 1p1p2p3p (13 tiles, tenpai = 0)
         let mut tehai = [0u8; 34];
-        for i in 0..9 {
-            tehai[i] = 1;
+        for t in tehai.iter_mut().take(9) {
+            *t = 1;
         }
-        tehai[9] = 2;  // 1p pair
+        tehai[9] = 2; // 1p pair
         tehai[10] = 1; // 2p
         tehai[11] = 1; // 3p
-        // 13 tiles (3*4+1), tenpai for 1p/4p
+                       // 13 tiles (3*4+1), tenpai for 1p/4p
         assert_eq!(calc_shanten_from_counts(&tehai, 4), 0);
 
         // 55m = pair, len_div3=0 => complete hand = -1
@@ -1272,24 +1284,54 @@ mod tests {
         }
 
         // calc_3n_plus_1 tests
-        assert_eq!(calc_shanten_from_counts(&hand("1111m 333p 222s 444z"), 4), 1);
-        assert_eq!(calc_shanten_from_counts(&hand("147m 258p 369s 1234z"), 4), 6);
+        assert_eq!(
+            calc_shanten_from_counts(&hand("1111m 333p 222s 444z"), 4),
+            1
+        );
+        assert_eq!(
+            calc_shanten_from_counts(&hand("147m 258p 369s 1234z"), 4),
+            6
+        );
         assert_eq!(calc_shanten_from_counts(&hand("468m 33346p 7s"), 3), 2);
         assert_eq!(calc_shanten_from_counts(&hand("147m 258p 3s"), 2), 4);
         assert_eq!(calc_shanten_from_counts(&hand("4455s"), 1), 0);
         assert_eq!(calc_shanten_from_counts(&hand("7z"), 0), 0);
-        assert_eq!(calc_shanten_from_counts(&hand("15559m 19p 19s 1234z"), 4), 3);
-        assert_eq!(calc_shanten_from_counts(&hand("9999m 6677p 88s 335z"), 4), 2);
-        assert_eq!(calc_shanten_from_counts(&hand("19m 19p 159s 123456z"), 4), 1);
+        assert_eq!(
+            calc_shanten_from_counts(&hand("15559m 19p 19s 1234z"), 4),
+            3
+        );
+        assert_eq!(
+            calc_shanten_from_counts(&hand("9999m 6677p 88s 335z"), 4),
+            2
+        );
+        assert_eq!(
+            calc_shanten_from_counts(&hand("19m 19p 159s 123456z"), 4),
+            1
+        );
 
         // calc_3n_plus_2 tests
-        assert_eq!(calc_shanten_from_counts(&hand("2344456m 14p 127s 2z 7p"), 4), 3);
-        assert_eq!(calc_shanten_from_counts(&hand("2344456m 14p 127s 2z 5p"), 4), 2);
+        assert_eq!(
+            calc_shanten_from_counts(&hand("2344456m 14p 127s 2z 7p"), 4),
+            3
+        );
+        assert_eq!(
+            calc_shanten_from_counts(&hand("2344456m 14p 127s 2z 5p"), 4),
+            2
+        );
         assert_eq!(calc_shanten_from_counts(&hand("344455667p 1139s 9m"), 4), 2);
         assert_eq!(calc_shanten_from_counts(&hand("344455667p 1139s 9p"), 4), 1);
-        assert_eq!(calc_shanten_from_counts(&hand("122334m 678p 37s 22z 5s"), 4), 0);
-        assert_eq!(calc_shanten_from_counts(&hand("122334m 678p 12s 22z 4s"), 4), 0);
-        assert_eq!(calc_shanten_from_counts(&hand("12223456m 78889p 2m"), 4), -1);
+        assert_eq!(
+            calc_shanten_from_counts(&hand("122334m 678p 37s 22z 5s"), 4),
+            0
+        );
+        assert_eq!(
+            calc_shanten_from_counts(&hand("122334m 678p 12s 22z 4s"), 4),
+            0
+        );
+        assert_eq!(
+            calc_shanten_from_counts(&hand("12223456m 78889p 2m"), 4),
+            -1
+        );
         assert_eq!(calc_shanten_from_counts(&hand("34778p"), 1), 0);
         assert_eq!(calc_shanten_from_counts(&hand("34s"), 0), 0);
         assert_eq!(calc_shanten_from_counts(&hand("55m"), 0), -1);
@@ -1311,4 +1353,3 @@ mod tests {
         assert!(arr.iter().all(|&v| v == 0.0));
     }
 }
-
