@@ -281,12 +281,6 @@ class PPOWorker:
                     kyoku_buffers[ei] = []
                     kyoku_count[ei] += 1
 
-                    # Debug: log first 3 kyokus of env 0
-                    # if ei == 0 and kyoku_count[ei] <= 3:
-                    #     logger.debug(f"env0 kyoku {kyoku_count[ei]}: "
-                    #                  f"hero={hero_pids[ei]} reward={reward:.3f} "
-                    #                  f"all={[f'{r:.3f}' for r in all_rewards]}")
-
                     # Update tracking for next kyoku
                     prev_kyoku_idx[ei] = cur_kyoku_idx
                     kyoku_start_scores[ei] = cur_scores
