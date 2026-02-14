@@ -1074,9 +1074,17 @@ pub fn next_dora_tile(indicator: u8) -> u8 {
     }
 }
 
-/// Encode SP results into 123 × 34 feature channels.
+/// Encode SP results into 89 × 34 feature channels.
+///
+/// Channel layout:
+///   0-  1: max EV (2ch broadcast)
+///   2- 35: required tiles per discard (34ch spatial)
+///  36- 37: best discard / draw required indicators (2ch)
+///  38- 54: tenpai probs per turn (17ch)
+///  55- 71: win probs per turn (17ch)
+///  72- 88: exp values per turn (17ch, relative to max EV)
 pub fn encode_win_projection_features(candidates: &[Candidate], can_discard: bool) -> Vec<f32> {
-    let num_channels = 123;
+    let num_channels = 89;
     let mut arr = vec![0.0f32; num_channels * 34];
 
     if candidates.is_empty() {
@@ -1103,43 +1111,42 @@ pub fn encode_win_projection_features(candidates: &[Candidate], can_discard: boo
         set(&mut arr, 1, t, (max_ev / 30000.0).min(1.0));
     }
 
-    // Required tiles (ch 2-69)
+    // Required tiles (ch 2-35): one channel per discard tile
     if can_discard {
         for cand in candidates {
-            if cand.tile >= 34 {
+            if cand.tile >= 34 || cand.shanten_down {
                 continue;
             }
             let discard_tid = cand.tile as usize;
-            let offset = if cand.shanten_down { 34 } else { 0 };
             for &(req_tile, _count) in &cand.required_tiles {
                 let required_tid = req_tile as usize;
-                set(&mut arr, 2 + offset + discard_tid, required_tid, 1.0);
+                set(&mut arr, 2 + discard_tid, required_tid, 1.0);
             }
         }
     }
 
-    // Best discard indicators (ch 70-71)
+    // Best discard indicators (ch 36-37)
     if can_discard {
         if let Some(best) = candidates
             .iter()
             .filter(|c| !c.shanten_down && c.tile < 34)
             .max_by_key(|c| c.num_required_tiles)
         {
-            set(&mut arr, 70, best.tile as usize, 1.0);
+            set(&mut arr, 36, best.tile as usize, 1.0);
         } else if let Some(best) = candidates
             .iter()
             .filter(|c| c.tile < 34)
             .max_by_key(|c| c.num_required_tiles)
         {
-            set(&mut arr, 70, best.tile as usize, 1.0);
+            set(&mut arr, 36, best.tile as usize, 1.0);
         }
     } else if let Some(cand) = candidates.first() {
         for &(req_tile, _count) in &cand.required_tiles {
-            set(&mut arr, 71, req_tile as usize, 1.0);
+            set(&mut arr, 37, req_tile as usize, 1.0);
         }
     }
 
-    // Probability table (ch 72-122)
+    // Probability table (ch 38-88)
     if can_discard {
         for cand in candidates {
             if cand.tile >= 34 {
@@ -1151,11 +1158,11 @@ pub fn encode_win_projection_features(candidates: &[Candidate], can_discard: boo
                 if cand.tenpai_probs[turn] <= 0.0 {
                     break;
                 }
-                set(&mut arr, 72 + turn, tid, cand.tenpai_probs[turn]);
-                set(&mut arr, 72 + 17 + turn, tid, cand.win_probs[turn]);
+                set(&mut arr, 38 + turn, tid, cand.tenpai_probs[turn]);
+                set(&mut arr, 38 + 17 + turn, tid, cand.win_probs[turn]);
                 set(
                     &mut arr,
-                    72 + 34 + turn,
+                    38 + 34 + turn,
                     tid,
                     (cand.exp_values[turn] * ev_scale).min(1.0),
                 );
@@ -1167,11 +1174,11 @@ pub fn encode_win_projection_features(candidates: &[Candidate], can_discard: boo
                 break;
             }
             for t in 0..34 {
-                set(&mut arr, 72 + turn, t, cand.tenpai_probs[turn]);
-                set(&mut arr, 72 + 17 + turn, t, cand.win_probs[turn]);
+                set(&mut arr, 38 + turn, t, cand.tenpai_probs[turn]);
+                set(&mut arr, 38 + 17 + turn, t, cand.win_probs[turn]);
                 set(
                     &mut arr,
-                    72 + 34 + turn,
+                    38 + 34 + turn,
                     t,
                     (cand.exp_values[turn] * ev_scale).min(1.0),
                 );
@@ -1318,7 +1325,7 @@ mod tests {
     #[test]
     fn test_encode_win_projection_empty() {
         let arr = encode_win_projection_features(&[], true);
-        assert_eq!(arr.len(), 123 * 34);
+        assert_eq!(arr.len(), 89 * 34);
         assert!(arr.iter().all(|&v| v == 0.0));
     }
 }
