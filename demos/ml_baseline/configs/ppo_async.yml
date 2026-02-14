@@ -44,7 +44,7 @@ online:
   device: cuda
   model_class: riichienv_ml.models.actor_critic.ActorCriticNetwork
   encoder_class: riichienv_ml.data.cql_dataset.ObservationEncoder
-  num_workers: 12
+  num_workers: 4
   num_steps: 500
   lr: 1e-5
   gamma: 1.0
@@ -66,10 +66,10 @@ online:
   async_rollout: true
   # Common
   eval_interval: 50
-  eval_episodes: 400
+  eval_episodes: 192
   worker_device: cuda
-  gpu_per_worker: 0.08
-  num_envs_per_worker: 16
+  gpu_per_worker: 0.2
+  num_envs_per_worker: 48
   checkpoint_dir: /data/workspace/riichienv/ppo/checkpoints
   wandb_project: riichienv-online
   model:
