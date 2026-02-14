@@ -12,12 +12,9 @@
 //! - State discard/undo_discard for in-place mutation
 //! - Uses RiichiEnv's existing agari/yaku/score infrastructure
 
-use std::io::prelude::*;
 use std::rc::Rc;
-use std::sync::LazyLock;
 
 use ahash::AHashMap;
-use flate2::read::GzDecoder;
 
 use crate::score;
 use crate::types::{Hand, Meld, TILE_MAX};
@@ -37,87 +34,207 @@ const SHANTEN_THRES: i8 = 3;
 const MAX_TILES_LEFT: usize = 34 * 4 - 1 - 13;
 
 // ============================================================================
-// Shanten lookup tables (ported from Mortal / tomohxx)
+// Shanten tables (Nyanten / Cryolite algorithm)
 // ============================================================================
 
-const JIHAI_TABLE_SIZE: usize = 78_032;
-const SUHAI_TABLE_SIZE: usize = 1_940_777;
+/// Shupai (number suit) hash table: [9 tiles][15 total_count][5 mentsu_count]
+/// Used to compute a cumulative hash over a suit's tile counts.
+#[rustfmt::skip]
+const SHUPAI_TABLE: [[[u32; 5]; 15]; 9] = [
+    [ // i = 0
+        [0,0,0,0,0], [0,139150,0,0,0], [0,105150,244300,0,0],
+        [0,75750,180900,320050,0], [0,51810,127560,232710,371860],
+        [0,33490,85300,161050,266200], [0,0,33490,85300,161050],
+        [0,0,0,33490,85300], [0,0,0,0,33490],
+        [0,0,0,0,0], [0,0,0,0,0], [0,0,0,0,0],
+        [0,0,0,0,0], [0,0,0,0,0], [0,0,0,0,0],
+    ],
+    [ // i = 1
+        [0,0,0,0,0], [0,43130,0,0,0], [0,34995,78125,0,0],
+        [0,27120,62115,105245,0], [0,19980,47100,82095,125225],
+        [0,13925,33905,61025,96020], [0,9130,23055,43035,70155],
+        [0,5595,14725,28650,48630], [0,3180,8775,17905,31830],
+        [0,1660,4840,10435,19565], [0,0,1660,4840,10435],
+        [0,0,0,1660,4840], [0,0,0,0,1660],
+        [0,0,0,0,0], [0,0,0,0,0],
+    ],
+    [ // i = 2
+        [0,0,0,0,0], [0,11880,0,0,0], [0,10374,22254,0,0],
+        [0,8688,19062,30942,0], [0,6937,15625,25999,37879],
+        [0,5251,12188,20876,31250], [0,3745,8996,15933,24621],
+        [0,2499,6244,11495,18432], [0,1548,4047,7792,13043],
+        [0,882,2430,4929,8674], [0,456,1338,2886,5385],
+        [0,210,666,1548,3096], [0,84,294,750,1632],
+        [0,28,112,322,778], [0,0,28,112,322],
+    ],
+    [ // i = 3
+        [0,0,0,0,0], [0,2878,0,0,0], [0,2693,5571,0,0],
+        [0,2438,5131,8009,0], [0,2118,4556,7249,10127],
+        [0,1753,3871,6309,9002], [0,1372,3125,5243,7681],
+        [0,1007,2379,4132,6250], [0,687,1694,3066,4819],
+        [0,432,1119,2126,3498], [0,247,679,1366,2373],
+        [0,126,373,805,1492], [0,56,182,429,861],
+        [0,21,77,203,450], [0,6,27,83,209],
+    ],
+    [ // i = 4
+        [0,0,0,0,0], [0,620,0,0,0], [0,610,1230,0,0],
+        [0,590,1200,1820,0], [0,555,1145,1755,2375],
+        [0,503,1058,1648,2258], [0,435,938,1493,2083],
+        [0,355,790,1293,1848], [0,270,625,1060,1563],
+        [0,190,460,815,1250], [0,122,312,582,937],
+        [0,70,192,382,652], [0,35,105,227,417],
+        [0,15,50,120,242], [0,5,20,55,125],
+    ],
+    [ // i = 5
+        [0,0,0,0,0], [0,125,0,0,0], [0,125,250,0,0],
+        [0,125,250,375,0], [0,124,249,374,499],
+        [0,121,245,370,495], [0,115,236,360,485],
+        [0,105,220,341,465], [0,90,195,310,431],
+        [0,72,162,267,382], [0,53,125,215,320],
+        [0,35,88,160,250], [0,20,55,108,180],
+        [0,10,30,65,118], [0,4,14,34,69],
+    ],
+    [ // i = 6
+        [0,0,0,0,0], [0,25,0,0,0], [0,25,50,0,0],
+        [0,25,50,75,0], [0,25,50,75,100],
+        [0,25,50,75,100], [0,25,50,75,100],
+        [0,25,50,75,100], [0,24,49,74,99],
+        [0,22,46,71,96], [0,19,41,65,90],
+        [0,15,34,56,80], [0,10,25,44,66],
+        [0,6,16,31,50], [0,3,9,19,34],
+    ],
+    [ // i = 7
+        [0,0,0,0,0], [0,5,0,0,0], [0,5,10,0,0],
+        [0,5,10,15,0], [0,5,10,15,20],
+        [0,5,10,15,20], [0,5,10,15,20],
+        [0,5,10,15,20], [0,5,10,15,20],
+        [0,5,10,15,20], [0,5,10,15,20],
+        [0,5,10,15,20], [0,4,9,14,19],
+        [0,3,7,12,17], [0,2,5,9,14],
+    ],
+    [ // i = 8
+        [0,0,0,0,0], [0,1,0,0,0], [0,1,2,0,0],
+        [0,1,2,3,0], [0,1,2,3,4],
+        [0,1,2,3,4], [0,1,2,3,4],
+        [0,1,2,3,4], [0,1,2,3,4],
+        [0,1,2,3,4], [0,1,2,3,4],
+        [0,1,2,3,4], [0,1,2,3,4],
+        [0,1,2,3,4], [0,1,2,3,4],
+    ],
+];
 
-static JIHAI_TABLE: LazyLock<Vec<[u8; 10]>> = LazyLock::new(|| {
-    read_table(
-        include_bytes!("data/shanten_jihai.bin.gz"),
-        JIHAI_TABLE_SIZE,
-    )
-});
-static SUHAI_TABLE: LazyLock<Vec<[u8; 10]>> = LazyLock::new(|| {
-    read_table(
-        include_bytes!("data/shanten_suhai.bin.gz"),
-        SUHAI_TABLE_SIZE,
-    )
-});
+/// Zipai (honor suit) hash table: [7 tiles][15 total_count][5 mentsu_count]
+#[rustfmt::skip]
+const ZIPAI_TABLE: [[[u32; 5]; 15]; 7] = [
+    [ // i = 0
+        [0,0,0,0,0], [0,11880,0,0,0], [0,10374,22254,0,0],
+        [0,8688,19062,30942,0], [0,6937,15625,25999,37879],
+        [0,5251,12188,20876,31250], [0,0,5251,12188,20876],
+        [0,0,0,5251,12188], [0,0,0,0,5251],
+        [0,0,0,0,0], [0,0,0,0,0], [0,0,0,0,0],
+        [0,0,0,0,0], [0,0,0,0,0], [0,0,0,0,0],
+    ],
+    [ // i = 1
+        [0,0,0,0,0], [0,2878,0,0,0], [0,2693,5571,0,0],
+        [0,2438,5131,8009,0], [0,2118,4556,7249,10127],
+        [0,1753,3871,6309,9002], [0,1372,3125,5243,7681],
+        [0,1007,2379,4132,6250], [0,687,1694,3066,4819],
+        [0,432,1119,2126,3498], [0,0,432,1119,2126],
+        [0,0,0,432,1119], [0,0,0,0,432],
+        [0,0,0,0,0], [0,0,0,0,0],
+    ],
+    [ // i = 2
+        [0,0,0,0,0], [0,620,0,0,0], [0,610,1230,0,0],
+        [0,590,1200,1820,0], [0,555,1145,1755,2375],
+        [0,503,1058,1648,2258], [0,435,938,1493,2083],
+        [0,355,790,1293,1848], [0,270,625,1060,1563],
+        [0,190,460,815,1250], [0,122,312,582,937],
+        [0,70,192,382,652], [0,35,105,227,417],
+        [0,15,50,120,242], [0,0,15,50,120],
+    ],
+    [ // i = 3
+        [0,0,0,0,0], [0,125,0,0,0], [0,125,250,0,0],
+        [0,125,250,375,0], [0,124,249,374,499],
+        [0,121,245,370,495], [0,115,236,360,485],
+        [0,105,220,341,465], [0,90,195,310,431],
+        [0,72,162,267,382], [0,53,125,215,320],
+        [0,35,88,160,250], [0,20,55,108,180],
+        [0,10,30,65,118], [0,4,14,34,69],
+    ],
+    [ // i = 4
+        [0,0,0,0,0], [0,25,0,0,0], [0,25,50,0,0],
+        [0,25,50,75,0], [0,25,50,75,100],
+        [0,25,50,75,100], [0,25,50,75,100],
+        [0,25,50,75,100], [0,24,49,74,99],
+        [0,22,46,71,96], [0,19,41,65,90],
+        [0,15,34,56,80], [0,10,25,44,66],
+        [0,6,16,31,50], [0,3,9,19,34],
+    ],
+    [ // i = 5
+        [0,0,0,0,0], [0,5,0,0,0], [0,5,10,0,0],
+        [0,5,10,15,0], [0,5,10,15,20],
+        [0,5,10,15,20], [0,5,10,15,20],
+        [0,5,10,15,20], [0,5,10,15,20],
+        [0,5,10,15,20], [0,5,10,15,20],
+        [0,5,10,15,20], [0,4,9,14,19],
+        [0,3,7,12,17], [0,2,5,9,14],
+    ],
+    [ // i = 6
+        [0,0,0,0,0], [0,1,0,0,0], [0,1,2,0,0],
+        [0,1,2,3,0], [0,1,2,3,4],
+        [0,1,2,3,4], [0,1,2,3,4],
+        [0,1,2,3,4], [0,1,2,3,4],
+        [0,1,2,3,4], [0,1,2,3,4],
+        [0,1,2,3,4], [0,1,2,3,4],
+        [0,1,2,3,4], [0,1,2,3,4],
+    ],
+];
 
-fn read_table(gzipped: &[u8], length: usize) -> Vec<[u8; 10]> {
-    let mut gz = GzDecoder::new(gzipped);
-    let mut raw = vec![];
-    gz.read_to_end(&mut raw).unwrap();
+/// Key lookup tables for hierarchical shanten compression (Nyanten/Cryolite).
+/// Loaded from binary files generated by scripts/convert_nyanten_tables.py.
+static SHUPAI_KEYS: &[u8; 405_350] = include_bytes!("data/nyanten_shupai_keys.bin");
+static ZIPAI_KEYS: &[u8; 43_130] = include_bytes!("data/nyanten_zipai_keys.bin");
+static KEYS1: &[u8; 15_876] = include_bytes!("data/nyanten_keys1.bin"); // 126 * 126
+static KEYS2: &[u8; 22_680] = include_bytes!("data/nyanten_keys2.bin"); // 180 * 126
+static KEYS3: &[u8; 49_500] = include_bytes!("data/nyanten_keys3.bin"); // 180 * 55 * 5
 
-    let mut ret = Vec::with_capacity(length);
-    let mut entry = [0; 10];
-    for (i, b) in raw.into_iter().enumerate() {
-        entry[i * 2 % 10] = b & 0b1111;
-        entry[i * 2 % 10 + 1] = (b >> 4) & 0b1111;
-        if (i + 1) % 5 == 0 {
-            ret.push(entry);
-        }
-    }
-    assert_eq!(ret.len(), length);
-    ret
-}
-
-fn add_suhai(lhs: &mut [u8; 10], index: usize, m: usize) {
-    let tab = SUHAI_TABLE.get(index).copied().unwrap_or_default();
-    for j in (5..=(5 + m)).rev() {
-        let mut sht = (lhs[j] + tab[0]).min(lhs[0] + tab[j]);
-        for k in 5..j {
-            sht = sht.min(lhs[k] + tab[j - k]).min(lhs[j - k] + tab[k]);
-        }
-        lhs[j] = sht;
-    }
-    for j in (0..=m).rev() {
-        let mut sht = lhs[j] + tab[0];
-        for k in 0..j {
-            sht = sht.min(lhs[k] + tab[j - k]);
-        }
-        lhs[j] = sht;
-    }
-}
-
-fn add_jihai(lhs: &mut [u8; 10], index: usize, m: usize) {
-    let tab = JIHAI_TABLE.get(index).copied().unwrap_or_default();
-    let j = m + 5;
-    let mut sht = (lhs[j] + tab[0]).min(lhs[0] + tab[j]);
-    for k in 5..j {
-        sht = sht.min(lhs[k] + tab[j - k]).min(lhs[j - k] + tab[k]);
-    }
-    lhs[j] = sht;
-}
-
+/// Compute cumulative hash for a 9-tile number suit (man/pin/sou).
 #[inline]
-fn sum_tiles(tiles: &[u8]) -> usize {
-    tiles.iter().fold(0, |acc, &x| acc * 5 + x as usize)
+fn hash_shupai(tiles: &[u8]) -> usize {
+    let mut n: usize = 0;
+    let mut h: usize = 0;
+    for (i, &c) in tiles.iter().enumerate() {
+        let c = c as usize;
+        n += c;
+        h += SHUPAI_TABLE[i][n][c] as usize;
+    }
+    h
 }
 
-/// Normal (standard) form shanten using lookup tables. O(1).
+/// Compute cumulative hash for the 7 honor tiles (zipai).
+#[inline]
+fn hash_zipai(tiles: &[u8]) -> usize {
+    let mut n: usize = 0;
+    let mut h: usize = 0;
+    for (i, &c) in tiles.iter().enumerate() {
+        let c = c as usize;
+        n += c;
+        h += ZIPAI_TABLE[i][n][c] as usize;
+    }
+    h
+}
+
+/// Normal (standard) form shanten using Nyanten hierarchical key lookup. O(1).
 fn calc_normal(tiles: &[u8; TILE_MAX], len_div3: u8) -> i8 {
-    let len_div3 = len_div3 as usize;
-    let mut ret = SUHAI_TABLE
-        .get(sum_tiles(&tiles[..9]))
-        .copied()
-        .unwrap_or_default();
-    add_suhai(&mut ret, sum_tiles(&tiles[9..18]), len_div3);
-    add_suhai(&mut ret, sum_tiles(&tiles[18..27]), len_div3);
-    add_jihai(&mut ret, sum_tiles(&tiles[27..]), len_div3);
-    (ret[5 + len_div3] as i8) - 1
+    let m = len_div3 as usize;
+    let k0_m = SHUPAI_KEYS[hash_shupai(&tiles[0..9])] as usize;
+    let k0_p = SHUPAI_KEYS[hash_shupai(&tiles[9..18])] as usize;
+    let k1 = KEYS1[k0_m * 126 + k0_p] as usize;
+    let k0_s = SHUPAI_KEYS[hash_shupai(&tiles[18..27])] as usize;
+    let k2 = KEYS2[k1 * 126 + k0_s] as usize;
+    let k0_z = ZIPAI_KEYS[hash_zipai(&tiles[27..34])] as usize;
+    let replacement = KEYS3[(k2 * 55 + k0_z) * 5 + m];
+    (replacement as i8) - 1
 }
 
 /// Chiitoitsu (seven pairs) shanten.
