@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 
 mod agari;
-mod agari_calculator;
+mod hand_evaluator;
 mod score;
 mod tests;
 mod types;
@@ -14,8 +14,8 @@ mod parser;
 mod replay;
 mod rule;
 mod shanten;
-pub mod win_projection;
 mod state;
+pub mod win_projection;
 mod yaku_checker;
 
 #[pyfunction]
@@ -60,15 +60,15 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<types::MeldType>()?;
     m.add_class::<types::Wind>()?;
     m.add_class::<types::Conditions>()?;
-    m.add_class::<types::Agari>()?;
+    m.add_class::<types::WinResult>()?;
     m.add_class::<score::Score>()?;
-    m.add_class::<agari_calculator::AgariCalculator>()?;
+    m.add_class::<hand_evaluator::HandEvaluator>()?;
     m.add_class::<replay::MjSoulReplay>()?;
     m.add_class::<replay::MjaiReplay>()?;
     m.add_class::<replay::LogKyoku>()?;
     m.add_class::<replay::mjsoul_replay::KyokuIterator>()?;
-    m.add_class::<replay::AgariContext>()?;
-    m.add_class::<replay::AgariContextIterator>()?;
+    m.add_class::<replay::WinResultContext>()?;
+    m.add_class::<replay::WinResultContextIterator>()?;
     m.add_class::<rule::KuikaeMode>()?;
     m.add_class::<rule::KanDoraTimingMode>()?;
     m.add_class::<rule::GameRule>()?;

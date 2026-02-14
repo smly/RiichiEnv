@@ -1,5 +1,5 @@
 import riichienv.convert as cvt
-from riichienv import Action, ActionType, AgariCalculator, Conditions, Phase, RiichiEnv, Wind
+from riichienv import Action, ActionType, HandEvaluator, Conditions, Phase, RiichiEnv, Wind
 
 
 class TestRiichiScoring:
@@ -143,7 +143,7 @@ class TestRiichiScoring:
 
         cond = Conditions(tsumo=True, player_wind=Wind.East, round_wind=Wind.South)
 
-        calc = AgariCalculator(env.hands[0], env.melds[0]).calc(env.drawn_tile, conditions=cond)
+        calc = HandEvaluator(env.hands[0], env.melds[0]).calc(env.drawn_tile, conditions=cond)
 
         # Note: Set comparison is safer for tests.
         # Using 16, 20, 24 sequence -> 16 is Red 5 (Akadora).

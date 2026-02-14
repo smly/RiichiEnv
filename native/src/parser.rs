@@ -144,8 +144,8 @@ pub fn parse_hand(text: &str) -> PyResult<(Vec<u32>, Vec<Meld>)> {
 /// tile_id = rv.parse_tile("0p")  # Returns 52 (red 5-pin)
 /// tile_id = rv.parse_tile("0s")  # Returns 88 (red 5-sou)
 ///
-/// # Use with AgariCalculator
-/// hand = rv.AgariCalculator.hand_from_text("123m456p789s111z2z")
+/// # Use with HandEvaluator
+/// hand = rv.HandEvaluator.hand_from_text("123m456p789s111z2z")
 /// win_tile = rv.parse_tile("2z")  # Parse the winning tile
 /// result = hand.calc(win_tile, conditions=rv.Conditions())
 /// ```
@@ -356,7 +356,7 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> PyResult<Mel
         tiles_136.sort();
 
         let mtype = match prefix {
-            'p' => MeldType::Peng,
+            'p' => MeldType::Pon,
             'k' => {
                 // (k2z) -> Call index optional. "if not available, can is considered closed".
                 // In my parse logic, I defaulted call_idx to 0 if digits missing.
@@ -366,35 +366,34 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> PyResult<Mel
                 // So if call index is present (non-zero?), it's open (Daiminkan).
                 // If 0 or missing, usually Ankan.
                 // Wait, (k2z) -> 2z count 4. No index. Closed Kan (Ankan).
-                // (k2z3) -> Index 3. Open Kan (Daiminkan/Gang).
+                // (k2z3) -> Index 3. Open Kan (Daiminkan).
                 // So I need to know if index was present?
                 // My logic defaults to 0 if missing.
                 // Assuming index 0 implies Ankan (since index is 1,2,3 for players).
                 // But Self is 0. You don't call from self.
                 // So 0 means Ankan.
-                // 1,2,3 means Gang.
+                // 1,2,3 means Daiminkan.
                 // Wait, what variable holds call index? `_call_idx`.
                 // I need to use it.
                 // Let's assume idx 1, 2, 3 -> Open.
                 // (k2z) -> 0 -> Ankan.
                 if _call_idx == 0 {
-                    MeldType::Angang
+                    MeldType::Ankan
                 } else {
-                    MeldType::Gang
+                    MeldType::Daiminkan
                 }
             }
-            's' => MeldType::Addgang,
+            's' => MeldType::Kakan,
             _ => unreachable!(),
         };
 
-        // For Angang/Addgang, 'opened' flag logic?
-        // Angang: opened=false.
-        // Addgang: opened=true.
-        // Gang: opened=true.
-        // Peng: opened=true.
+        // Ankan: opened=false.
+        // Kakan: opened=true.
+        // Daiminkan: opened=true.
+        // Pon: opened=true.
         // Chi: opened=true.
 
-        let opened = mtype != MeldType::Angang;
+        let opened = mtype != MeldType::Ankan;
 
         Ok(Meld::new(mtype, tiles_136, opened, -1, None))
     }

@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::sync::Arc;
 
-use crate::replay::{Action, AgariContextIterator, HuleData, LogKyoku, TileConverter};
+use crate::replay::{Action, WinResultContextIterator, HuleData, LogKyoku, TileConverter};
 use crate::types::MeldType;
 
 #[pyclass(module = "riichienv._riichienv")]
@@ -283,7 +283,7 @@ impl MjSoulReplay {
         let mut total_mismatches = 0;
 
         for kyoku in &self.rounds {
-            let mut iter = AgariContextIterator::new(kyoku.clone());
+            let mut iter = WinResultContextIterator::new(kyoku.clone());
 
             while let Some(ctx) = iter.do_next() {
                 total_agari += 1;
@@ -528,9 +528,9 @@ impl MjSoulReplay {
             } => {
                 let m_type = match meld_type {
                     0 => MeldType::Chi,
-                    1 => MeldType::Peng,
-                    2 => MeldType::Gang,
-                    3 => MeldType::Angang,
+                    1 => MeldType::Pon,
+                    2 => MeldType::Daiminkan,
+                    3 => MeldType::Ankan,
                     _ => MeldType::Chi,
                 };
                 Action::ChiPengGang {
@@ -549,9 +549,9 @@ impl MjSoulReplay {
                 tiles,
             } => {
                 let m_type = if meld_type == 3 {
-                    MeldType::Angang
+                    MeldType::Ankan
                 } else {
-                    MeldType::Addgang
+                    MeldType::Kakan
                 };
                 let tile_raw_id = TileConverter::parse_tile_34(&tiles).0;
                 Action::AnGangAddGang {

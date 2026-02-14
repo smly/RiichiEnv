@@ -111,7 +111,7 @@ def setup_kakan_scenario(env: RiichiEnv):
     hands[0] = sorted(p0_hand)
 
     # P0 Meld: Pon 9p
-    m = Meld(MeldType.Peng, [68, 69, 70], True)
+    m = Meld(MeldType.Pon, [68, 69, 70], True)
     melds[0] = [m]
 
     # Player 1: Tenpai checking 9p.

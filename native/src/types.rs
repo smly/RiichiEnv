@@ -51,10 +51,10 @@ impl Default for Hand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MeldType {
     Chi = 0,
-    Peng = 1,
-    Gang = 2,
-    Angang = 3,
-    Addgang = 4,
+    Pon = 1,
+    Daiminkan = 2,
+    Ankan = 3,
+    Kakan = 4,
 }
 
 /// Represents wind directions in mahjong, used for player seats and round wind.
@@ -170,16 +170,16 @@ pub struct Conditions {
     #[pyo3(get, set)]
     pub tsumo_first_turn: bool,
     #[pyo3(get, set)]
-    pub kyoutaku: u32,
+    pub riichi_sticks: u32,
     #[pyo3(get, set)]
-    pub tsumi: u32,
+    pub honba: u32,
 }
 
 #[pymethods]
 impl Conditions {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (tsumo=false, riichi=false, double_riichi=false, ippatsu=false, haitei=false, houtei=false, rinshan=false, chankan=false, tsumo_first_turn=false, player_wind=Wind::East, round_wind=Wind::East, kyoutaku=0, tsumi=0))]
+    #[pyo3(signature = (tsumo=false, riichi=false, double_riichi=false, ippatsu=false, haitei=false, houtei=false, rinshan=false, chankan=false, tsumo_first_turn=false, player_wind=Wind::East, round_wind=Wind::East, riichi_sticks=0, honba=0))]
     pub fn new(
         tsumo: bool,
         riichi: bool,
@@ -192,8 +192,8 @@ impl Conditions {
         tsumo_first_turn: bool,
         player_wind: Wind,
         round_wind: Wind,
-        kyoutaku: u32,
-        tsumi: u32,
+        riichi_sticks: u32,
+        honba: u32,
     ) -> Self {
         Self {
             tsumo,
@@ -207,17 +207,17 @@ impl Conditions {
             tsumo_first_turn,
             player_wind,
             round_wind,
-            kyoutaku,
-            tsumi,
+            riichi_sticks,
+            honba,
         }
     }
 }
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct Agari {
+pub struct WinResult {
     #[pyo3(get, set)]
-    pub agari: bool,
+    pub is_win: bool,
     #[pyo3(get, set)]
     pub yakuman: bool,
     #[pyo3(get, set)]
@@ -235,16 +235,16 @@ pub struct Agari {
     #[pyo3(get, set)]
     pub pao_payer: Option<u8>,
     #[pyo3(get, set)]
-    pub has_agari_shape: bool,
+    pub has_win_shape: bool,
 }
 
 #[pymethods]
-impl Agari {
+impl WinResult {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (agari, yakuman=false, ron_agari=0, tsumo_agari_oya=0, tsumo_agari_ko=0, yaku=vec![], han=0, fu=0, pao_payer=None, has_agari_shape=false))]
+    #[pyo3(signature = (is_win, yakuman=false, ron_agari=0, tsumo_agari_oya=0, tsumo_agari_ko=0, yaku=vec![], han=0, fu=0, pao_payer=None, has_win_shape=false))]
     pub fn new(
-        agari: bool,
+        is_win: bool,
         yakuman: bool,
         ron_agari: u32,
         tsumo_agari_oya: u32,
@@ -253,10 +253,10 @@ impl Agari {
         han: u32,
         fu: u32,
         pao_payer: Option<u8>,
-        has_agari_shape: bool,
+        has_win_shape: bool,
     ) -> Self {
         Self {
-            agari,
+            is_win,
             yakuman,
             ron_agari,
             tsumo_agari_oya,
@@ -265,7 +265,7 @@ impl Agari {
             han,
             fu,
             pao_payer,
-            has_agari_shape,
+            has_win_shape,
         }
     }
 }

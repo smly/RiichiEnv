@@ -35,7 +35,7 @@ class TestPaoCompositeYakuman:
         env.hands = current_hands
 
         # Open Meld for Haku (124, 125, 126)
-        m = Meld(MeldType.Peng, [124, 125, 126], True, 1)  # Called from P1
+        m = Meld(MeldType.Pon, [124, 125, 126], True, 1)  # Called from P1
 
         current_melds = env.melds
         current_melds[0] = [m]
@@ -57,7 +57,7 @@ class TestPaoCompositeYakuman:
         # Execute Tsumo
         action = Action(ActionType.Tsumo)
         env.step({0: action})
-        assert env.agari_results[0].yakuman
+        assert env.win_results[0].yakuman
 
         # Expected: Double Yakuman (Daisangen + Tsuuiisou).
         # Dealer Double Yakuman = 96000.
@@ -116,9 +116,9 @@ class TestPaoCompositeYakuman:
         env.hands = current_hands
 
         melds_p0 = [
-            Meld(MeldType.Peng, [108, 109, 110], True, 1),  # East
-            Meld(MeldType.Peng, [112, 113, 114], True, 1),  # South
-            Meld(MeldType.Peng, [116, 117, 118], True, 1),  # West
+            Meld(MeldType.Pon, [108, 109, 110], True, 1),  # East
+            Meld(MeldType.Pon, [112, 113, 114], True, 1),  # South
+            Meld(MeldType.Pon, [116, 117, 118], True, 1),  # West
         ]
 
         current_melds = env.melds
@@ -194,9 +194,9 @@ class TestPaoCompositeYakuman:
 
         # Melds
         melds_p0 = [
-            Meld(MeldType.Peng, [128, 129, 130], True, 1),  # Hatsu
-            Meld(MeldType.Peng, [132, 133, 134], True, 1),  # Chun
-            Meld(MeldType.Peng, [124, 125, 126], True, 1),  # Haku
+            Meld(MeldType.Pon, [128, 129, 130], True, 1),  # Hatsu
+            Meld(MeldType.Pon, [132, 133, 134], True, 1),  # Chun
+            Meld(MeldType.Pon, [124, 125, 126], True, 1),  # Haku
         ]
         current_melds = env.melds
         current_melds[0] = melds_p0

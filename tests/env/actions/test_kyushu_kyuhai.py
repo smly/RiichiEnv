@@ -56,7 +56,7 @@ class TestKyushuKyuhai:
             ],
             melds=[
                 [],
-                [Meld(MeldType.Peng, [20, 21, 22], True)],
+                [Meld(MeldType.Pon, [20, 21, 22], True)],
                 [],
                 [],
             ],

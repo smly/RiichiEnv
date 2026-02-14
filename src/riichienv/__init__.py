@@ -1,6 +1,5 @@
 from . import convert
 from ._riichienv import (  # type: ignore
-    AgariContext,
     GameRule,
     KanDoraTimingMode,
     KuikaeMode,
@@ -14,6 +13,7 @@ from ._riichienv import (  # type: ignore
     RiichiEnv,
     Score,
     Wind,
+    WinResultContext,
     calculate_score,
     check_riichi_candidates,
     parse_hand,
@@ -21,7 +21,7 @@ from ._riichienv import (  # type: ignore
 )
 from .action import Action, ActionType
 from .game_mode import GameType
-from .hand import Agari, AgariCalculator, Conditions
+from .hand import Conditions, HandEvaluator, WinResult
 
 EAST = Wind.East
 SOUTH = Wind.South
@@ -31,7 +31,7 @@ NORTH = Wind.North
 
 __all__ = [
     "convert",
-    "AgariContext",
+    "WinResultContext",
     "Kyoku",
     "Meld",
     "MeldType",
@@ -52,8 +52,8 @@ __all__ = [
     "KanDoraTimingMode",
     "KuikaeMode",
     "GameType",
-    "Agari",
-    "AgariCalculator",
+    "WinResult",
+    "HandEvaluator",
     "Conditions",
     "EAST",
     "SOUTH",

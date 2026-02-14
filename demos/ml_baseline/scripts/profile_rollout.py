@@ -91,7 +91,7 @@ def profile_episode(
     t0 = time.perf_counter()
     obs_dict = env.reset(
         scores=[25000, 25000, 25000, 25000],
-        bakaze=0, oya=0, honba=0, kyotaku=0,
+        round_wind=0, oya=0, honba=0, kyotaku=0,
     )
     t1 = time.perf_counter()
     timer.add("env_step", t1 - t0)
@@ -196,7 +196,7 @@ def profile_batched_episodes(
     # Reset all
     t0 = time.perf_counter()
     obs_dicts = [
-        env.reset(scores=[25000]*4, bakaze=0, oya=0, honba=0, kyotaku=0)
+        env.reset(scores=[25000]*4, round_wind=0, oya=0, honba=0, kyotaku=0)
         for env in envs
     ]
     t1 = time.perf_counter()

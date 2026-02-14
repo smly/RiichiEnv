@@ -397,7 +397,7 @@ impl MjaiReplay {
                 }
                 builder.actions.push(Action::ChiPengGang {
                     seat: actor,
-                    meld_type: MeldType::Peng,
+                    meld_type: MeldType::Pon,
                     tiles,
                     froms: vec![],
                 });
@@ -416,7 +416,7 @@ impl MjaiReplay {
                 }
                 builder.actions.push(Action::ChiPengGang {
                     seat: actor,
-                    meld_type: MeldType::Gang,
+                    meld_type: MeldType::Daiminkan,
                     tiles,
                     froms: vec![],
                 });
@@ -426,7 +426,7 @@ impl MjaiReplay {
                 let tiles: Vec<u8> = consumed.iter().map(|s| parse_mjai_tile(s)).collect();
                 builder.actions.push(Action::AnGangAddGang {
                     seat: actor,
-                    meld_type: MeldType::Angang,
+                    meld_type: MeldType::Ankan,
                     tiles,
                     tile_raw_id: 0,
                     doras: None,
@@ -437,7 +437,7 @@ impl MjaiReplay {
                 let tile = parse_mjai_tile(&pai);
                 builder.actions.push(Action::AnGangAddGang {
                     seat: actor,
-                    meld_type: MeldType::Addgang,
+                    meld_type: MeldType::Kakan,
                     tiles: vec![tile],
                     tile_raw_id: 0,
                     doras: None,

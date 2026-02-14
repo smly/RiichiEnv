@@ -464,8 +464,8 @@ type StateCache<const MAX_TSUMO: usize> =
 
 pub struct WinProjectionCalculator {
     tehai_len_div3: u8,
-    bakaze: u8,
-    jikaze: u8,
+    round_wind_tile: u8,
+    seat_wind_tile: u8,
     is_menzen: bool,
     is_oya: bool,
     dora_indicators: Vec<u8>,
@@ -507,8 +507,8 @@ impl WinProjectionCalculator {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tehai_len_div3: u8,
-        bakaze: u8,
-        jikaze: u8,
+        round_wind_tile: u8,
+        seat_wind_tile: u8,
         is_menzen: bool,
         is_oya: bool,
         dora_indicators: Vec<u8>,
@@ -518,8 +518,8 @@ impl WinProjectionCalculator {
     ) -> Self {
         Self {
             tehai_len_div3,
-            bakaze,
-            jikaze,
+            round_wind_tile,
+            seat_wind_tile,
             is_menzen,
             is_oya,
             dora_indicators,
@@ -1019,8 +1019,8 @@ impl<const MAX_TSUMO: usize> WinProjectionState<'_, MAX_TSUMO> {
             dora_count,
             aka_dora: aka_count,
             ura_dora_count: 0,
-            bakaze: self.sup.bakaze,
-            jikaze: self.sup.jikaze,
+            round_wind: self.sup.round_wind_tile,
+            seat_wind: self.sup.seat_wind_tile,
         };
 
         let yaku_result = yaku::calculate_yaku(&hand, &self.sup.melds, &ctx, win_tile);

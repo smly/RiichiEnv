@@ -19,7 +19,7 @@ class TestKakan:
                 [],
             ],
             melds=[
-                [Meld(MeldType.Peng, tiles=[0, 1, 2], opened=True)],
+                [Meld(MeldType.Pon, tiles=[0, 1, 2], opened=True)],
                 [],
                 [],
                 [],
@@ -47,7 +47,7 @@ class TestKakan:
                 [],
             ],
             melds=[
-                [Meld(MeldType.Peng, tiles=[0, 1, 2], opened=True)],
+                [Meld(MeldType.Pon, tiles=[0, 1, 2], opened=True)],
                 [],
                 [],
                 [],
@@ -75,7 +75,7 @@ class TestKakan:
         env.step({player_id: k_action})
         assert len(env.melds[player_id]) == 1
         new_meld = env.melds[player_id][0]
-        assert new_meld.meld_type == MeldType.Addgang
+        assert new_meld.meld_type == MeldType.Kakan
         assert sorted(new_meld.tiles) == [0, 1, 2, 3]
 
         # Hand check

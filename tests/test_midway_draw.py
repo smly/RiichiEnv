@@ -34,8 +34,8 @@ class TestAbortiveDraw:
         env = helper_setup_env(
             hands=[scattered[:] for _ in range(4)],
             melds=[
-                [Meld(MeldType.Angang, [0, 1, 2, 3], False), Meld(MeldType.Angang, [4, 5, 6, 7], False)],
-                [Meld(MeldType.Angang, [8, 9, 10, 11], False), Meld(MeldType.Angang, [12, 13, 14, 15], False)],
+                [Meld(MeldType.Ankan, [0, 1, 2, 3], False), Meld(MeldType.Ankan, [4, 5, 6, 7], False)],
+                [Meld(MeldType.Ankan, [8, 9, 10, 11], False), Meld(MeldType.Ankan, [12, 13, 14, 15], False)],
                 [],
                 [],
             ],

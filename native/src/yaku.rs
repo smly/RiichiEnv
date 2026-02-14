@@ -77,8 +77,8 @@ pub struct YakuContext {
     pub dora_count: u8,
     pub aka_dora: u8,
     pub ura_dora_count: u8,
-    pub bakaze: u8, // 27=East, 28=South, etc.
-    pub jikaze: u8,
+    pub round_wind: u8, // 27=East, 28=South, etc.
+    pub seat_wind: u8,
 }
 
 impl Default for YakuContext {
@@ -97,8 +97,8 @@ impl Default for YakuContext {
             dora_count: 0,
             aka_dora: 0,
             ura_dora_count: 0,
-            bakaze: 27,
-            jikaze: 27,
+            round_wind: 27,
+            seat_wind: 27,
         }
     }
 }
@@ -227,7 +227,7 @@ pub fn calculate_yaku(hand: &Hand, melds: &[Meld], ctx: &YakuContext, win_tile: 
 
             // Yakuhai
             // IDs: 7: Haku, 8: Hatsu, 9: Chun, 10: Jikaze, 11: Bakaze
-            let yakuhai_tiles = [31, 32, 33, ctx.bakaze, ctx.jikaze];
+            let yakuhai_tiles = [31, 32, 33, ctx.round_wind, ctx.seat_wind];
             for (i, &t) in yakuhai_tiles.iter().enumerate() {
                 let count = div
                     .body
@@ -323,7 +323,7 @@ pub fn calculate_yaku(hand: &Hand, melds: &[Meld], ctx: &YakuContext, win_tile: 
                 }
             }
             for m in melds {
-                if m.meld_type == crate::types::MeldType::Angang {
+                if m.meld_type == crate::types::MeldType::Ankan {
                     closed_koutsu_count += 1;
                 }
             }
@@ -337,9 +337,9 @@ pub fn calculate_yaku(hand: &Hand, melds: &[Meld], ctx: &YakuContext, win_tile: 
             let kantsu_count = melds
                 .iter()
                 .filter(|m| {
-                    m.meld_type == crate::types::MeldType::Gang
-                        || m.meld_type == crate::types::MeldType::Angang
-                        || m.meld_type == crate::types::MeldType::Addgang
+                    m.meld_type == crate::types::MeldType::Daiminkan
+                        || m.meld_type == crate::types::MeldType::Ankan
+                        || m.meld_type == crate::types::MeldType::Kakan
                 })
                 .count();
             if kantsu_count == 3 {
@@ -446,10 +446,10 @@ fn calculate_fu_with_waiting(
         fu += 10;
     }
 
-    if div.head == ctx.bakaze {
+    if div.head == ctx.round_wind {
         fu += 2;
     }
-    if div.head == ctx.jikaze {
+    if div.head == ctx.seat_wind {
         fu += 2;
     }
     if div.head >= 31 {
@@ -494,13 +494,13 @@ fn calculate_fu_with_waiting(
             let mut f = 2; // Open
             if !m.opened {
                 f = 4;
-            } // Angang
+            } // Ankan
             if is_terminal(m.tiles[0]) {
                 f *= 2;
             }
-            if m.meld_type == crate::types::MeldType::Gang
-                || m.meld_type == crate::types::MeldType::Angang
-                || m.meld_type == crate::types::MeldType::Addgang
+            if m.meld_type == crate::types::MeldType::Daiminkan
+                || m.meld_type == crate::types::MeldType::Ankan
+                || m.meld_type == crate::types::MeldType::Kakan
             {
                 f *= 4;
             }
@@ -560,7 +560,7 @@ fn check_pinfu(
 }
 
 fn is_yakuhai_tile(tile: u8, ctx: &YakuContext) -> bool {
-    tile >= 31 || tile == ctx.bakaze || tile == ctx.jikaze
+    tile >= 31 || tile == ctx.round_wind || tile == ctx.seat_wind
 }
 
 fn is_honroutou(hand: &Hand, melds: &[Meld]) -> bool {
@@ -805,9 +805,9 @@ fn apply_yakuman(
     if melds
         .iter()
         .filter(|m| {
-            m.meld_type == crate::types::MeldType::Gang
-                || m.meld_type == crate::types::MeldType::Angang
-                || m.meld_type == crate::types::MeldType::Addgang
+            m.meld_type == crate::types::MeldType::Daiminkan
+                || m.meld_type == crate::types::MeldType::Ankan
+                || m.meld_type == crate::types::MeldType::Kakan
         })
         .count()
         == 4
@@ -836,7 +836,7 @@ fn apply_yakuman(
 
     // Tenhou / Chiihou
     if ctx.is_tsumo_first_turn && ctx.is_menzen && ctx.is_tsumo {
-        if ctx.jikaze == 27 {
+        if ctx.seat_wind == 27 {
             // Oya (East)
             yakuman_count += 1;
             res.yaku_ids.push(ID_TENHO);
@@ -860,7 +860,7 @@ fn apply_yakuman(
         }
     }
     for m in melds {
-        if m.meld_type == crate::types::MeldType::Angang {
+        if m.meld_type == crate::types::MeldType::Ankan {
             closed_koutsu_count += 1;
         }
     }

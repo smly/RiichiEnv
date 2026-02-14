@@ -8,8 +8,8 @@ use pyo3::types::{PyDict, PyDictMethods, PyList, PyListMethods};
 use std::sync::Arc;
 
 use crate::action::Action as EnvAction;
-use crate::agari_calculator::AgariCalculator;
-use crate::types::{Agari, Conditions, Meld, MeldType};
+use crate::hand_evaluator::HandEvaluator;
+use crate::types::{WinResult, Conditions, Meld, MeldType};
 
 pub mod mjai_replay;
 pub mod mjsoul_replay;
@@ -212,8 +212,8 @@ impl KyokuStepIterator {
 
                     let env_action_type = match meld_type {
                         MeldType::Chi => crate::action::ActionType::Chi,
-                        MeldType::Peng => crate::action::ActionType::Pon,
-                        MeldType::Gang => crate::action::ActionType::Daiminkan,
+                        MeldType::Pon => crate::action::ActionType::Pon,
+                        MeldType::Daiminkan => crate::action::ActionType::Daiminkan,
                         _ => crate::action::ActionType::Chi,
                     };
 
@@ -252,8 +252,8 @@ impl KyokuStepIterator {
                 } => {
                     let pid = *seat as u8;
                     let atype = match meld_type {
-                        MeldType::Angang => crate::action::ActionType::Ankan,
-                        MeldType::Addgang => crate::action::ActionType::Kakan,
+                        MeldType::Ankan => crate::action::ActionType::Ankan,
+                        MeldType::Kakan => crate::action::ActionType::Kakan,
                         _ => crate::action::ActionType::Ankan,
                     };
 
@@ -270,10 +270,10 @@ impl KyokuStepIterator {
                         crate::action::ActionType::Kakan => {
                             let t34 = tiles[0] / 4;
                             let tile = tiles[0];
-                            // Find the existing Peng meld to get its tiles
+                            // Find the existing Pon meld to get its tiles
                             let mut consume = Vec::new();
                             for m in &slf.state.players[pid as usize].melds {
-                                if m.meld_type == MeldType::Peng && m.tiles[0] / 4 == t34 {
+                                if m.meld_type == MeldType::Pon && m.tiles[0] / 4 == t34 {
                                     consume = m.tiles.clone();
                                     break;
                                 }
@@ -391,8 +391,8 @@ pub struct LogKyoku {
 
 #[pymethods]
 impl LogKyoku {
-    fn take_agari_contexts(&self) -> PyResult<AgariContextIterator> {
-        Ok(AgariContextIterator::new(self.clone()))
+    fn take_win_result_contexts(&self) -> PyResult<WinResultContextIterator> {
+        Ok(WinResultContextIterator::new(self.clone()))
     }
 
     #[pyo3(signature = (seat=None, rule=None, skip_single_action=None))]
@@ -477,7 +477,7 @@ impl LogKyoku {
                         ..
                     } => {
                         // Should not happen for Tsumo first turn, but if it does (e.g. late join?), handle it
-                        if *seat == oya_idx && *meld_type == MeldType::Angang {
+                        if *seat == oya_idx && *meld_type == MeldType::Ankan {
                             dt = tiles.first().copied();
                         }
                     }
@@ -620,10 +620,10 @@ impl LogKyoku {
                     a_data.set_item("seat", seat)?;
                     let mt_int = match meld_type {
                         MeldType::Chi => 0,
-                        MeldType::Peng => 1,
-                        MeldType::Gang => 2,
-                        MeldType::Angang => 3,
-                        MeldType::Addgang => 2,
+                        MeldType::Pon => 1,
+                        MeldType::Daiminkan => 2,
+                        MeldType::Ankan => 3,
+                        MeldType::Kakan => 2,
                     };
                     a_data.set_item("type", mt_int)?;
                     let t_list =
@@ -643,7 +643,7 @@ impl LogKyoku {
                     a_event.set_item("name", "AnGangAddGang")?;
                     a_data.set_item("seat", seat)?;
                     let mt_int = match meld_type {
-                        MeldType::Angang => 3,
+                        MeldType::Ankan => 3,
                         _ => 2,
                     };
                     a_data.set_item("type", mt_int)?;
@@ -808,10 +808,10 @@ impl LogKyoku {
 }
 
 #[pyclass(module = "riichienv._riichienv")]
-pub struct AgariContextIterator {
+pub struct WinResultContextIterator {
     kyoku: LogKyoku,
     action_index: usize,
-    pending_agari: Vec<AgariContext>,
+    pending_win_results: Vec<WinResultContext>,
     melds: Vec<Vec<Meld>>,
     current_hands: Vec<Vec<u8>>,
     liqi: Vec<bool>,
@@ -830,12 +830,12 @@ pub struct AgariContextIterator {
 }
 
 #[pymethods]
-impl AgariContextIterator {
+impl WinResultContextIterator {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<AgariContext> {
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<WinResultContext> {
         slf.do_next()
     }
 }
@@ -853,7 +853,7 @@ fn parse_paishan(s: &str) -> Vec<u8> {
     wall
 }
 
-impl AgariContextIterator {
+impl WinResultContextIterator {
     pub fn new(kyoku: LogKyoku) -> Self {
         let wall = if let Some(ref p) = kyoku.paishan {
             parse_paishan(p)
@@ -861,10 +861,10 @@ impl AgariContextIterator {
             Vec::new()
         };
 
-        AgariContextIterator {
+        WinResultContextIterator {
             kyoku: kyoku.clone(),
             action_index: 0,
-            pending_agari: Vec::new(),
+            pending_win_results: Vec::new(),
             melds: vec![Vec::new(); 4],
             current_hands: kyoku.hands.clone(),
             liqi: vec![false; 4],
@@ -932,9 +932,9 @@ impl AgariContextIterator {
         uras
     }
 
-    pub fn do_next(&mut self) -> Option<AgariContext> {
-        if !self.pending_agari.is_empty() {
-            return Some(self.pending_agari.remove(0));
+    pub fn do_next(&mut self) -> Option<WinResultContext> {
+        if !self.pending_win_results.is_empty() {
+            return Some(self.pending_win_results.remove(0));
         }
 
         while self.action_index < self.kyoku.actions.len() {
@@ -1049,7 +1049,7 @@ impl AgariContextIterator {
                         from_who,
                         called_tile: ct,
                     });
-                    if *meld_type == MeldType::Gang {
+                    if *meld_type == MeldType::Daiminkan {
                         self.rinshan[*seat] = true;
 
                         // New Kan flushes pending
@@ -1096,7 +1096,7 @@ impl AgariContextIterator {
                         self.pending_minkan_doras = 0;
                     }
 
-                    if *meld_type == MeldType::Angang {
+                    if *meld_type == MeldType::Ankan {
                         self.ippatsu = vec![false; 4];
                         self.is_first_turn = vec![false; 4];
                         self.last_action_was_kakan = false;
@@ -1146,8 +1146,8 @@ impl AgariContextIterator {
                         self.rinshan[*seat] = true;
                         let mut upgraded = false;
                         for m in self.melds[*seat].iter_mut() {
-                            if m.meld_type == MeldType::Peng && (m.tiles[0] / 4 == tiles[0] / 4) {
-                                m.meld_type = MeldType::Addgang;
+                            if m.meld_type == MeldType::Pon && (m.tiles[0] / 4 == tiles[0] / 4) {
+                                m.meld_type = MeldType::Kakan;
                                 m.tiles.push(tiles[0]);
                                 upgraded = true;
                                 break;
@@ -1206,8 +1206,8 @@ impl AgariContextIterator {
                             tsumo_first_turn: self.is_first_turn[seat] && is_zimo,
                             player_wind: (((seat + 4 - self.kyoku.ju as usize) % 4) as u8).into(),
                             round_wind: self.kyoku.chang.into(),
-                            kyoutaku: 0, // Not tracked in basic loop?
-                            tsumi: 0,    // Not tracked
+                            riichi_sticks: 0, // Not tracked in basic loop?
+                            honba: 0,    // Not tracked
                         };
 
                         if !is_zimo {
@@ -1229,7 +1229,7 @@ impl AgariContextIterator {
                         };
 
                         let actual_result = {
-                            let calc = AgariCalculator::new(hand_136.clone(), melds_136.clone());
+                            let calc = HandEvaluator::new(hand_136.clone(), melds_136.clone());
                             calc.calc(
                                 win_tile,
                                 dora_indicators.clone(),
@@ -1238,7 +1238,7 @@ impl AgariContextIterator {
                             )
                         };
 
-                        self.pending_agari.push(AgariContext {
+                        self.pending_win_results.push(WinResultContext {
                             seat: seat as u8,
                             tiles: hand_136,
                             melds: melds_136,
@@ -1252,8 +1252,8 @@ impl AgariContextIterator {
                             actual: actual_result,
                         });
                     }
-                    if !self.pending_agari.is_empty() {
-                        return Some(self.pending_agari.remove(0));
+                    if !self.pending_win_results.is_empty() {
+                        return Some(self.pending_win_results.remove(0));
                     }
                 }
                 _ => {}
@@ -1264,7 +1264,7 @@ impl AgariContextIterator {
 }
 
 #[pyclass(module = "riichienv._riichienv")]
-pub struct AgariContext {
+pub struct WinResultContext {
     pub seat: u8,
     pub tiles: Vec<u8>,
     pub melds: Vec<Meld>,
@@ -1275,11 +1275,11 @@ pub struct AgariContext {
     pub expected_yaku: Vec<u32>,
     pub expected_han: u32,
     pub expected_fu: u32,
-    pub actual: Agari,
+    pub actual: WinResult,
 }
 
 #[pymethods]
-impl AgariContext {
+impl WinResultContext {
     #[getter]
     pub fn seat(&self) -> u8 {
         self.seat
@@ -1321,18 +1321,18 @@ impl AgariContext {
         self.expected_fu
     }
     #[getter]
-    pub fn actual(&self) -> Agari {
+    pub fn actual(&self) -> WinResult {
         self.actual.clone()
     }
 
-    /// Creates an AgariCalculator initialized with the hand and melds from this context.
-    pub fn create_calculator(&self) -> AgariCalculator {
-        AgariCalculator::new(self.tiles.clone(), self.melds.clone())
+    /// Creates an HandEvaluator initialized with the hand and melds from this context.
+    pub fn create_calculator(&self) -> HandEvaluator {
+        HandEvaluator::new(self.tiles.clone(), self.melds.clone())
     }
 
     /// Calculates the agari result using the provided calculator and conditions.
     #[pyo3(signature = (calculator, conditions=None))]
-    pub fn calculate(&self, calculator: &AgariCalculator, conditions: Option<Conditions>) -> Agari {
+    pub fn calculate(&self, calculator: &HandEvaluator, conditions: Option<Conditions>) -> WinResult {
         let cond = conditions.unwrap_or_else(|| self.conditions.clone());
         calculator.calc(
             self.agari_tile,

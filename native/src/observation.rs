@@ -484,7 +484,7 @@ impl Observation {
                 break;
             }
             for meld in melds {
-                if matches!(meld.meld_type, MeldType::Angang) {
+                if matches!(meld.meld_type, MeldType::Ankan) {
                     if let Some(&tile) = meld.tiles.first() {
                         let tile_type = (tile / 4) as usize;
                         if tile_type < 34 {
@@ -721,8 +721,8 @@ impl Observation {
 
     /// Write 123 win projection channels into buf starting at ch_offset.
     fn encode_win_projection_into(&self, buf: &mut [f32], ch_offset: usize) {
-        use crate::win_projection;
         use crate::types::TILE_MAX;
+        use crate::win_projection;
 
         let player_idx = self.player_id as usize;
         if player_idx >= self.hands.len() {
@@ -826,15 +826,15 @@ impl Observation {
         let is_menzen = if player_idx < self.melds.len() {
             self.melds[player_idx]
                 .iter()
-                .all(|m| matches!(m.meld_type, MeldType::Angang))
+                .all(|m| matches!(m.meld_type, MeldType::Ankan))
         } else {
             true
         };
 
         let seat = (self.player_id + 4 - self.oya) % 4;
         let is_oya = seat == 0;
-        let bakaze = 27 + self.round_wind;
-        let jikaze = 27 + seat;
+        let round_wind_tile = 27 + self.round_wind;
+        let seat_wind_tile = 27 + seat;
 
         let dora_indicators_34: Vec<u8> = self
             .dora_indicators
@@ -883,8 +883,8 @@ impl Observation {
 
         let calculator = win_projection::WinProjectionCalculator::new(
             tehai_len_div3,
-            bakaze,
-            jikaze,
+            round_wind_tile,
+            seat_wind_tile,
             is_menzen,
             is_oya,
             dora_indicators_34,
@@ -2046,7 +2046,7 @@ impl Observation {
 
             for meld in melds {
                 // Check if this is an ankan (concealed kan)
-                if matches!(meld.meld_type, MeldType::Angang) {
+                if matches!(meld.meld_type, MeldType::Ankan) {
                     // Use the first tile to determine type
                     if let Some(&tile) = meld.tiles.first() {
                         let tile_type = (tile / 4) as usize;
@@ -2348,8 +2348,8 @@ impl Observation {
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        use crate::win_projection;
         use crate::types::TILE_MAX;
+        use crate::win_projection;
 
         let player_idx = self.player_id as usize;
         let num_channels = 123;
@@ -2465,15 +2465,15 @@ impl Observation {
         let is_menzen = if player_idx < self.melds.len() {
             self.melds[player_idx]
                 .iter()
-                .all(|m| matches!(m.meld_type, MeldType::Angang))
+                .all(|m| matches!(m.meld_type, MeldType::Ankan))
         } else {
             true
         };
 
         let seat = (self.player_id + 4 - self.oya) % 4;
         let is_oya = seat == 0;
-        let bakaze = 27 + self.round_wind;
-        let jikaze = 27 + seat;
+        let round_wind_tile = 27 + self.round_wind;
+        let seat_wind_tile = 27 + seat;
 
         // Dora indicators in 34-tile format
         let dora_indicators_34: Vec<u8> = self
@@ -2534,8 +2534,8 @@ impl Observation {
         // Create calculator and compute
         let calculator = win_projection::WinProjectionCalculator::new(
             tehai_len_div3,
-            bakaze,
-            jikaze,
+            round_wind_tile,
+            seat_wind_tile,
             is_menzen,
             is_oya,
             dora_indicators_34,
@@ -2630,9 +2630,12 @@ impl Observation {
 
     /// Return diagnostic statistics from win projection calculation as a Python dict.
     #[pyo3(name = "win_projection_stats")]
-    pub fn win_projection_stats<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
-        use crate::win_projection;
+    pub fn win_projection_stats<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
         use crate::types::TILE_MAX;
+        use crate::win_projection;
 
         let player_idx = self.player_id as usize;
 
@@ -2736,15 +2739,15 @@ impl Observation {
         let is_menzen = if player_idx < self.melds.len() {
             self.melds[player_idx]
                 .iter()
-                .all(|m| matches!(m.meld_type, MeldType::Angang))
+                .all(|m| matches!(m.meld_type, MeldType::Ankan))
         } else {
             true
         };
 
         let seat = (self.player_id + 4 - self.oya) % 4;
         let is_oya = seat == 0;
-        let bakaze = 27 + self.round_wind;
-        let jikaze = 27 + seat;
+        let round_wind_tile = 27 + self.round_wind;
+        let seat_wind_tile = 27 + seat;
 
         let dora_indicators_34: Vec<u8> = self
             .dora_indicators
@@ -2793,8 +2796,8 @@ impl Observation {
 
         let calculator = win_projection::WinProjectionCalculator::new(
             tehai_len_div3,
-            bakaze,
-            jikaze,
+            round_wind_tile,
+            seat_wind_tile,
             is_menzen,
             is_oya,
             dora_indicators_34,

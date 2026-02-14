@@ -145,7 +145,7 @@ class PPOWorker:
 
         obs_dicts = [
             env.reset(scores=[25000, 25000, 25000, 25000],
-                      bakaze=0, oya=0, honba=0, kyotaku=0)
+                      round_wind=0, oya=0, honba=0, kyotaku=0)
             for env in self.envs
         ]
 
@@ -412,7 +412,7 @@ class PPOWorker:
 
         obs_dicts = [
             env.reset(scores=[25000, 25000, 25000, 25000],
-                      bakaze=0, oya=0, honba=0, kyotaku=0)
+                      round_wind=0, oya=0, honba=0, kyotaku=0)
             for env in self.envs
         ]
         active = [True] * self.num_envs

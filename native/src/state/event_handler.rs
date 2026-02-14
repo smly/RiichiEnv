@@ -109,7 +109,7 @@ impl GameStateEventHandler for GameState {
                 }
 
                 self.players[actor].melds.push(Meld {
-                    meld_type: MeldType::Peng,
+                    meld_type: MeldType::Pon,
                     tiles: form_tiles,
                     opened: true,
                     from_who: -1,
@@ -167,7 +167,7 @@ impl GameStateEventHandler for GameState {
                 }
 
                 self.players[actor].melds.push(Meld {
-                    meld_type: MeldType::Gang,
+                    meld_type: MeldType::Daiminkan,
                     tiles,
                     opened: true,
                     from_who: -1,
@@ -185,7 +185,7 @@ impl GameStateEventHandler for GameState {
                     }
                 }
                 self.players[actor].melds.push(Meld {
-                    meld_type: MeldType::Angang,
+                    meld_type: MeldType::Ankan,
                     tiles,
                     opened: false,
                     from_who: -1,
@@ -199,8 +199,8 @@ impl GameStateEventHandler for GameState {
                     self.players[actor].hand.remove(idx);
                 }
                 for m in self.players[actor].melds.iter_mut() {
-                    if m.meld_type == MeldType::Peng && m.tiles[0] / 4 == tile / 4 {
-                        m.meld_type = MeldType::Addgang;
+                    if m.meld_type == MeldType::Pon && m.tiles[0] / 4 == tile / 4 {
+                        m.meld_type = MeldType::Kakan;
                         m.tiles.push(tile);
                         break;
                     }
@@ -317,7 +317,7 @@ impl GameStateEventHandler for GameState {
                 self.current_player = *seat as u8;
                 self.phase = Phase::WaitAct;
                 self.active_players = vec![self.current_player];
-                let is_gang = *meld_type == MeldType::Gang;
+                let is_gang = *meld_type == MeldType::Daiminkan;
                 self.needs_tsumo = is_gang;
                 self.is_first_turn = false;
                 self.is_after_kan = is_gang;
@@ -328,7 +328,7 @@ impl GameStateEventHandler for GameState {
                 tiles,
                 ..
             } => {
-                if *meld_type == MeldType::Angang {
+                if *meld_type == MeldType::Ankan {
                     let t_val = tiles[0] / 4;
                     for _ in 0..4 {
                         if let Some(idx) = self.players[*seat]
@@ -361,8 +361,8 @@ impl GameStateEventHandler for GameState {
                         self.players[*seat].hand.remove(idx);
                     }
                     for m in self.players[*seat].melds.iter_mut() {
-                        if m.meld_type == MeldType::Peng && m.tiles[0] / 4 == tile / 4 {
-                            m.meld_type = MeldType::Addgang;
+                        if m.meld_type == MeldType::Pon && m.tiles[0] / 4 == tile / 4 {
+                            m.meld_type = MeldType::Kakan;
                             m.tiles.push(tile);
                             m.tiles.sort();
                             break;
