@@ -1074,7 +1074,7 @@ pub fn next_dora_tile(indicator: u8) -> u8 {
     }
 }
 
-/// Encode SP results into 89 × 34 feature channels.
+/// Encode win projection results into 89 × 34 feature channels.
 ///
 /// Channel layout:
 ///   0-  1: max EV (2ch broadcast)
