@@ -8,7 +8,7 @@ use crate::replay::MjaiEvent;
 use crate::rule::GameRule;
 use crate::state::legal_actions::GameStateLegalActions; // Import trait
 use crate::state::GameState;
-use crate::types::{WinResult, Meld};
+use crate::types::{Meld, WinResult};
 
 #[pyclass(module = "riichienv._riichienv")]
 #[derive(Debug, Clone)]

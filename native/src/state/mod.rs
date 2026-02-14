@@ -10,7 +10,7 @@ use crate::parser::tid_to_mjai;
 use crate::replay::Action as LogAction;
 use crate::replay::MjaiEvent;
 use crate::rule::GameRule;
-use crate::types::{WinResult, Conditions, Meld, MeldType, Wind};
+use crate::types::{Conditions, Meld, MeldType, WinResult, Wind};
 
 pub mod event_handler;
 pub mod legal_actions;
@@ -473,7 +473,8 @@ impl GameState {
                                 );
 
                                 // 42=Kokushi, 49=Kokushi13
-                                if res.is_win && (res.yaku.contains(&42) || res.yaku.contains(&49)) {
+                                if res.is_win && (res.yaku.contains(&42) || res.yaku.contains(&49))
+                                {
                                     chankan_ronners.push(i);
                                     self.current_claims.entry(i).or_default().push(Action::new(
                                         ActionType::Ron,
@@ -638,10 +639,8 @@ impl GameState {
                             honba: self.honba as u32,
                             ..Default::default()
                         };
-                        let calc = crate::hand_evaluator::HandEvaluator::new(
-                            hand.clone(),
-                            melds.clone(),
-                        );
+                        let calc =
+                            crate::hand_evaluator::HandEvaluator::new(hand.clone(), melds.clone());
                         let win_tile = self.drawn_tile.unwrap_or(0);
                         let res = calc.calc(
                             win_tile,

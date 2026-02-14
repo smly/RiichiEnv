@@ -1,7 +1,7 @@
 #![allow(clippy::useless_conversion)]
 use crate::agari;
 use crate::score;
-use crate::types::{WinResult, Conditions, Hand, Meld, MeldType, Wind};
+use crate::types::{Conditions, Hand, Meld, MeldType, WinResult, Wind};
 use crate::yaku;
 use pyo3::prelude::*;
 

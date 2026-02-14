@@ -171,9 +171,8 @@ impl GameStateLegalActions for GameState {
                                 -1,
                                 None,
                             ));
-                            let calc_post = crate::hand_evaluator::HandEvaluator::new(
-                                hand_post, melds_post,
-                            );
+                            let calc_post =
+                                crate::hand_evaluator::HandEvaluator::new(hand_post, melds_post);
                             let mut waits_post = calc_post.get_waits();
                             waits_post.sort();
 

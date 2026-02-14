@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::action::Action as EnvAction;
 use crate::hand_evaluator::HandEvaluator;
-use crate::types::{WinResult, Conditions, Meld, MeldType};
+use crate::types::{Conditions, Meld, MeldType, WinResult};
 
 pub mod mjai_replay;
 pub mod mjsoul_replay;
@@ -1207,7 +1207,7 @@ impl WinResultContextIterator {
                             player_wind: (((seat + 4 - self.kyoku.ju as usize) % 4) as u8).into(),
                             round_wind: self.kyoku.chang.into(),
                             riichi_sticks: 0, // Not tracked in basic loop?
-                            honba: 0,    // Not tracked
+                            honba: 0,         // Not tracked
                         };
 
                         if !is_zimo {
@@ -1332,7 +1332,11 @@ impl WinResultContext {
 
     /// Calculates the agari result using the provided calculator and conditions.
     #[pyo3(signature = (calculator, conditions=None))]
-    pub fn calculate(&self, calculator: &HandEvaluator, conditions: Option<Conditions>) -> WinResult {
+    pub fn calculate(
+        &self,
+        calculator: &HandEvaluator,
+        conditions: Option<Conditions>,
+    ) -> WinResult {
         let cond = conditions.unwrap_or_else(|| self.conditions.clone());
         calculator.calc(
             self.agari_tile,

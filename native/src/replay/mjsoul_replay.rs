@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::sync::Arc;
 
-use crate::replay::{Action, WinResultContextIterator, HuleData, LogKyoku, TileConverter};
+use crate::replay::{Action, HuleData, LogKyoku, TileConverter, WinResultContextIterator};
 use crate::types::MeldType;
 
 #[pyclass(module = "riichienv._riichienv")]
