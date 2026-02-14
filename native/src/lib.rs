@@ -14,7 +14,7 @@ mod parser;
 mod replay;
 mod rule;
 mod shanten;
-pub mod sp;
+pub mod win_projection;
 mod state;
 mod yaku_checker;
 

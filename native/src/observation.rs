@@ -719,9 +719,9 @@ impl Observation {
         }
     }
 
-    /// Write 123 SP table channels into buf starting at ch_offset.
-    fn encode_sp_into(&self, buf: &mut [f32], ch_offset: usize) {
-        use crate::sp;
+    /// Write 123 win projection channels into buf starting at ch_offset.
+    fn encode_win_projection_into(&self, buf: &mut [f32], ch_offset: usize) {
+        use crate::win_projection;
         use crate::types::TILE_MAX;
 
         let player_idx = self.player_id as usize;
@@ -848,7 +848,7 @@ impl Observation {
             for meld in &self.melds[player_idx] {
                 for &tile in &meld.tiles {
                     for &ind in &dora_indicators_34 {
-                        if tile / 4 == sp::next_dora_tile(ind) {
+                        if tile / 4 == win_projection::next_dora_tile(ind) {
                             num_doras_in_fuuro += 1;
                         }
                     }
@@ -877,11 +877,11 @@ impl Observation {
 
         let total_visible: u32 = tiles_seen.iter().map(|&c| c as u32).sum();
         let tiles_in_wall = (136u32).saturating_sub(total_visible);
-        let tsumos_left = ((tiles_in_wall / 4) as usize).min(sp::MAX_TSUMOS_LEFT);
+        let tsumos_left = ((tiles_in_wall / 4) as usize).min(win_projection::MAX_TSUMOS_LEFT);
         let hand_tile_count: u32 = tehai.iter().map(|&c| c as u32).sum();
         let can_discard = hand_tile_count % 3 == 2;
 
-        let calculator = sp::SPCalculator::new(
+        let calculator = win_projection::WinProjectionCalculator::new(
             tehai_len_div3,
             bakaze,
             jikaze,
@@ -900,7 +900,7 @@ impl Observation {
             tsumos_left,
             can_discard,
         );
-        let sp_arr = sp::encode_sp_features(&candidates, can_discard);
+        let sp_arr = win_projection::encode_win_projection_features(&candidates, can_discard);
 
         // Copy 123*34 floats into buf
         let start = ch_offset * 34;
@@ -2342,25 +2342,13 @@ impl Observation {
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
-    /// Encode Single Player (SP) table features.
-    ///
-    /// Computes tenpai probability, win probability, and expected value
-    /// for each possible discard over future turns using a recursive
-    /// single-player solver (ported from Mortal v4).
-    ///
-    /// Returns a (123, 34) array with:
-    /// - 2 channels: max EV (two scales: /100000, /30000)
-    /// - 68 channels: required tiles (34 normal + 34 shanten-down)
-    /// - 2 channels: best discard indicators
-    /// - 51 channels: SP probability table (3 metrics × 17 turns)
-    ///
-    /// Total: 123 channels × 34 tile positions = 4182 floats
-    #[pyo3(name = "encode_sp_table")]
-    pub fn encode_sp_table<'py>(
+    /// Encode win projection features as (123, 34) float array.
+    #[pyo3(name = "encode_win_projection")]
+    pub fn encode_win_projection<'py>(
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        use crate::sp;
+        use crate::win_projection;
         use crate::types::TILE_MAX;
 
         let player_idx = self.player_id as usize;
@@ -2502,7 +2490,7 @@ impl Observation {
                 for &tile in &meld.tiles {
                     // Check dora
                     for &ind in &dora_indicators_34 {
-                        let dora = sp::next_dora_tile(ind);
+                        let dora = win_projection::next_dora_tile(ind);
                         if tile / 4 == dora {
                             num_doras_in_fuuro += 1;
                         }
@@ -2537,14 +2525,14 @@ impl Observation {
         let tiles_in_wall = (136u32).saturating_sub(total_visible);
         // Each of 4 players draws ~equally; we care about our remaining draws
         // Rough estimate: tiles_in_wall / 4, capped at MAX_TSUMOS_LEFT
-        let tsumos_left = ((tiles_in_wall / 4) as usize).min(sp::MAX_TSUMOS_LEFT);
+        let tsumos_left = ((tiles_in_wall / 4) as usize).min(win_projection::MAX_TSUMOS_LEFT);
 
         // Determine if we can discard (hand has 3n+2 tiles, meaning we just drew)
         let hand_tile_count: u32 = tehai.iter().map(|&c| c as u32).sum();
         let can_discard = hand_tile_count % 3 == 2;
 
         // Create calculator and compute
-        let calculator = sp::SPCalculator::new(
+        let calculator = win_projection::WinProjectionCalculator::new(
             tehai_len_div3,
             bakaze,
             jikaze,
@@ -2565,7 +2553,7 @@ impl Observation {
             can_discard,
         );
 
-        let arr = sp::encode_sp_features(&candidates, can_discard);
+        let arr = win_projection::encode_win_projection_features(&candidates, can_discard);
 
         // Convert to bytes
         let byte_len = arr.len() * std::mem::size_of::<f32>();
@@ -2586,11 +2574,11 @@ impl Observation {
     /// 194-196: pass context (3ch broadcast)
     /// 197-205: last tedashis (9ch broadcast)
     /// 206-214: riichi sutehais (9ch broadcast)
-    /// 215-337: SP table (123ch spatial)
+    /// 215-337: win projection (123ch spatial)
     ///
     /// Returns PyBytes of 338 × 34 × 4 = 45,968 bytes.
-    #[pyo3(name = "encode_extended_sp")]
-    pub fn encode_extended_sp<'py>(
+    #[pyo3(name = "encode_extended_win_projection")]
+    pub fn encode_extended_win_projection<'py>(
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
@@ -2607,7 +2595,7 @@ impl Observation {
         self.encode_pass_ctx_into(&mut buf, 194);
         self.encode_last_ted_into(&mut buf, 197);
         self.encode_riichi_sute_into(&mut buf, 206);
-        self.encode_sp_into(&mut buf, 215);
+        self.encode_win_projection_into(&mut buf, 215);
 
         let byte_len = total * std::mem::size_of::<f32>();
         let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
@@ -2615,7 +2603,7 @@ impl Observation {
     }
 
     /// Encode all 215 channels of Extended features in a single call.
-    /// Same as encode_extended_sp but without the 123ch SP table.
+    /// Same as encode_extended_win_projection but without the 123ch win projection.
     #[pyo3(name = "encode_extended")]
     pub fn encode_extended<'py>(
         &self,
@@ -2640,15 +2628,15 @@ impl Observation {
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
-    /// Return diagnostic statistics from SP calculation as a Python dict.
-    #[pyo3(name = "sp_calc_stats")]
-    pub fn sp_calc_stats<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
-        use crate::sp;
+    /// Return diagnostic statistics from win projection calculation as a Python dict.
+    #[pyo3(name = "win_projection_stats")]
+    pub fn win_projection_stats<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        use crate::win_projection;
         use crate::types::TILE_MAX;
 
         let player_idx = self.player_id as usize;
 
-        // Build tehai/tiles_seen (same as encode_sp_into)
+        // Build tehai/tiles_seen (same as encode_win_projection_into)
         let mut tehai = [0u8; TILE_MAX];
         let mut akas_in_hand = [false; 3];
         if player_idx < self.hands.len() {
@@ -2770,7 +2758,7 @@ impl Observation {
             for meld in &self.melds[player_idx] {
                 for &tile in &meld.tiles {
                     for &ind in &dora_indicators_34 {
-                        if tile / 4 == sp::next_dora_tile(ind) {
+                        if tile / 4 == win_projection::next_dora_tile(ind) {
                             num_doras_in_fuuro += 1;
                         }
                     }
@@ -2799,11 +2787,11 @@ impl Observation {
 
         let total_visible: u32 = tiles_seen.iter().map(|&c| c as u32).sum();
         let tiles_in_wall = (136u32).saturating_sub(total_visible);
-        let tsumos_left = ((tiles_in_wall / 4) as usize).min(sp::MAX_TSUMOS_LEFT);
+        let tsumos_left = ((tiles_in_wall / 4) as usize).min(win_projection::MAX_TSUMOS_LEFT);
         let hand_tile_count: u32 = tehai.iter().map(|&c| c as u32).sum();
         let can_discard = hand_tile_count % 3 == 2;
 
-        let calculator = sp::SPCalculator::new(
+        let calculator = win_projection::WinProjectionCalculator::new(
             tehai_len_div3,
             bakaze,
             jikaze,
