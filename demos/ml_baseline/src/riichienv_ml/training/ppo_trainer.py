@@ -1,15 +1,19 @@
 """
 Online PPO Trainer with Ray distributed workers.
 
-Synchronous on-policy loop:
-  1. All workers collect episodes in parallel
-  2. Wait for all workers to finish
-  3. Concatenate transitions, run PPO update (multiple epochs)
-  4. Sync weights to all workers
-  5. Repeat
+Supports two modes (controlled by cfg.async_rollout):
+
+Synchronous (async_rollout=False, default):
+  dispatch → ray.get → update → sync → dispatch → ...
+
+Double-buffered (async_rollout=True):
+  dispatch₀ → ray.get₀ → dispatch₁ → update₀ → sync → ray.get₁ → ...
+  Collection N+1 overlaps with PPO update N (1-step stale weights).
+  Eval steps fall back to synchronous to ensure fresh weights.
 """
 import sys
 import os
+import threading
 
 import ray
 import wandb
@@ -91,6 +95,7 @@ def run_ppo_training(cfg):
         weight_decay=cfg.weight_decay,
         alpha_kl=cfg.alpha_kl,
         alpha_kl_warmup_steps=cfg.alpha_kl_warmup_steps,
+        batch_size=cfg.batch_size,
         model_config=model_config,
         model_class=cfg.model_class,
     )
@@ -151,15 +156,25 @@ def run_ppo_training(cfg):
 
     total_envs = cfg.num_workers * cfg.num_envs_per_worker
 
+    # For async_rollout: prefetch first collection before entering the loop
+    prefetched_futures = None
+    if cfg.async_rollout:
+        logger.info("Async rollout enabled: using double buffering")
+        prefetched_futures = [w.collect_episodes.remote() for w in workers]
+
     try:
         while step < cfg.num_steps:
-            # === 1. Dispatch collect_episodes to ALL workers ===
-            futures = [w.collect_episodes.remote() for w in workers]
+            # === 1. Get rollout results ===
+            if prefetched_futures is not None:
+                # Async mode: results were prefetched
+                all_results = ray.get(prefetched_futures)
+                prefetched_futures = None
+            else:
+                # Sync mode: dispatch and wait
+                futures = [w.collect_episodes.remote() for w in workers]
+                all_results = ray.get(futures)
 
-            # === 2. Wait for ALL workers to complete ===
-            all_results = ray.get(futures)
-
-            # === 3. Aggregate transitions and worker stats ===
+            # === 2. Aggregate transitions and worker stats ===
             batch_parts = []
             worker_stats_list = []
             for transitions, stats in all_results:
@@ -170,6 +185,9 @@ def run_ppo_training(cfg):
             episodes += total_envs
 
             if not batch_parts:
+                # Async mode: dispatch next collection even on empty batch
+                if cfg.async_rollout:
+                    prefetched_futures = [w.collect_episodes.remote() for w in workers]
                 continue
 
             # Concatenate pre-batched arrays from all workers
@@ -183,7 +201,12 @@ def run_ppo_training(cfg):
             }
             n_trans = len(rollout_batch["actions"])
 
-            # === 4. PPO update on the full batch ===
+            # === 3. Prefetch next collection (async mode, non-eval steps) ===
+            is_eval_step = (step + 1) > 0 and (step + 1) % cfg.eval_interval == 0
+            if cfg.async_rollout and not is_eval_step and (step + 1) < cfg.num_steps:
+                prefetched_futures = [w.collect_episodes.remote() for w in workers]
+
+            # === 4. PPO update on the full batch (overlaps with collection in async mode) ===
             metrics = learner.update(rollout_batch)
             step += 1
 
@@ -225,8 +248,9 @@ def run_ppo_training(cfg):
                 sys.stdout.flush()
 
                 save_path = f"{cfg.checkpoint_dir}/model_{step}.pth"
-                torch.save(learner.get_weights(), save_path)
-                logger.info(f"Saved snapshot to {save_path}")
+                save_weights = {k: v.cpu().clone() for k, v in learner.get_weights().items()}
+                threading.Thread(target=torch.save, args=(save_weights, save_path), daemon=True).start()
+                logger.info(f"Saved snapshot to {save_path} (async)")
 
                 try:
                     hw = {k: v.cpu() for k, v in learner.get_weights().items()}
@@ -258,6 +282,10 @@ def run_ppo_training(cfg):
             weight_ref = ray.put(weights)
             for w in workers:
                 w.update_weights.remote(weight_ref)
+
+            # === 7. After eval + weight sync, dispatch next collection (async mode) ===
+            if cfg.async_rollout and prefetched_futures is None and step < cfg.num_steps:
+                prefetched_futures = [w.collect_episodes.remote() for w in workers]
 
     except KeyboardInterrupt:
         logger.info("Stopping...")

@@ -21,6 +21,7 @@ class PPOLearner:
                  weight_decay: float = 0.0,
                  alpha_kl: float = 0.0,
                  alpha_kl_warmup_steps: int = 0,
+                 batch_size: int = 128,
                  model_config: dict | None = None,
                  model_class: str = "riichienv_ml.models.actor_critic.ActorCriticNetwork"):
 
@@ -34,6 +35,7 @@ class PPOLearner:
         self.max_grad_norm = max_grad_norm
         self.alpha_kl = alpha_kl
         self.alpha_kl_warmup_steps = alpha_kl_warmup_steps
+        self.batch_size = batch_size
 
         mc = model_config or {}
         ModelClass = import_class(model_class)
@@ -159,13 +161,14 @@ class PPOLearner:
         }
 
         N = features.shape[0]
+        last_epoch_values = torch.zeros(N, device=self.device)
 
         for epoch in range(self.ppo_epochs):
             # Shuffle indices for mini-batching within epoch
             perm = torch.randperm(N, device=self.device)
 
-            for start in range(0, N, 128):
-                end = min(start + 128, N)
+            for start in range(0, N, self.batch_size):
+                end = min(start + self.batch_size, N)
                 idx = perm[start:end]
 
                 batch_features = features[idx]
@@ -229,6 +232,9 @@ class PPOLearner:
                 grad_norm = nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
                 self.optimizer.step()
 
+                if epoch == self.ppo_epochs - 1:
+                    last_epoch_values[idx] = values.detach()
+
                 # Accumulate metrics
                 with torch.no_grad():
                     approx_kl = (batch_old_log_probs - log_probs).mean().item()
@@ -250,7 +256,7 @@ class PPOLearner:
                 total_metrics["grad_norm"] += grad_norm.item() if isinstance(grad_norm, torch.Tensor) else grad_norm
 
         # Average across all mini-batches
-        num_batches = self.ppo_epochs * max(1, (N + 127) // 128)
+        num_batches = self.ppo_epochs * max(1, (N + self.batch_size - 1) // self.batch_size)
         avg_keys = ["policy_loss", "value_loss", "entropy", "loss", "approx_kl",
                      "clip_frac", "ratio/mean", "ratio/std", "value/predicted_mean", "grad_norm",
                      "kl_ref"]
@@ -264,15 +270,12 @@ class PPOLearner:
         total_metrics["return/std"] = return_std
         total_metrics["return/target_mean"] = returns.mean().item()
 
-        # Explained variance: how well value predictions explain return variance
-        with torch.no_grad():
-            logits_all, values_all = self.model(features)
-            v_pred = values_all.detach()
-            var_returns = returns.var()
-            if var_returns < 1e-8:
-                total_metrics["explained_variance"] = 0.0
-            else:
-                total_metrics["explained_variance"] = (1.0 - (returns - v_pred).var() / var_returns).item()
+        # Explained variance: reuse predictions from last epoch's mini-batches
+        var_returns = returns.var()
+        if var_returns < 1e-8:
+            total_metrics["explained_variance"] = 0.0
+        else:
+            total_metrics["explained_variance"] = (1.0 - (returns - last_epoch_values).var() / var_returns).item()
 
         self.total_steps += 1
         return total_metrics

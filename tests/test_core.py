@@ -1,5 +1,5 @@
 import riichienv
-from riichienv import HandEvaluator, Conditions, MeldType
+from riichienv import Conditions, HandEvaluator, MeldType
 
 
 def test_hand_parsing():

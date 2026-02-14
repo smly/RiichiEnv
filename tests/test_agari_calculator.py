@@ -32,9 +32,7 @@ def test_pinfu():
         player_wind=rv.Wind.North,  # Doesn't strict matter for Pinfu unless Jikaze head
         round_wind=rv.Wind.East,
     )
-    res = rv.HandEvaluator(hand, melds).calc(
-        win_tile=win_tile, dora_indicators=[], conditions=cond, ura_indicators=[]
-    )
+    res = rv.HandEvaluator(hand, melds).calc(win_tile=win_tile, dora_indicators=[], conditions=cond, ura_indicators=[])
 
     # Check Pinfu (ID 14)
     assert 14 not in res.yaku

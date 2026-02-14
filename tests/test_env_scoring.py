@@ -1,5 +1,5 @@
 import riichienv.convert as cvt
-from riichienv import Action, ActionType, HandEvaluator, Conditions, Phase, RiichiEnv, Wind
+from riichienv import Action, ActionType, Conditions, HandEvaluator, Phase, RiichiEnv, Wind
 
 
 class TestRiichiScoring:

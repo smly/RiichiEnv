@@ -115,6 +115,7 @@ class OnlineConfig(BaseModel):
     # GRP reward shaping (per-kyoku reward)
     grp_model: str | None = None
     pts_weight: list[float] = [10.0, 4.0, -4.0, -10.0]
+    async_rollout: bool = False
 
 
 class Config(BaseModel):

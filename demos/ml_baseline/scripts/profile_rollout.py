@@ -11,22 +11,22 @@ Runs a standalone worker (no Ray) and measures per-step timings for:
 
 Usage:
     # CPU rollout
-    uv run python scripts/profile_rollout.py -c configs/baseline.yml --device cpu
+    uv run python scripts/profile_rollout.py -c configs/dqn.yml --device cpu
 
     # GPU rollout
-    uv run python scripts/profile_rollout.py -c configs/baseline.yml --device cuda
+    uv run python scripts/profile_rollout.py -c configs/dqn.yml --device cuda
 
     # GPU + torch.compile
-    uv run python scripts/profile_rollout.py -c configs/baseline.yml --device cuda --compile
+    uv run python scripts/profile_rollout.py -c configs/dqn.yml --device cuda --compile
 
     # GPU + float16
-    uv run python scripts/profile_rollout.py -c configs/baseline.yml --device cuda --half
+    uv run python scripts/profile_rollout.py -c configs/dqn.yml --device cuda --half
 
     # GPU + batched multi-env rollout (4 envs)
-    uv run python scripts/profile_rollout.py -c configs/baseline.yml --device cuda --batch_envs 4
+    uv run python scripts/profile_rollout.py -c configs/dqn.yml --device cuda --batch_envs 4
 
     # Custom episodes / model
-    uv run python scripts/profile_rollout.py -c configs/baseline.yml --device cuda --episodes 5 --load_model model.pth
+    uv run python scripts/profile_rollout.py -c configs/dqn.yml --device cuda --episodes 5 --load_model model.pth
 """
 import argparse
 import time
@@ -359,7 +359,7 @@ def print_report(timers: list[TimingAccumulator], episode_times: list[float], tr
 
 def main():
     parser = argparse.ArgumentParser(description="Profile worker rollout (standalone, no Ray)")
-    parser.add_argument("-c", "--config", type=str, default="configs/baseline.yml")
+    parser.add_argument("-c", "--config", type=str, default="configs/dqn.yml")
     parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda"])
     parser.add_argument("--episodes", type=int, default=3, help="Number of episodes to profile")
     parser.add_argument("--load_model", type=str, default=None, help="Path to model weights")
