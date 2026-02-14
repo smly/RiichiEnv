@@ -14,7 +14,7 @@ grp:
 cql:
   data_glob: "/data/mjsoul/mahjong_game_record_4p_thr_202[45]*/*.bin.xz"
   grp_model: /data/workspace/riichienv/ppo/grp_model.pth
-  output: /data/workspace/riichienv/ppo_async/cql_model.pth
+  output: /data/workspace/riichienv/ppo_async_rev2/cql_model.pth
   device: cuda
   batch_size: 128
   lr: 5e-4
@@ -29,9 +29,9 @@ cql:
   wandb_entity: smly
   wandb_project: riichienv-offline
   model_class: riichienv_ml.models.cql_model.QNetwork
-  dataset_class: riichienv_ml.data.cql_dataset.MCDataset
+  dataset_class: riichienv_ml.data.cql_dataset.ExtendedWinProjectionDataset
   model:
-    in_channels: 74
+    in_channels: 304
     num_blocks: 16
     conv_channels: 192
     fc_dim: 512
@@ -40,10 +40,10 @@ cql:
 
 online:
   algorithm: ppo
-  load_model: /data/workspace/riichienv/ppo_async/cql_model.pth
+  load_model: /data/workspace/riichienv/ppo_async_rev2/cql_model.pth
   device: cuda
   model_class: riichienv_ml.models.actor_critic.ActorCriticNetwork
-  encoder_class: riichienv_ml.data.cql_dataset.ObservationEncoder
+  encoder_class: riichienv_ml.data.cql_dataset.ExtendedWinProjectionEncoder
   num_workers: 4
   num_steps: 500
   lr: 1e-5
@@ -56,7 +56,7 @@ online:
   entropy_coef: 0.001          # small positive: encourage exploration
   value_coef: 0.5
   # GRP reward shaping (per-kyoku reward)
-  grp_model: /data/workspace/riichienv/ppo_async/grp_model.pth
+  grp_model: /data/workspace/riichienv/ppo_async_rev2/grp_model.pth
   pts_weight: [6.0, 4.0, 2.0, 0.0]
   weight_decay: 0.1
   alpha_kl: 0.1                # KL regularization to pretrained CQL policy (prevents drift)
@@ -70,10 +70,10 @@ online:
   worker_device: cuda
   gpu_per_worker: 0.2
   num_envs_per_worker: 48
-  checkpoint_dir: /data/workspace/riichienv/ppo_async/checkpoints
+  checkpoint_dir: /data/workspace/riichienv/ppo_async_rev2/checkpoints
   wandb_project: riichienv-online
   model:
-    in_channels: 74
+    in_channels: 304
     num_blocks: 16
     conv_channels: 192
     fc_dim: 512

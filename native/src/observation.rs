@@ -719,7 +719,7 @@ impl Observation {
         }
     }
 
-    /// Write 123 win projection channels into buf starting at ch_offset.
+    /// Write 89 win projection channels into buf starting at ch_offset.
     fn encode_win_projection_into(&self, buf: &mut [f32], ch_offset: usize) {
         use crate::types::TILE_MAX;
         use crate::win_projection;
@@ -902,9 +902,9 @@ impl Observation {
         );
         let sp_arr = win_projection::encode_win_projection_features(&candidates, can_discard);
 
-        // Copy 123*34 floats into buf
+        // Copy 89*34 floats into buf
         let start = ch_offset * 34;
-        buf[start..start + 123 * 34].copy_from_slice(&sp_arr);
+        buf[start..start + 89 * 34].copy_from_slice(&sp_arr);
     }
 }
 
@@ -2342,7 +2342,7 @@ impl Observation {
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
-    /// Encode win projection features as (123, 34) float array.
+    /// Encode win projection features as (89, 34) float array.
     #[pyo3(name = "encode_win_projection")]
     pub fn encode_win_projection<'py>(
         &self,
@@ -2352,7 +2352,7 @@ impl Observation {
         use crate::win_projection;
 
         let player_idx = self.player_id as usize;
-        let num_channels = 123;
+        let num_channels = 89;
         let total_floats = num_channels * 34;
 
         // Default: return zeros if hand not available
@@ -2561,7 +2561,7 @@ impl Observation {
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
-    /// Encode all 338 channels of ExtendedSP features in a single call.
+    /// Encode all 304 channels of Extended features in a single call.
     ///
     /// Channel layout:
     ///   0- 73: base encode (74ch spatial)
@@ -2574,15 +2574,15 @@ impl Observation {
     /// 194-196: pass context (3ch broadcast)
     /// 197-205: last tedashis (9ch broadcast)
     /// 206-214: riichi sutehais (9ch broadcast)
-    /// 215-337: win projection (123ch spatial)
+    /// 215-303: win projection (89ch)
     ///
-    /// Returns PyBytes of 338 × 34 × 4 = 45,968 bytes.
+    /// Returns PyBytes of 304 × 34 × 4 = 41,344 bytes.
     #[pyo3(name = "encode_extended_win_projection")]
     pub fn encode_extended_win_projection<'py>(
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        let total = 338 * 34;
+        let total = 304 * 34;
         let mut buf = vec![0.0f32; total];
 
         self.encode_base_into(&mut buf, 0);
@@ -2603,7 +2603,7 @@ impl Observation {
     }
 
     /// Encode all 215 channels of Extended features in a single call.
-    /// Same as encode_extended_win_projection but without the 123ch win projection.
+    /// Same as encode_extended_win_projection but without the 89ch win projection.
     #[pyo3(name = "encode_extended")]
     pub fn encode_extended<'py>(
         &self,
