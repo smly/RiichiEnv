@@ -132,9 +132,18 @@ class RVWorker:
         """Run a dummy forward pass to trigger torch.compile JIT."""
         if self._compiled_warmup:
             return
+        if self.device.type != "cuda":
+            self._compiled_warmup = True
+            return
         target = self.model._orig_mod if hasattr(self.model, "_orig_mod") else self.model
         in_ch = target.backbone.conv_in.in_channels
-        num_actions = target.a_head.out_features
+        # Support both QNetwork (a_head) and ActorCriticNetwork (actor_head)
+        if hasattr(target, "a_head"):
+            num_actions = target.a_head.out_features
+        elif hasattr(target, "actor_head"):
+            num_actions = target.actor_head.out_features
+        else:
+            num_actions = 82
         dummy = torch.randn(1, in_ch, 34, device=self.device)
         dummy_mask = torch.ones(1, num_actions, dtype=torch.bool, device=self.device)
         with torch.no_grad():
@@ -223,9 +232,20 @@ class RVWorker:
                             opp_items.append((ei, pid, obs, la))
 
             if not hero_items and not opp_items:
+                deadlocked = []
                 for ei in range(self.num_envs):
-                    if active[ei] and self.envs[ei].done():
+                    if not active[ei]:
+                        continue
+                    if self.envs[ei].done():
                         active[ei] = False
+                    else:
+                        active[ei] = False
+                        deadlocked.append(ei)
+                        for pid in range(4):
+                            kyoku_buffers[ei][pid].clear()
+                if deadlocked:
+                    print(f"[RVWorker {self.worker_id}] Deadlock in envs {deadlocked}; "
+                          f"discarding partial trajectories.")
                 break
 
             env_steps = {ei: {} for ei in range(self.num_envs)}
@@ -254,8 +274,7 @@ class RVWorker:
                     if self.exploration == "boltzmann" and self.boltzmann_epsilon > 0:
                         logits = h_q / self.boltzmann_temp
                         logits = logits.masked_fill(~h_mask_bool, -torch.inf)
-                        probs = torch.softmax(logits, dim=-1)
-                        sampled = torch.multinomial(probs, 1).squeeze(-1)
+                        sampled = sample_top_p(logits, self.top_p)
                         use_boltzmann = torch.rand(len(hero_items), device=self.device) < self.boltzmann_epsilon
                         h_actions = torch.where(use_boltzmann, sampled, h_actions)
                     elif self.exploration == "epsilon_greedy" and self.epsilon > 0:
@@ -296,8 +315,6 @@ class RVWorker:
                     b_q = self.baseline_model(b_feat_batch, mask=b_mask_batch.bool())
 
                 b_actions = b_q.argmax(dim=1)
-                b_actions_cpu = b_actions.cpu().numpy()
-
                 b_actions_cpu = b_actions.cpu().numpy()
 
                 if not self.collect_hero_only:

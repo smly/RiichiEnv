@@ -263,8 +263,11 @@ def profile_batched_episodes(
             # Apply boltzmann for some fraction
             logits = q_values.float() / boltzmann_temp
             logits = logits.masked_fill(~mask_bool, -torch.inf)
-            probs = torch.softmax(logits, dim=-1)
-            sampled = torch.multinomial(probs, 1).squeeze(-1)
+            if top_p is not None and top_p < 1.0:
+                sampled = sample_top_p(logits, top_p)
+            else:
+                probs = torch.softmax(logits, dim=-1)
+                sampled = torch.multinomial(probs, 1).squeeze(-1)
             use_boltzmann = torch.rand(len(batch_items), device=device) < boltzmann_epsilon
             actions = torch.where(use_boltzmann, sampled, actions)
         actions_cpu = actions.cpu().numpy()
