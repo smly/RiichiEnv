@@ -43,10 +43,10 @@ class Wind:
 
 class MeldType:
     Chi: MeldType
-    Peng: MeldType
-    Gang: MeldType
-    Angang: MeldType
-    Addgang: MeldType
+    Pon: MeldType
+    Daiminkan: MeldType
+    Ankan: MeldType
+    Kakan: MeldType
     def __int__(self) -> int: ...
 
 class Phase(IntEnum):
@@ -107,8 +107,8 @@ class Conditions:
     tsumo_first_turn: bool
     player_wind: Wind
     round_wind: Wind
-    kyoutaku: int
-    tsumi: int
+    riichi_sticks: int
+    honba: int
     def __init__(
         self,
         tsumo: bool = False,
@@ -122,12 +122,12 @@ class Conditions:
         tsumo_first_turn: bool = False,
         player_wind: Wind | int = 0,
         round_wind: Wind | int = 0,
-        kyoutaku: int = 0,
-        tsumi: int = 0,
+        riichi_sticks: int = 0,
+        honba: int = 0,
     ): ...
 
-class Agari:
-    agari: bool
+class WinResult:
+    is_win: bool
     yakuman: bool
     ron_agari: int
     tsumo_agari_oya: int
@@ -135,9 +135,11 @@ class Agari:
     yaku: list[int]
     han: int
     fu: int
+    pao_payer: int | None
+    has_win_shape: bool
 
-class AgariContext:
-    actual: bool
+class WinResultContext:
+    actual: WinResult
     agari_tile: int
     conditions: Conditions
     dora_indicators: list[int]
@@ -148,23 +150,22 @@ class AgariContext:
     seat: int
     tiles: list[int]
     ura_indicators: list[int]
-    def calculate(self) -> Agari: ...
-    def create_calculator(self) -> AgariCalculator: ...
-    def __iter__(self) -> AgariContextIterator: ...
+    def calculate(self, calculator: HandEvaluator, conditions: Conditions | None = None) -> WinResult: ...
+    def create_calculator(self) -> HandEvaluator: ...
 
-class AgariContextIterator:
-    def __next__(self) -> AgariContext: ...
-    def __iter__(self) -> AgariContextIterator: ...
+class WinResultContextIterator:
+    def __next__(self) -> WinResultContext: ...
+    def __iter__(self) -> WinResultContextIterator: ...
 
-class AgariCalculator:
-    def __init__(self, tiles: list[int], melds: list[Meld]): ...
+class HandEvaluator:
+    def __init__(self, tiles: list[int], melds: list[Meld] = []): ...
     def calc(
         self, win_tile: int, dora_indicators: list[int], ura_indicators: list[int], conditions: Conditions
-    ) -> Agari: ...
+    ) -> WinResult: ...
     def is_tenpai(self) -> bool: ...
     def get_waits(self) -> list[int]: ...
     @staticmethod
-    def hand_from_text(text: str) -> AgariCalculator: ...
+    def hand_from_text(text: str) -> HandEvaluator: ...
 
 class Observation:
     events: list[Any]
@@ -184,9 +185,9 @@ class Kyoku:
     events: list[dict]
     rule: GameRule
     def grp_features(self) -> dict[str, Any]: ...
-    def take_agari_contexts(self) -> AgariContextIterator: ...
+    def take_win_result_contexts(self) -> WinResultContextIterator: ...
     def take_grp_features(self) -> dict[str, Any]: ...
-    def steps(self, seat: int | None = None, rule: GameRule | None = None) -> KyokuStepIterator: ...
+    def steps(self, seat: int | None = None, rule: GameRule | None = None, skip_single_action: bool | None = None) -> KyokuStepIterator: ...
     def __iter__(self) -> KyokuIterator: ...
 
 class KyokuIterator:
@@ -243,7 +244,7 @@ class RiichiEnv:
     melds: list[list[Meld]]
     missed_agari_doujun: list[bool]
     missed_agari_riichi: list[bool]
-    skip_mjai_logging: bool  # If True, disables MJAI event logging for performance.
+    skip_mjai_logging: bool
     nagashi_eligible: list[bool]
     needs_initialize_next_round: bool
     pending_is_draw: bool
@@ -267,9 +268,9 @@ class RiichiEnv:
     def __init__(
         self,
         game_mode: str | int | None = None,
-        skip_mjai_logging: bool = False,  # If True, disables MJAI logging (required for visualizer).
+        skip_mjai_logging: bool = False,
         seed: int | None = None,
-        round_wind: int | None = None,  # TODO: This should be moved to reset().
+        round_wind: int | None = None,
         rule: GameRule | None = None,
     ) -> None: ...
     @property
@@ -310,10 +311,10 @@ __all__ = [
     "Action",
     "ActionType",
     "GameRule",
-    "Agari",
-    "AgariCalculator",
-    "AgariContext",
-    "AgariContextIterator",
+    "WinResult",
+    "HandEvaluator",
+    "WinResultContext",
+    "WinResultContextIterator",
     "Conditions",
     "Kyoku",
     "KyokuIterator",
