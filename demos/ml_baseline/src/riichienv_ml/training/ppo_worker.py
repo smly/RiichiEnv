@@ -206,7 +206,7 @@ class PPOWorker:
                 with torch.no_grad():
                     logits, values = self.model(feat_batch)
                     mask_bool = mask_batch.bool()
-                    logits = logits.masked_fill(~mask_bool, float("-inf"))
+                    logits = logits.masked_fill(~mask_bool, -1e9)
 
                     probs = torch.softmax(logits, dim=-1)
                     actions = torch.multinomial(probs, 1).squeeze(-1)
@@ -251,7 +251,7 @@ class PPOWorker:
                         opp_logits = output[0]
                     else:
                         opp_logits = output
-                    opp_logits = opp_logits.masked_fill(~mask_batch.bool(), float("-inf"))
+                    opp_logits = opp_logits.masked_fill(~mask_batch.bool(), -1e9)
                     opp_actions = opp_logits.argmax(dim=1)
 
                 opp_actions_cpu = opp_actions.cpu().numpy()
@@ -453,7 +453,7 @@ class PPOWorker:
 
                 with torch.no_grad():
                     logits, _ = self.model(feat_batch)
-                    logits = logits.masked_fill(~mask_batch.bool(), float("-inf"))
+                    logits = logits.masked_fill(~mask_batch.bool(), -1e9)
                     actions = logits.argmax(dim=1)
 
                 actions_cpu = actions.cpu().numpy()
@@ -480,7 +480,7 @@ class PPOWorker:
                         opp_logits = output[0]
                     else:
                         opp_logits = output
-                    opp_logits = opp_logits.masked_fill(~mask_batch.bool(), float("-inf"))
+                    opp_logits = opp_logits.masked_fill(~mask_batch.bool(), -1e9)
                     opp_actions = opp_logits.argmax(dim=1)
 
                 opp_actions_cpu = opp_actions.cpu().numpy()

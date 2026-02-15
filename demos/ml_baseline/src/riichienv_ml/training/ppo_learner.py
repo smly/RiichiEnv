@@ -234,7 +234,7 @@ class PPOLearner:
 
                 # Mask invalid actions
                 mask_bool = batch_masks.bool()
-                logits = logits.masked_fill(~mask_bool, float("-inf"))
+                logits = logits.masked_fill(~mask_bool, -1e9)
 
                 # Action log-probs and entropy
                 log_probs_all = torch.log_softmax(logits, dim=-1)
@@ -242,7 +242,7 @@ class PPOLearner:
 
                 # Entropy: -sum(p * log p) over valid actions only
                 probs = torch.softmax(logits, dim=-1)
-                entropy = -(probs * log_probs_all).nan_to_num(0.0).sum(dim=-1)
+                entropy = -(probs * log_probs_all).sum(dim=-1)
                 entropy = entropy.mean()
 
                 # Policy loss (PPO clipping)
@@ -267,7 +267,7 @@ class PPOLearner:
                 if self.ref_model is not None and effective_kl > 0:
                     with torch.no_grad():
                         ref_logits, _ = self.ref_model(batch_features)
-                        ref_logits = ref_logits.masked_fill(~mask_bool, float("-inf"))
+                        ref_logits = ref_logits.masked_fill(~mask_bool, -1e9)
                     # KL(π_current || π_ref) over legal actions
                     ref_log_probs = F.log_softmax(ref_logits, dim=-1)
                     kl_per_action = probs * (log_probs_all - ref_log_probs)
