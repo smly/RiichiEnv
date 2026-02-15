@@ -33,8 +33,8 @@ cql:
   model:
     in_channels: 304
     num_blocks: 16
-    conv_channels: 192
-    fc_dim: 512
+    conv_channels: 384
+    fc_dim: 768
     num_actions: 82
     aux_dims: 4
 
@@ -56,11 +56,12 @@ online:
   entropy_coef: 0.001          # small positive: encourage exploration
   value_coef: 0.5
   # GRP reward shaping (per-kyoku reward)
-  grp_model: /data/workspace/riichienv/ppo_async_rev2/grp_model.pth
+  grp_model: /data/workspace/riichienv/ppo/grp_model.pth
   pts_weight: [6.0, 4.0, 2.0, 0.0]
   weight_decay: 0.1
-  alpha_kl: 0.1                # KL regularization to pretrained CQL policy (prevents drift)
-  alpha_kl_warmup_steps: 50    # warmup: alpha_kl scales from 0→full over first 50 steps
+  alpha_kl: 0.2                # KL regularization to pretrained CQL policy (prevents drift)
+  alpha_kl_warmup_steps: 5     # warmup: alpha_kl scales from 0→full over first 5 steps
+  value_clip: 10.0             # clamp critic predictions to [-10, 10] (fixes backbone outliers)
   aux_weight: 0.0
   # Async double buffering: overlap rollout collection with PPO update
   async_rollout: true
@@ -75,7 +76,7 @@ online:
   model:
     in_channels: 304
     num_blocks: 16
-    conv_channels: 192
-    fc_dim: 512
+    conv_channels: 384
+    fc_dim: 768
     num_actions: 82
     aux_dims: 4

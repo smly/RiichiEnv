@@ -167,7 +167,7 @@ class MahjongLearner:
 
         invalid_mask = (masks == 0)
         q_masked = q_values.clone()
-        q_masked = q_masked.masked_fill(invalid_mask, -1e9)
+        q_masked = q_masked.masked_fill(invalid_mask, float("-inf"))
 
         # CQL Loss: logsumexp(Q) - Q_data
         logsumexp_q = torch.logsumexp(q_masked, dim=1)
@@ -179,7 +179,7 @@ class MahjongLearner:
         if self.ref_model is not None and self.alpha_kl > 0:
             with torch.no_grad():
                 ref_q = self.ref_model(features, mask=masks)
-            ref_q_masked = ref_q.masked_fill(invalid_mask, -1e9)
+            ref_q_masked = ref_q.masked_fill(invalid_mask, float("-inf"))
             # KL(current || reference) = Σ P_cur * (log P_cur - log P_ref)
             cur_log_probs = F.log_softmax(q_masked, dim=1)
             ref_log_probs = F.log_softmax(ref_q_masked, dim=1)
@@ -207,7 +207,7 @@ class MahjongLearner:
         if self.entropy_coef > 0:
             q_probs_ent = torch.softmax(q_masked, dim=1)
             q_log_probs_ent = torch.log_softmax(q_masked, dim=1)
-            batch_entropy = -(q_probs_ent * q_log_probs_ent).sum(dim=1).mean()
+            batch_entropy = -(q_probs_ent * q_log_probs_ent).nan_to_num(0.0).sum(dim=1).mean()
             entropy_loss = -self.entropy_coef * batch_entropy
         else:
             batch_entropy = None
@@ -248,7 +248,7 @@ class MahjongLearner:
             else:
                 q_probs = torch.softmax(q_masked, dim=1)
                 q_log_probs = torch.log_softmax(q_masked, dim=1)
-                q_entropy = -(q_probs * q_log_probs).sum(dim=1).mean().item()
+                q_entropy = -(q_probs * q_log_probs).nan_to_num(0.0).sum(dim=1).mean().item()
             # Advantage head std (diagnostic for Dueling DQN health)
             a_values = q_values - q_values.masked_fill(invalid_mask, 0.0).sum(
                 dim=-1, keepdim=True) / masks.sum(dim=-1, keepdim=True).clamp(min=1)

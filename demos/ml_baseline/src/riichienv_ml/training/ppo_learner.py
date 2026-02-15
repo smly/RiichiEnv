@@ -23,7 +23,12 @@ class PPOLearner:
                  alpha_kl_warmup_steps: int = 0,
                  batch_size: int = 128,
                  model_config: dict | None = None,
-                 model_class: str = "riichienv_ml.models.actor_critic.ActorCriticNetwork"):
+                 model_class: str = "riichienv_ml.models.actor_critic.ActorCriticNetwork",
+                 freeze_backbone: bool = False,
+                 detach_critic: bool = False,
+                 value_clip: float = 0.0,
+                 lr_min: float = 0.0,
+                 total_steps: int = 0):
 
         self.device = torch.device(device)
         self.gamma = gamma
@@ -36,10 +41,20 @@ class PPOLearner:
         self.alpha_kl = alpha_kl
         self.alpha_kl_warmup_steps = alpha_kl_warmup_steps
         self.batch_size = batch_size
+        self.freeze_backbone = freeze_backbone
+        self.value_clip = value_clip
 
         mc = model_config or {}
+        if detach_critic:
+            mc = {**mc, "detach_critic": True}
         ModelClass = import_class(model_class)
         self.model = ModelClass(**mc).to(self.device)
+
+        # Freeze backbone if requested (only train head parameters)
+        if freeze_backbone:
+            for p in self.model.backbone.parameters():
+                p.requires_grad = False
+            logger.info("Backbone frozen: only actor_head and critic_head will be trained")
 
         # Frozen reference model for KL regularization (prevents policy drift)
         self.ref_model = None
@@ -49,8 +64,45 @@ class PPOLearner:
             for p in self.ref_model.parameters():
                 p.requires_grad = False
 
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        # Only pass trainable parameters to optimizer and grad clipping
+        self.trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        self.optimizer = optim.AdamW(self.trainable_params, lr=lr, weight_decay=weight_decay)
+
+        # Cosine LR schedule (decay from lr to lr_min over total_steps)
+        self.scheduler = None
+        if total_steps > 0 and lr_min > 0:
+            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=total_steps, eta_min=lr_min)
+            logger.info(f"Cosine LR schedule: {lr} → {lr_min} over {total_steps} steps")
+
         self.total_steps = 0
+
+    def save_training_state(self, path: str):
+        """Save full training state (model + optimizer + scheduler + step)."""
+        state = {
+            "model": self.model.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "total_steps": self.total_steps,
+        }
+        if self.scheduler is not None:
+            state["scheduler"] = self.scheduler.state_dict()
+        torch.save(state, path)
+        logger.info(f"Saved full training state to {path} (step {self.total_steps})")
+
+    def load_training_state(self, path: str):
+        """Load full training state (model + optimizer + scheduler + step)."""
+        state = torch.load(path, map_location=self.device)
+        if "model" in state and "optimizer" in state:
+            self.model.load_state_dict(state["model"])
+            self.optimizer.load_state_dict(state["optimizer"])
+            self.total_steps = state.get("total_steps", 0)
+            if self.scheduler is not None and "scheduler" in state:
+                self.scheduler.load_state_dict(state["scheduler"])
+            if self.ref_model is not None:
+                self.ref_model.load_state_dict(state["model"])
+            logger.info(f"Loaded full training state from {path} (step {self.total_steps})")
+            return True
+        return False
 
     def get_weights(self):
         return self.model.state_dict()
@@ -182,7 +234,7 @@ class PPOLearner:
 
                 # Mask invalid actions
                 mask_bool = batch_masks.bool()
-                logits = logits.masked_fill(~mask_bool, -1e9)
+                logits = logits.masked_fill(~mask_bool, float("-inf"))
 
                 # Action log-probs and entropy
                 log_probs_all = torch.log_softmax(logits, dim=-1)
@@ -190,8 +242,7 @@ class PPOLearner:
 
                 # Entropy: -sum(p * log p) over valid actions only
                 probs = torch.softmax(logits, dim=-1)
-                entropy = -(probs * log_probs_all).sum(dim=-1)
-                # Zero out contribution from invalid actions (already -1e9 so probs ~ 0)
+                entropy = -(probs * log_probs_all).nan_to_num(0.0).sum(dim=-1)
                 entropy = entropy.mean()
 
                 # Policy loss (PPO clipping)
@@ -200,8 +251,12 @@ class PPOLearner:
                 surr2 = ratio.clamp(1.0 - self.ppo_clip, 1.0 + self.ppo_clip) * batch_advantages
                 policy_loss = -torch.min(surr1, surr2).mean()
 
-                # Value loss
-                value_loss = nn.functional.mse_loss(values, batch_returns)
+                # Value loss (clamp predictions to prevent extreme backbone outliers)
+                if self.value_clip > 0:
+                    values_clamped = values.clamp(-self.value_clip, self.value_clip)
+                else:
+                    values_clamped = values
+                value_loss = nn.functional.mse_loss(values_clamped, batch_returns)
 
                 # KL regularization to pretrained policy (prevents entropy drift)
                 kl_ref_val = 0.0
@@ -212,7 +267,7 @@ class PPOLearner:
                 if self.ref_model is not None and effective_kl > 0:
                     with torch.no_grad():
                         ref_logits, _ = self.ref_model(batch_features)
-                        ref_logits = ref_logits.masked_fill(~mask_bool, -1e9)
+                        ref_logits = ref_logits.masked_fill(~mask_bool, float("-inf"))
                     # KL(π_current || π_ref) over legal actions
                     ref_log_probs = F.log_softmax(ref_logits, dim=-1)
                     kl_per_action = probs * (log_probs_all - ref_log_probs)
@@ -229,7 +284,7 @@ class PPOLearner:
 
                 self.optimizer.zero_grad()
                 loss.backward()
-                grad_norm = nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                grad_norm = nn.utils.clip_grad_norm_(self.trainable_params, self.max_grad_norm)
                 self.optimizer.step()
 
                 if epoch == self.ppo_epochs - 1:
@@ -278,4 +333,10 @@ class PPOLearner:
             total_metrics["explained_variance"] = (1.0 - (returns - last_epoch_values).var() / var_returns).item()
 
         self.total_steps += 1
+
+        # Step LR scheduler
+        if self.scheduler is not None:
+            self.scheduler.step()
+            total_metrics["lr"] = self.optimizer.param_groups[0]["lr"]
+
         return total_metrics
