@@ -288,7 +288,7 @@ class PPOLearner:
                 self.optimizer.step()
 
                 if epoch == self.ppo_epochs - 1:
-                    last_epoch_values[idx] = values.detach()
+                    last_epoch_values[idx] = values_clamped.detach()
 
                 # Accumulate metrics
                 with torch.no_grad():
@@ -307,7 +307,7 @@ class PPOLearner:
                 total_metrics["ratio/std"] += ratio.std().item()
                 total_metrics["ratio/max"] = max(total_metrics["ratio/max"], ratio.max().item())
                 total_metrics["kl/max"] = max(total_metrics["kl/max"], kl_max)
-                total_metrics["value/predicted_mean"] += values.mean().item()
+                total_metrics["value/predicted_mean"] += values_clamped.mean().item()
                 total_metrics["grad_norm"] += grad_norm.item() if isinstance(grad_norm, torch.Tensor) else grad_norm
 
         # Average across all mini-batches
