@@ -31,7 +31,8 @@ class PPOWorker:
                  model_class: str = "riichienv_ml.models.actor_critic.ActorCriticNetwork",
                  encoder_class: str = "riichienv_ml.data.cql_dataset.ObservationEncoder",
                  grp_model: str | None = None,
-                 pts_weight: list[float] | None = None):
+                 pts_weight: list[float] | None = None,
+                 value_clip: float = 0.0):
         torch.set_num_threads(1)
         self.worker_id = worker_id
         self.device = torch.device(device)
@@ -39,6 +40,7 @@ class PPOWorker:
         self.envs = [RiichiEnv(game_mode="4p-red-half") for _ in range(num_envs)]
         self.gamma = gamma
         self.gae_lambda = gae_lambda
+        self.value_clip = value_clip
 
         mc = model_config or {}
         ModelClass = import_class(model_class)
@@ -335,6 +337,9 @@ class PPOWorker:
 
                 # Compute GAE per kyoku
                 values = [step["value"] for step in traj]
+                # Clamp extreme critic outliers (0.83% of states produce |v| > 1e6)
+                if self.value_clip > 0:
+                    values = [max(-self.value_clip, min(self.value_clip, v)) for v in values]
                 value_predictions.extend(values)
                 advantages = [0.0] * T
                 returns = [0.0] * T

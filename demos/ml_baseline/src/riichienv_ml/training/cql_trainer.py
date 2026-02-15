@@ -31,7 +31,7 @@ def cql_loss(q_values: torch.Tensor, current_actions: torch.Tensor, masks: torch
     # 2. logsumexp(Q(s, .))
     invalid_mask = (masks == 0)
     q_masked = q_values.clone()
-    q_masked = q_masked.masked_fill(invalid_mask, -1e9)
+    q_masked = q_masked.masked_fill(invalid_mask, float("-inf"))
     logsumexp_q = torch.logsumexp(q_masked, dim=1)
 
     cql_term = (logsumexp_q - q_data).mean()

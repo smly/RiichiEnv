@@ -98,9 +98,16 @@ def run_ppo_training(cfg):
         batch_size=cfg.batch_size,
         model_config=model_config,
         model_class=cfg.model_class,
+        freeze_backbone=cfg.freeze_backbone,
+        detach_critic=cfg.detach_critic,
+        value_clip=cfg.value_clip,
+        lr_min=cfg.lr_min,
+        total_steps=cfg.num_steps,
     )
 
-    if cfg.load_model:
+    if cfg.resume_training_state:
+        learner.load_training_state(cfg.resume_training_state)
+    elif cfg.load_model:
         learner.load_weights(cfg.load_model)
 
     worker_kwargs = dict(
@@ -112,6 +119,7 @@ def run_ppo_training(cfg):
         encoder_class=cfg.encoder_class,
         grp_model=cfg.grp_model,
         pts_weight=cfg.pts_weight,
+        value_clip=cfg.value_clip,
     )
     if cfg.worker_device == "cuda":
         workers = [
@@ -239,6 +247,8 @@ def run_ppo_training(cfg):
                         f"\u00b1{metrics.get('rollout/kyoku_reward_std', 0):.3f}"
                         f", k_len={metrics.get('rollout/kyoku_length_mean', 0):.1f}"
                     )
+            if "lr" in metrics:
+                log_msg += f", lr={metrics['lr']:.2e}"
             logger.info(log_msg)
             wandb.log(metrics, step=step)
 
@@ -250,6 +260,9 @@ def run_ppo_training(cfg):
                 save_path = f"{cfg.checkpoint_dir}/model_{step}.pth"
                 save_weights = {k: v.cpu().clone() for k, v in learner.get_weights().items()}
                 threading.Thread(target=torch.save, args=(save_weights, save_path), daemon=True).start()
+                # Save full training state for resume
+                state_path = f"{cfg.checkpoint_dir}/training_state_{step}.pth"
+                threading.Thread(target=learner.save_training_state, args=(state_path,), daemon=True).start()
                 logger.info(f"Saved snapshot to {save_path} (async)")
 
                 try:

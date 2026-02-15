@@ -46,8 +46,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gae_lambda", type=float, default=None, help="GAE lambda")
     parser.add_argument("--entropy_coef", type=float, default=None, help="Entropy coefficient")
     parser.add_argument("--value_coef", type=float, default=None, help="Value loss coefficient")
+    parser.add_argument("--weight_decay", type=float, default=None, help="Weight decay")
+    parser.add_argument("--alpha_kl", type=float, default=None, help="KL regularization coefficient")
+    parser.add_argument("--alpha_kl_warmup_steps", type=int, default=None, help="KL warmup steps")
+    parser.add_argument("--freeze_backbone", action="store_true", default=None, help="Freeze backbone, only train heads")
+    parser.add_argument("--detach_critic", action="store_true", default=None, help="Stop-gradient: prevent value loss from training backbone")
+    parser.add_argument("--resume_training_state", type=str, default=None, help="Path to full training state checkpoint")
+    parser.add_argument("--value_clip", type=float, default=None, help="Clip critic predictions to [-v, v]")
+    parser.add_argument("--lr_min", type=float, default=None, help="Minimum LR for cosine schedule")
     # Common
     parser.add_argument("--eval_interval", type=int, default=None, help="Evaluation interval")
+    parser.add_argument("--eval_episodes", type=int, default=None, help="Number of eval episodes")
     parser.add_argument("--weight_sync_freq", type=int, default=None, help="Sync weights every N steps")
     parser.add_argument("--worker_device", type=str, default=None, choices=["cpu", "cuda"])
     parser.add_argument("--gpu_per_worker", type=float, default=None)
@@ -73,8 +82,11 @@ def main():
                   "boltzmann_epsilon", "boltzmann_temp_start", "boltzmann_temp_final", "top_p",
                   "capacity",
                   "ppo_clip", "ppo_epochs", "gae_lambda", "entropy_coef", "value_coef",
-                  "eval_interval", "weight_sync_freq", "worker_device", "gpu_per_worker",
-                  "num_envs_per_worker",
+                  "weight_decay", "alpha_kl", "alpha_kl_warmup_steps",
+                  "freeze_backbone", "detach_critic", "value_clip", "lr_min",
+                  "resume_training_state",
+                  "eval_interval", "eval_episodes", "weight_sync_freq", "worker_device",
+                  "gpu_per_worker", "num_envs_per_worker",
                   "checkpoint_dir", "encoder_class"]:
         val = getattr(args, field, None)
         if val is not None:

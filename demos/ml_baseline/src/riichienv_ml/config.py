@@ -115,6 +115,10 @@ class OnlineConfig(BaseModel):
     # GRP reward shaping (per-kyoku reward)
     grp_model: str | None = None
     pts_weight: list[float] = [10.0, 4.0, -4.0, -10.0]
+    freeze_backbone: bool = False
+    detach_critic: bool = False  # Stop-gradient: prevent value loss from training backbone
+    value_clip: float = 0.0  # Clip critic predictions to [-value_clip, value_clip] (0=disabled)
+    resume_training_state: str | None = None  # Path to full training state checkpoint (model+optimizer+scheduler)
     async_rollout: bool = False
 
 
