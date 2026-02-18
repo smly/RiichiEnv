@@ -4,17 +4,17 @@ mod agari;
 mod hand_evaluator;
 mod score;
 mod tests;
-mod types;
+pub mod types;
 mod yaku;
 
-mod action;
+pub mod action;
 mod env;
-mod observation;
-mod parser;
+pub mod observation;
+pub mod parser;
 mod replay;
-mod rule;
+pub mod rule;
 mod shanten;
-mod state;
+pub mod state;
 pub mod win_projection;
 mod yaku_checker;
 
