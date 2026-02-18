@@ -1,3 +1,5 @@
+import base64
+
 import pytest
 
 from riichienv import Action, ActionType, Observation, Phase, RiichiEnv
@@ -85,8 +87,6 @@ class TestObservationSerialization:
 
     def test_invalid_json_raises(self):
         """Valid base64 but invalid JSON must raise ValueError."""
-        import base64
-
         bad_json = base64.b64encode(b"not json").decode()
         with pytest.raises(ValueError):
             Observation.deserialize_from_base64(bad_json)

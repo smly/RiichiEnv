@@ -1,4 +1,4 @@
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 use serde::{Deserialize, Serialize};
@@ -1170,18 +1170,21 @@ impl Observation {
 
     /// Serialize this Observation to a base64-encoded JSON string.
     pub fn serialize_to_base64(&self) -> PyResult<String> {
-        let json = serde_json::to_vec(self)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("serialization failed: {e}")))?;
+        let json = serde_json::to_vec(self).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("serialization failed: {e}"))
+        })?;
         Ok(BASE64.encode(&json))
     }
 
     /// Deserialize an Observation from a base64-encoded JSON string.
     #[staticmethod]
     pub fn deserialize_from_base64(s: &str) -> PyResult<Self> {
-        let bytes = BASE64.decode(s)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("base64 decode failed: {e}")))?;
-        let obs: Observation = serde_json::from_slice(&bytes)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("JSON deserialize failed: {e}")))?;
+        let bytes = BASE64.decode(s).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("base64 decode failed: {e}"))
+        })?;
+        let obs: Observation = serde_json::from_slice(&bytes).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("JSON deserialize failed: {e}"))
+        })?;
         Ok(obs)
     }
 
