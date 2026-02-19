@@ -121,7 +121,9 @@ impl Action {
                 if let Some(tile) = self.tile {
                     Ok((tile as i32) / 4)
                 } else {
-                    Err(RiichiError::new("Discard action requires a tile"))
+                    Err(RiichiError::InvalidAction {
+                        message: "Discard action requires a tile".to_string(),
+                    })
                 }
             }
             ActionType::Riichi => Ok(37),
@@ -135,10 +137,12 @@ impl Action {
                     tiles_34.dedup();
 
                     if tiles_34.len() != 3 {
-                        return Err(RiichiError::new(format!(
-                            "Invalid Chi tiles: target={}, consumed={:?}",
-                            target, self.consume_tiles
-                        )));
+                        return Err(RiichiError::InvalidAction {
+                            message: format!(
+                                "Invalid Chi tiles: target={}, consumed={:?}",
+                                target, self.consume_tiles
+                            ),
+                        });
                     }
 
                     if target_34 == tiles_34[0] {
@@ -149,7 +153,9 @@ impl Action {
                         Ok(40) // High
                     }
                 } else {
-                    Err(RiichiError::new("Chi action requires a target tile"))
+                    Err(RiichiError::InvalidAction {
+                        message: "Chi action requires a target tile".to_string(),
+                    })
                 }
             }
             ActionType::Pon => Ok(41),
@@ -157,16 +163,18 @@ impl Action {
                 if let Some(tile) = self.tile {
                     Ok(42 + (tile as i32) / 4)
                 } else {
-                    Err(RiichiError::new("Daiminkan action requires a tile"))
+                    Err(RiichiError::InvalidAction {
+                        message: "Daiminkan action requires a tile".to_string(),
+                    })
                 }
             }
             ActionType::Ankan | ActionType::Kakan => {
                 if let Some(first) = self.consume_tiles.first() {
                     Ok(42 + (*first as i32) / 4)
                 } else {
-                    Err(RiichiError::new(
-                        "Ankan/Kakan action requires consumed tiles",
-                    ))
+                    Err(RiichiError::InvalidAction {
+                        message: "Ankan/Kakan action requires consumed tiles".to_string(),
+                    })
                 }
             }
             ActionType::Ron | ActionType::Tsumo => Ok(79),

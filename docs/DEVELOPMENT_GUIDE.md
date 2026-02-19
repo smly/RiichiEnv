@@ -15,6 +15,15 @@ Install development dependencies:
 uv sync --dev
 ```
 
+## Workspace Structure
+
+The project uses a Cargo workspace with two crates:
+
+| Crate | Role |
+|---|---|
+| `riichienv-core` | Pure Rust library (rlib). No Python dependency by default. |
+| `riichienv-python` | PyO3 wrapper (cdylib). Depends on `riichienv-core` with `python` feature. |
+
 ## Pre-commit
 
 ```bash
@@ -29,17 +38,16 @@ ruff-format..............................................................Passed
 
 ## Feature Flags
 
-The Rust crate uses feature flags to separate the core library from PyO3 bindings:
+The `riichienv-core` crate uses feature flags to separate the core library from PyO3 bindings:
 
 | Feature | Description |
 |---|---|
 | *(none)* | Pure Rust library — no Python dependency |
 | `python` | Enables PyO3 bindings (`#[pyclass]`, `#[pymethods]`, etc.) |
-| `extension-module` | Implies `python` + `pyo3/extension-module` — used by maturin |
 
-`default = []` — by default no features are enabled, so `cargo build` produces a pure Rust library.
+`default = []` — by default no features are enabled, so `cargo build -p riichienv-core` produces a pure Rust library.
 
-When building the Python extension via `maturin`, the `extension-module` feature is activated automatically (configured in `pyproject.toml` under `[tool.maturin]`).
+The `riichienv-python` crate depends on `riichienv-core` with the `python` feature enabled, and adds the `extension-module` feature for maturin builds (configured in `pyproject.toml` under `[tool.maturin]`).
 
 ## Rust Development
 
@@ -51,19 +59,19 @@ When building the Python extension via `maturin`, the `extension-module` feature
 
 ### Compilation Check
 
-To check if the Rust code compiles (pure Rust, no Python dependency):
+To check if the Rust core compiles (pure Rust, no Python dependency):
 ```bash
-cargo check -p riichienv --no-default-features
+cargo check -p riichienv-core
 ```
 
 To check with Python bindings enabled:
 ```bash
-cargo check -p riichienv --features python
+cargo check -p riichienv-core --features python
 ```
 
-To check as maturin would build it:
+To check the Python wrapper crate:
 ```bash
-cargo check -p riichienv --features extension-module
+cargo check -p riichienv-python
 ```
 
 ### Formatting
@@ -76,20 +84,17 @@ cargo fmt
 We use `clippy`. To run Rust linters:
 ```bash
 # Pure Rust mode
-cargo clippy -p riichienv --no-default-features
+cargo clippy -p riichienv-core
 
-# With Python bindings
-cargo clippy -p riichienv --features python
+# With all features (including Python bindings)
+cargo clippy --all-targets --all-features
 ```
 
 ### Unit Tests
 To run Rust unit tests:
 ```bash
 # Pure Rust tests (agari, score, yaku, hand_evaluator, mjai_event, etc.)
-cargo test -p riichienv --no-default-features
-
-# All tests including Python-dependent ones (RiichiEnv integration tests)
-cargo test -p riichienv --features python
+cargo test -p riichienv-core
 ```
 
 ### Build
@@ -146,7 +151,7 @@ impl Foo {
 }
 ```
 
-**Error handling** — use `RiichiError` / `RiichiResult<T>` (defined in `errors.rs`) for pure Rust code. The `From<RiichiError> for PyErr` conversion is provided when the `python` feature is enabled, so `?` works seamlessly in Python wrappers.
+**Error handling** — use `RiichiError` / `RiichiResult<T>` (defined in `errors.rs`) for pure Rust code. `RiichiError` is an enum with variants: `Parse`, `InvalidAction`, `InvalidState`, `Serialization`. The `From<RiichiError> for PyErr` conversion is provided when the `python` feature is enabled, so `?` works seamlessly in Python wrappers.
 
 ## Python Development
 
@@ -238,18 +243,18 @@ This project uses an automated GitHub Actions workflow for releases.
 ### 3. Creating a Release
 To publish a new version:
 
-1. Update the version number in `pyproject.toml` (e.g., `0.1.0` -> `0.1.1`).
+1. Update the version number in `riichienv-core/Cargo.toml`, `riichienv-python/Cargo.toml`, and `pyproject.toml`.
 2. Commit and push the changes:
    ```bash
-   git add pyproject.toml
-   git commit -m "chore: bump version to 0.1.1"
+   git add riichienv-core/Cargo.toml riichienv-python/Cargo.toml pyproject.toml
+   git commit -m "chore: bump version to X.Y.Z"
    git push
    ```
 3. **Draft a Release on GitHub**:
    - Go to the **Releases** page on GitHub.
    - Click **Draft a new release**.
-   - **Choose a tag**: Create a new tag (e.g., `v0.1.1`) on the target branch.
-   - **Release title**: `v0.1.1` (or your preferred title).
+   - **Choose a tag**: Create a new tag (e.g., `vX.Y.Z`) on the target branch.
+   - **Release title**: `vX.Y.Z` (or your preferred title).
    - Write your release notes.
    - Click **Publish release**.
 
@@ -258,3 +263,14 @@ The GitHub Actions workflow will automatically:
 - Build wheels for Linux, Windows, and macOS.
 - **Upload the binary artifacts** to your existing release.
 - Publish the package to PyPI.
+
+### 4. Publishing to crates.io
+To publish the Rust core library to crates.io:
+
+```bash
+# Dry-run first
+cargo publish -p riichienv-core --dry-run
+
+# Publish
+cargo publish -p riichienv-core
+```

@@ -47,4 +47,4 @@ riichienv-py: 0.0416s (156297.97 agari/sec)
 mahjong:   1.0810s (6015.68 agari/sec)
 ```
 
-See details in [DEVEL.md](DEVEL.md#benchmarks).
+See details in [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md#benchmarks).

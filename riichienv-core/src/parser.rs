@@ -72,7 +72,12 @@ pub fn parse_hand_internal(text: &str) -> RiichiResult<(Vec<u8>, Vec<Meld>)> {
                 } else {
                     (suit_offset + val - 1, false)
                 };
-                let tid = tm.get_tile(tile_34, is_red).map_err(RiichiError::new)?;
+                let tid = tm
+                    .get_tile(tile_34, is_red)
+                    .map_err(|e| RiichiError::Parse {
+                        input: text.to_string(),
+                        message: e,
+                    })?;
                 tiles_136.push(tid);
             }
             pending_digits.clear();
@@ -82,7 +87,10 @@ pub fn parse_hand_internal(text: &str) -> RiichiResult<(Vec<u8>, Vec<Meld>)> {
     }
 
     if !pending_digits.is_empty() {
-        return Err(RiichiError::new("Pending digits without suit"));
+        return Err(RiichiError::Parse {
+            input: text.to_string(),
+            message: "Pending digits without suit".to_string(),
+        });
     }
 
     Ok((tiles_136, melds))
@@ -103,18 +111,25 @@ pub fn parse_hand_py(text: &str) -> PyResult<(Vec<u32>, Vec<Meld>)> {
 pub fn parse_tile(text: &str) -> RiichiResult<u8> {
     let (tiles, melds) = parse_hand_internal(text)?;
     if !melds.is_empty() {
-        return Err(RiichiError::new(
-            "parse_tile expects a single tile, but found meld syntax in input",
-        ));
+        return Err(RiichiError::Parse {
+            input: text.to_string(),
+            message: "parse_tile expects a single tile, but found meld syntax in input".to_string(),
+        });
     }
     if tiles.is_empty() {
-        return Err(RiichiError::new("No tile found in string"));
+        return Err(RiichiError::Parse {
+            input: text.to_string(),
+            message: "No tile found in string".to_string(),
+        });
     }
     if tiles.len() != 1 {
-        return Err(RiichiError::new(format!(
-            "Expected exactly one tile, but found {} tiles in string",
-            tiles.len()
-        )));
+        return Err(RiichiError::Parse {
+            input: text.to_string(),
+            message: format!(
+                "Expected exactly one tile, but found {} tiles in string",
+                tiles.len()
+            ),
+        });
     }
     Ok(tiles[0])
 }
@@ -184,10 +199,10 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> RiichiResult
         's' => 18,
         'z' => 27,
         _ => {
-            return Err(RiichiError::new(format!(
-                "Invalid suit in meld: {}",
-                suit_char
-            )))
+            return Err(RiichiError::Parse {
+                input: content.clone(),
+                message: format!("Invalid suit in meld: {}", suit_char),
+            })
         }
     };
 
@@ -196,7 +211,10 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> RiichiResult
     if prefix == ' ' {
         // Chi
         if digits.len() != 3 {
-            return Err(RiichiError::new("Chi meld requires 3 digits"));
+            return Err(RiichiError::Parse {
+                input: content.clone(),
+                message: "Chi meld requires 3 digits".to_string(),
+            });
         }
         for d in digits {
             let val = d.to_digit(10).unwrap() as usize;
@@ -205,7 +223,13 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> RiichiResult
             } else {
                 (suit_offset + val - 1, false)
             };
-            tiles_136.push(tm.get_tile(tile_34, is_red).map_err(RiichiError::new)?);
+            tiles_136.push(
+                tm.get_tile(tile_34, is_red)
+                    .map_err(|e| RiichiError::Parse {
+                        input: content.clone(),
+                        message: e,
+                    })?,
+            );
         }
         tiles_136.sort();
         Ok(Meld::new(MeldType::Chi, tiles_136, true, -1, None))
@@ -225,7 +249,10 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> RiichiResult
 
         let mut got_red = false;
         if is_red_indicated {
-            tiles_136.push(tm.get_tile(base_34, true).map_err(RiichiError::new)?);
+            tiles_136.push(tm.get_tile(base_34, true).map_err(|e| RiichiError::Parse {
+                input: content.clone(),
+                message: e,
+            })?);
             got_red = true;
         }
 
@@ -237,16 +264,16 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> RiichiResult
                     tiles_136.push(t);
                     got_red = true;
                 } else {
-                    return Err(RiichiError::new(format!(
-                        "Not enough tiles for meld of {}",
-                        base_34
-                    )));
+                    return Err(RiichiError::Parse {
+                        input: content.clone(),
+                        message: format!("Not enough tiles for meld of {}", base_34),
+                    });
                 }
             } else {
-                return Err(RiichiError::new(format!(
-                    "Not enough tiles for meld of {}",
-                    base_34
-                )));
+                return Err(RiichiError::Parse {
+                    input: content.clone(),
+                    message: format!("Not enough tiles for meld of {}", base_34),
+                });
             }
         }
 

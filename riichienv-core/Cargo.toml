@@ -1,10 +1,12 @@
 [package]
 name = "riichienv-core"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Core Rust library for Riichi Mahjong game logic"
+description = "Japanese Mahjong (Riichi) game engine with MJAI protocol support"
 repository = "https://github.com/smly/RiichiEnv"
+keywords = ["mahjong", "riichi", "mjai", "game-engine"]
+categories = ["game-engines", "simulation"]
 
 [lib]
 crate-type = ["rlib"]

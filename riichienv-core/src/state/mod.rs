@@ -270,13 +270,15 @@ impl GameState {
         self.current_claims = original_claims;
 
         if !exists {
-            return Err(RiichiError::new(format!(
-                "Replay desync:\n  Env action: {:?}\n  Log action: {}\n  Self state:\n    phase: {:?}\n    drawn: {:?}",
-                env_action,
-                log_action_str,
-                self.phase,
-                self.drawn_tile
-            )));
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "Replay desync:\n  Env action: {:?}\n  Log action: {}\n  Self state:\n    phase: {:?}\n    drawn: {:?}",
+                    env_action,
+                    log_action_str,
+                    self.phase,
+                    self.drawn_tile
+                ),
+            });
         }
 
         Ok(obs)
