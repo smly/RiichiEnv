@@ -61,16 +61,23 @@ pub struct Action {
     pub action_type: ActionType,
     pub tile: Option<u8>,
     pub consume_tiles: Vec<u8>,
+    pub actor: Option<u8>,
 }
 
 impl Action {
-    pub fn new(r#type: ActionType, tile: Option<u8>, consume_tiles: Vec<u8>) -> Self {
+    pub fn new(
+        r#type: ActionType,
+        tile: Option<u8>,
+        consume_tiles: Vec<u8>,
+        actor: Option<u8>,
+    ) -> Self {
         let mut sorted_consume = consume_tiles;
         sorted_consume.sort();
         Self {
             action_type: r#type,
             tile,
             consume_tiles: sorted_consume,
+            actor,
         }
     }
 
@@ -91,6 +98,13 @@ impl Action {
         let mut data = serde_json::Map::new();
         data.insert("type".to_string(), Value::String(type_str.to_string()));
 
+        if let Some(actor) = self.actor {
+            data.insert(
+                "actor".to_string(),
+                Value::Number(serde_json::Number::from(actor)),
+            );
+        }
+
         if let Some(t) = self.tile {
             if self.action_type != ActionType::Tsumo
                 && self.action_type != ActionType::Ron
@@ -110,8 +124,8 @@ impl Action {
 
     pub fn repr(&self) -> String {
         format!(
-            "Action(action_type={:?}, tile={:?}, consume_tiles={:?})",
-            self.action_type, self.tile, self.consume_tiles
+            "Action(action_type={:?}, tile={:?}, consume_tiles={:?}, actor={:?})",
+            self.action_type, self.tile, self.consume_tiles, self.actor
         )
     }
 
@@ -188,9 +202,14 @@ impl Action {
 #[pymethods]
 impl Action {
     #[new]
-    #[pyo3(signature = (r#type=ActionType::Pass, tile=None, consume_tiles=vec![]))]
-    pub fn py_new(r#type: ActionType, tile: Option<u8>, consume_tiles: Vec<u8>) -> Self {
-        Self::new(r#type, tile, consume_tiles)
+    #[pyo3(signature = (r#type=ActionType::Pass, tile=None, consume_tiles=vec![], actor=None))]
+    pub fn py_new(
+        r#type: ActionType,
+        tile: Option<u8>,
+        consume_tiles: Vec<u8>,
+        actor: Option<u8>,
+    ) -> Self {
+        Self::new(r#type, tile, consume_tiles, actor)
     }
 
     #[pyo3(name = "to_dict")]
@@ -201,6 +220,7 @@ impl Action {
 
         let cons: Vec<u32> = self.consume_tiles.iter().map(|&x| x as u32).collect();
         dict.set_item("consume_tiles", cons)?;
+        dict.set_item("actor", self.actor)?;
         Ok(dict.unbind().into())
     }
 
@@ -245,6 +265,16 @@ impl Action {
     #[setter]
     fn set_consume_tiles(&mut self, value: Vec<u8>) {
         self.consume_tiles = value;
+    }
+
+    #[getter]
+    fn get_actor(&self) -> Option<u8> {
+        self.actor
+    }
+
+    #[setter]
+    fn set_actor(&mut self, actor: Option<u8>) {
+        self.actor = actor;
     }
 
     #[pyo3(name = "encode")]

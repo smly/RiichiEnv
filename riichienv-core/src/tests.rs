@@ -261,7 +261,7 @@ mod unit_tests {
 
         // Action: P3 discards 3m
         let mut actions = HashMap::new();
-        actions.insert(3, Action::new(ActionType::Discard, Some(8), vec![]));
+        actions.insert(3, Action::new(ActionType::Discard, Some(8), vec![], None));
 
         state.step(&actions);
 
@@ -509,6 +509,103 @@ mod unit_tests {
             "dora F should be tid 128, got: {}",
             state.wall.dora_indicators[1]
         );
+    }
+
+    #[test]
+    fn test_reach_to_mjai_includes_actor() {
+        use crate::action::{Action, ActionType};
+
+        // actor が Some のとき、to_mjai() の JSON に "actor" が含まれること
+        let action = Action::new(ActionType::Riichi, None, vec![], Some(2));
+        let json_str = action.to_mjai();
+        let v: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(v["type"], "reach");
+        assert_eq!(v["actor"], 2, "reach event should contain actor=2");
+
+        // actor が None のとき、"actor" キーが存在しないこと
+        let action_no_actor = Action::new(ActionType::Riichi, None, vec![], None);
+        let json_str2 = action_no_actor.to_mjai();
+        let v2: serde_json::Value = serde_json::from_str(&json_str2).unwrap();
+        assert_eq!(v2["type"], "reach");
+        assert!(
+            v2.get("actor").is_none(),
+            "reach event without actor should not have actor key"
+        );
+    }
+
+    #[test]
+    fn test_reach_accepted_mjai_includes_actor() {
+        use crate::action::{Action, ActionType};
+        use std::collections::HashMap;
+
+        // リーチ宣言→打牌→他家パスの流れで reach_accepted イベントが生成され、
+        // actor が正しく含まれることを確認する
+        let mut state = create_test_state(2);
+        let pid: u8 = state.current_player;
+        let pid_us = pid as usize;
+
+        // テンパイ形の手牌を構築 (14枚 = 13 + ツモ牌):
+        //   123m 456m 789m 12p 11s + ツモ 5sr(88)
+        //   5sr を切ると 123456789m 12p 11s → 3p 待ちテンパイ
+        state.players[pid_us].hand = vec![0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 72, 73, 88];
+        state.players[pid_us].hand.sort();
+        state.players[pid_us].melds.clear();
+        state.players[pid_us].score = 25000;
+        state.players[pid_us].riichi_declared = false;
+        state.players[pid_us].riichi_stage = false;
+        state.players[pid_us].forbidden_discards.clear();
+        state.drawn_tile = Some(88);
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![pid];
+
+        // Step 1: リーチ宣言 (tile=None)
+        let mut actions = HashMap::new();
+        actions.insert(pid, Action::new(ActionType::Riichi, None, vec![], None));
+        state.step(&actions);
+
+        // Step 2: 打牌 5sr(88) — リーチ宣言後の捨て牌
+        let mut actions2 = HashMap::new();
+        actions2.insert(
+            pid,
+            Action::new(ActionType::Discard, Some(88), vec![], None),
+        );
+        state.step(&actions2);
+
+        // 他家にクレームがある場合は WaitResponse → 全員パス
+        if state.phase == Phase::WaitResponse {
+            let mut pass_actions = HashMap::new();
+            for &ap in &state.active_players.clone() {
+                pass_actions.insert(ap, Action::new(ActionType::Pass, None, vec![], None));
+            }
+            state.step(&pass_actions);
+        }
+
+        // mjai_log から reach_accepted イベントを探す
+        let reach_accepted_event = state.mjai_log.iter().find_map(|s| {
+            let v: serde_json::Value = serde_json::from_str(s).ok()?;
+            if v["type"] == "reach_accepted" {
+                Some(v)
+            } else {
+                None
+            }
+        });
+
+        assert!(
+            reach_accepted_event.is_some(),
+            "mjai_log should contain a reach_accepted event. Log: {:?}",
+            state.mjai_log
+        );
+
+        let v = reach_accepted_event.unwrap();
+        assert_eq!(
+            v["actor"],
+            serde_json::Value::Number(pid.into()),
+            "reach_accepted event should contain actor={}",
+            pid
+        );
+
+        // riichi_pending_acceptance がクリアされていること
+        assert!(state.riichi_pending_acceptance.is_none());
     }
 
     #[test]

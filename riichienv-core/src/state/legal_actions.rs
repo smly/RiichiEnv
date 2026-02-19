@@ -53,7 +53,12 @@ impl GameStateLegalActions for GameState {
                     let res =
                         calc.calc(tile, self.wall.dora_indicators.clone(), vec![], Some(cond));
                     if res.is_win && (res.yakuman || res.han >= 1) {
-                        legals.push(Action::new(ActionType::Tsumo, Some(tile), vec![]));
+                        legals.push(Action::new(
+                            ActionType::Tsumo,
+                            Some(tile),
+                            vec![],
+                            Some(pid),
+                        ));
                     }
                 }
             }
@@ -76,7 +81,7 @@ impl GameStateLegalActions for GameState {
                         .iter()
                         .any(|&f| f / 4 == t / 4);
                     if !is_forbidden {
-                        legals.push(Action::new(ActionType::Discard, Some(t), vec![]));
+                        legals.push(Action::new(ActionType::Discard, Some(t), vec![], Some(pid)));
                     }
                 }
 
@@ -103,11 +108,16 @@ impl GameStateLegalActions for GameState {
                         }
                     }
                     if can_riichi {
-                        legals.push(Action::new(ActionType::Riichi, None, vec![]));
+                        legals.push(Action::new(ActionType::Riichi, None, vec![], Some(pid)));
                     }
                 }
             } else if let Some(dt) = self.drawn_tile {
-                legals.push(Action::new(ActionType::Discard, Some(dt), vec![]));
+                legals.push(Action::new(
+                    ActionType::Discard,
+                    Some(dt),
+                    vec![],
+                    Some(pid),
+                ));
             }
 
             // 3. Kan (Ankan / Kakan)
@@ -124,7 +134,12 @@ impl GameStateLegalActions for GameState {
                         if c == 4 {
                             let lowest = (t_val * 4) as u8;
                             let consume = vec![lowest, lowest + 1, lowest + 2, lowest + 3];
-                            legals.push(Action::new(ActionType::Ankan, Some(lowest), consume));
+                            legals.push(Action::new(
+                                ActionType::Ankan,
+                                Some(lowest),
+                                consume,
+                                Some(pid),
+                            ));
                         }
                     }
                     // Kakan
@@ -137,6 +152,7 @@ impl GameStateLegalActions for GameState {
                                         ActionType::Kakan,
                                         Some(t),
                                         m.tiles.clone(),
+                                        Some(pid),
                                     ));
                                 }
                             }
@@ -178,7 +194,12 @@ impl GameStateLegalActions for GameState {
 
                             if waits_pre == waits_post && !waits_pre.is_empty() {
                                 let consume = vec![lowest, lowest + 1, lowest + 2, lowest + 3];
-                                legals.push(Action::new(ActionType::Ankan, Some(lowest), consume));
+                                legals.push(Action::new(
+                                    ActionType::Ankan,
+                                    Some(lowest),
+                                    consume,
+                                    Some(pid),
+                                ));
                             }
                         }
                     }
@@ -200,7 +221,12 @@ impl GameStateLegalActions for GameState {
                     }
                 }
                 if distinct_terminals.len() >= 9 {
-                    legals.push(Action::new(ActionType::KyushuKyuhai, None, vec![]));
+                    legals.push(Action::new(
+                        ActionType::KyushuKyuhai,
+                        None,
+                        vec![],
+                        Some(pid),
+                    ));
                 }
             }
         } else if self.phase == Phase::WaitResponse {
@@ -208,7 +234,7 @@ impl GameStateLegalActions for GameState {
                 legals.extend(acts.clone());
             }
             // Always offer Pass
-            legals.push(Action::new(ActionType::Pass, None, vec![]));
+            legals.push(Action::new(ActionType::Pass, None, vec![], Some(pid)));
         }
         legals
     }
@@ -263,7 +289,7 @@ impl GameStateLegalActions for GameState {
             if !is_furiten {
                 let res = calc.calc(tile, self.wall.dora_indicators.clone(), vec![], Some(cond));
                 if res.is_win {
-                    legals.push(Action::new(ActionType::Ron, Some(tile), vec![]));
+                    legals.push(Action::new(ActionType::Ron, Some(tile), vec![], Some(i)));
                 } else if res.has_win_shape {
                     missed_agari = true;
                 }
@@ -307,7 +333,7 @@ impl GameStateLegalActions for GameState {
                     .collect();
 
                 if check_pon_kuikae(&consumes) {
-                    legals.push(Action::new(ActionType::Pon, Some(tile), consumes));
+                    legals.push(Action::new(ActionType::Pon, Some(tile), consumes, Some(i)));
                 }
             }
             if count >= 3 {
@@ -317,7 +343,12 @@ impl GameStateLegalActions for GameState {
                     .take(3)
                     .cloned()
                     .collect();
-                legals.push(Action::new(ActionType::Daiminkan, Some(tile), consumes));
+                legals.push(Action::new(
+                    ActionType::Daiminkan,
+                    Some(tile),
+                    consumes,
+                    Some(i),
+                ));
             }
         }
 
@@ -383,7 +414,12 @@ impl GameStateLegalActions for GameState {
                     for &c1 in &c1_opts {
                         for &c2 in &c2_opts {
                             if check_chi_kuikae(c1, c2) {
-                                legals.push(Action::new(ActionType::Chi, Some(tile), vec![c1, c2]));
+                                legals.push(Action::new(
+                                    ActionType::Chi,
+                                    Some(tile),
+                                    vec![c1, c2],
+                                    Some(i),
+                                ));
                             }
                         }
                     }
@@ -403,7 +439,12 @@ impl GameStateLegalActions for GameState {
                     for &c1 in &c1_opts {
                         for &c2 in &c2_opts {
                             if check_chi_kuikae(c1, c2) {
-                                legals.push(Action::new(ActionType::Chi, Some(tile), vec![c1, c2]));
+                                legals.push(Action::new(
+                                    ActionType::Chi,
+                                    Some(tile),
+                                    vec![c1, c2],
+                                    Some(i),
+                                ));
                             }
                         }
                     }
@@ -423,7 +464,12 @@ impl GameStateLegalActions for GameState {
                     for &c1 in &c1_opts {
                         for &c2 in &c2_opts {
                             if check_chi_kuikae(c1, c2) {
-                                legals.push(Action::new(ActionType::Chi, Some(tile), vec![c1, c2]));
+                                legals.push(Action::new(
+                                    ActionType::Chi,
+                                    Some(tile),
+                                    vec![c1, c2],
+                                    Some(i),
+                                ));
                             }
                         }
                     }

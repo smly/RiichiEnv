@@ -154,12 +154,20 @@ impl KyokuStepIterator {
                     ..
                 } => {
                     let pid = *seat as u8;
-                    let env_action =
-                        EnvAction::new(crate::action::ActionType::Discard, Some(*tile), Vec::new());
+                    let env_action = EnvAction::new(
+                        crate::action::ActionType::Discard,
+                        Some(*tile),
+                        Vec::new(),
+                        None,
+                    );
 
                     if *is_liqi {
-                        let riichi_action =
-                            EnvAction::new(crate::action::ActionType::Riichi, None, Vec::new());
+                        let riichi_action = EnvAction::new(
+                            crate::action::ActionType::Riichi,
+                            None,
+                            Vec::new(),
+                            None,
+                        );
 
                         let obs = slf.state.get_observation_for_replay(
                             pid,
@@ -227,7 +235,7 @@ impl KyokuStepIterator {
                     };
 
                     let t = tiles.first().copied();
-                    let env_action = EnvAction::new(env_action_type, t, tiles.to_vec());
+                    let env_action = EnvAction::new(env_action_type, t, tiles.to_vec(), None);
 
                     let obs = slf.state.get_observation_for_replay(
                         pid,
@@ -274,6 +282,7 @@ impl KyokuStepIterator {
                                 atype,
                                 Some(lowest),
                                 vec![lowest, lowest + 1, lowest + 2, lowest + 3],
+                                None,
                             )
                         }
                         crate::action::ActionType::Kakan => {
@@ -287,11 +296,11 @@ impl KyokuStepIterator {
                                     break;
                                 }
                             }
-                            EnvAction::new(atype, Some(tile), consume)
+                            EnvAction::new(atype, Some(tile), consume, None)
                         }
                         _ => {
                             let tile = tiles.first().copied();
-                            EnvAction::new(atype, tile, tiles.to_vec())
+                            EnvAction::new(atype, tile, tiles.to_vec(), None)
                         }
                     };
 
@@ -333,7 +342,7 @@ impl KyokuStepIterator {
                     } else {
                         slf.state.last_discard.map(|(_, t)| t)
                     };
-                    let env_action = EnvAction::new(atype, tile, Vec::new());
+                    let env_action = EnvAction::new(atype, tile, Vec::new(), None);
 
                     let obs = slf.state.get_observation_for_replay(
                         pid,
