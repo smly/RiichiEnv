@@ -1,18 +1,19 @@
 use crate::action::{Action, ActionType, Phase};
-use crate::state::GameState;
+use crate::state_3p::GameState3P;
 use crate::types::{is_terminal_tile, Conditions, Meld, MeldType, Wind};
 
-pub trait GameStateLegalActions {
+pub trait GameState3PLegalActions {
     fn _get_legal_actions_internal(&self, pid: u8) -> Vec<Action>;
     fn _get_claim_actions_for_player(&self, i: u8, pid: u8, tile: u8) -> (Vec<Action>, bool);
 }
 
-impl GameStateLegalActions for GameState {
+impl GameState3PLegalActions for GameState3P {
     fn _get_legal_actions_internal(&self, pid: u8) -> Vec<Action> {
         let mut legals = Vec::new();
         let pid_us = pid as usize;
         let mut hand = self.players[pid_us].hand.clone();
         hand.sort();
+        let np: u8 = 3;
 
         if self.is_done {
             return legals;
@@ -31,7 +32,7 @@ impl GameStateLegalActions for GameState {
                         riichi: self.players[pid_us].riichi_declared,
                         double_riichi: self.players[pid_us].double_riichi_declared,
                         ippatsu: self.players[pid_us].ippatsu_cycle,
-                        player_wind: Wind::from((pid + 4 - self.oya) % 4),
+                        player_wind: Wind::from((pid + np - self.oya) % np),
                         round_wind: Wind::from(self.round_wind),
                         chankan: false,
                         haitei: self.wall.tiles.len() <= 14 && !self.is_rinshan_flag,
@@ -41,6 +42,8 @@ impl GameStateLegalActions for GameState {
                             && self.players[pid_us].discards.is_empty(),
                         riichi_sticks: self.riichi_sticks,
                         honba: self.honba as u32,
+                        is_sanma: true,
+                        num_players: np,
                         ..Default::default()
                     };
                     let mut hand = self.players[pid_us].hand.clone();
@@ -86,7 +89,7 @@ impl GameStateLegalActions for GameState {
                     }
                 }
 
-                // Riichi check (Only if not already declared)
+                // Riichi check
                 if !self.players[pid_us].riichi_declared
                     && self.players[pid_us].score >= 1000
                     && self.wall.tiles.len() >= 18
@@ -160,12 +163,9 @@ impl GameStateLegalActions for GameState {
                         }
                     }
                 } else if self.players[pid_us].riichi_declared {
-                    // Ankan is only allowed after riichi is declared (not during riichi_stage)
-                    // and only if it doesn't change the waits
                     if let Some(t) = self.drawn_tile {
                         let t34 = t / 4;
                         if counts[t34 as usize] == 4 {
-                            // Check waits
                             let mut hand_pre = self.players[pid_us].hand.clone();
                             if let Some(pos) = hand_pre.iter().position(|&x| x == t) {
                                 hand_pre.remove(pos);
@@ -207,11 +207,7 @@ impl GameStateLegalActions for GameState {
                 }
             }
 
-            // 4. Kyushu Kyuhai (Abortive Draw)
-            // Simplified check: Check if all melds of all players are empty? No, Kyusyu Kyuhai is usually only valid if NO ONE has called.
-            // But here we emulate generic rules.
-            // Original code: if self.is_first_turn && self.melds.iter().all(|m| m.is_empty()) -> This meant check all players' melds?
-            // In original GameState, melds was [Vec<Meld>; 4]. so self.melds.iter().all... checked all 4 vectors.
+            // 4. Kyushu Kyuhai
             let no_calls = self.players.iter().all(|p| p.melds.is_empty());
 
             if self.is_first_turn && no_calls && !self.players[pid_us].riichi_stage {
@@ -231,22 +227,25 @@ impl GameStateLegalActions for GameState {
                 }
             }
 
+            // 5. Kita (3P always allows kita)
+            let kita_actions = self.get_kita_legal_actions(pid);
+            legals.extend(kita_actions);
         } else if self.phase == Phase::WaitResponse {
             if let Some(acts) = self.current_claims.get(&pid) {
                 legals.extend(acts.clone());
             }
-            // Always offer Pass
             legals.push(Action::new(ActionType::Pass, None, vec![], Some(pid)));
         }
         legals
     }
 
-    fn _get_claim_actions_for_player(&self, i: u8, pid: u8, tile: u8) -> (Vec<Action>, bool) {
+    fn _get_claim_actions_for_player(&self, i: u8, _pid: u8, tile: u8) -> (Vec<Action>, bool) {
         let mut legals = Vec::new();
         let mut missed_agari = false;
         let i_us = i as usize;
         let hand = &self.players[i_us].hand;
         let melds = &self.players[i_us].melds;
+        let np: u8 = 3;
 
         // 1. Ron
         let tile_class = tile / 4;
@@ -259,7 +258,7 @@ impl GameStateLegalActions for GameState {
 
         if !in_discards && !in_missed {
             let calc = crate::hand_evaluator::HandEvaluator::new(hand.clone(), melds.clone());
-            let p_wind = (i + 4 - self.oya) % 4;
+            let p_wind = (i + np - self.oya) % np;
             let cond = Conditions {
                 tsumo: false,
                 riichi: self.players[i_us].riichi_declared,
@@ -274,6 +273,8 @@ impl GameStateLegalActions for GameState {
                 tsumo_first_turn: false,
                 riichi_sticks: self.riichi_sticks,
                 honba: self.honba as u32,
+                is_sanma: true,
+                num_players: np,
                 ..Default::default()
             };
 
@@ -299,7 +300,7 @@ impl GameStateLegalActions for GameState {
             }
         }
 
-        // 2. Pon / Kan
+        // 2. Pon / Kan (no Chi in 3P)
         if !self.players[i_us].riichi_declared && self.wall.tiles.len() > 14 {
             let count = hand.iter().filter(|&&t| t / 4 == tile / 4).count();
             if count >= 2 && hand.len() >= 3 {
@@ -355,130 +356,7 @@ impl GameStateLegalActions for GameState {
             }
         }
 
-        // 3. Chi
-        let is_shimocha = i == (pid + 1) % 4;
-        if !self.players[i_us].riichi_declared
-            && self.wall.tiles.len() > 14
-            && is_shimocha
-            && hand.len() >= 3
-        {
-            let t_val = tile / 4;
-            if t_val < 27 {
-                let check_chi_kuikae = |c1: u8, c2: u8| -> bool {
-                    let mut forbidden_34 = Vec::new();
-                    if !matches!(self.rule.kuikae_mode, crate::rule::KuikaeMode::None) {
-                        forbidden_34.push(t_val);
-                        if self.rule.kuikae_mode == crate::rule::KuikaeMode::StrictFlank {
-                            let mut cons_34 = [c1 / 4, c2 / 4];
-                            cons_34.sort();
-                            if cons_34[0] == t_val + 1 && cons_34[1] == t_val + 2 {
-                                if t_val % 9 <= 5 {
-                                    forbidden_34.push(t_val + 3);
-                                }
-                            } else if t_val >= 2
-                                && cons_34[1] == t_val - 1
-                                && cons_34[0] == t_val - 2
-                                && t_val % 9 >= 3
-                            {
-                                forbidden_34.push(t_val - 3);
-                            }
-                        }
-                    }
-                    let mut used_c1 = false;
-                    let mut used_c2 = false;
-                    for &t in hand.iter() {
-                        if !used_c1 && t == c1 {
-                            used_c1 = true;
-                            continue;
-                        }
-                        if !used_c2 && t == c2 {
-                            used_c2 = true;
-                            continue;
-                        }
-                        if !forbidden_34.contains(&(t / 4)) {
-                            return true;
-                        }
-                    }
-                    false
-                };
-
-                // Pattern 1: t-2, t-1, t
-                if t_val % 9 >= 2 {
-                    let c1_opts: Vec<u8> = hand
-                        .iter()
-                        .filter(|&&t| t / 4 == t_val - 2)
-                        .copied()
-                        .collect();
-                    let c2_opts: Vec<u8> = hand
-                        .iter()
-                        .filter(|&&t| t / 4 == t_val - 1)
-                        .copied()
-                        .collect();
-                    for &c1 in &c1_opts {
-                        for &c2 in &c2_opts {
-                            if check_chi_kuikae(c1, c2) {
-                                legals.push(Action::new(
-                                    ActionType::Chi,
-                                    Some(tile),
-                                    vec![c1, c2],
-                                    Some(i),
-                                ));
-                            }
-                        }
-                    }
-                }
-                // Pattern 2: t-1, t, t+1
-                if t_val % 9 >= 1 && t_val % 9 <= 7 {
-                    let c1_opts: Vec<u8> = hand
-                        .iter()
-                        .filter(|&&t| t / 4 == t_val - 1)
-                        .copied()
-                        .collect();
-                    let c2_opts: Vec<u8> = hand
-                        .iter()
-                        .filter(|&&t| t / 4 == t_val + 1)
-                        .copied()
-                        .collect();
-                    for &c1 in &c1_opts {
-                        for &c2 in &c2_opts {
-                            if check_chi_kuikae(c1, c2) {
-                                legals.push(Action::new(
-                                    ActionType::Chi,
-                                    Some(tile),
-                                    vec![c1, c2],
-                                    Some(i),
-                                ));
-                            }
-                        }
-                    }
-                }
-                // Pattern 3: t, t+1, t+2
-                if t_val % 9 <= 6 {
-                    let c1_opts: Vec<u8> = hand
-                        .iter()
-                        .filter(|&&t| t / 4 == t_val + 1)
-                        .copied()
-                        .collect();
-                    let c2_opts: Vec<u8> = hand
-                        .iter()
-                        .filter(|&&t| t / 4 == t_val + 2)
-                        .copied()
-                        .collect();
-                    for &c1 in &c1_opts {
-                        for &c2 in &c2_opts {
-                            if check_chi_kuikae(c1, c2) {
-                                legals.push(Action::new(
-                                    ActionType::Chi,
-                                    Some(tile),
-                                    vec![c1, c2],
-                                    Some(i),
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // No Chi in 3P
 
         (legals, missed_agari)
     }

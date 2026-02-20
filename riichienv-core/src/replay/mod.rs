@@ -505,7 +505,7 @@ impl LogKyoku {
             self.ben,
             self.liqibang as u32,
             wall.clone(),
-            Some(initial_scores),
+            Some(initial_scores.to_vec()),
         );
 
         for (i, h) in self.hands.iter().enumerate() {
@@ -1276,6 +1276,7 @@ impl WinResultContextIterator {
                             round_wind: self.kyoku.chang.into(),
                             riichi_sticks: 0, // Not tracked in basic loop?
                             honba: 0,         // Not tracked
+                            ..Default::default()
                         };
 
                         if !is_zimo {

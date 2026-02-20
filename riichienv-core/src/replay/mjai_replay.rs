@@ -142,6 +142,8 @@ pub enum MjaiEvent {
         delta: Option<Vec<i32>>,
         scores: Option<Vec<i32>>,
     },
+    #[serde(rename = "kita")]
+    Kita { actor: usize },
     #[serde(rename = "end_game")]
     EndGame,
     #[serde(rename = "end_kyoku")]
@@ -530,6 +532,10 @@ impl MjaiReplay {
                 builder.actions.push(Action::Hule {
                     hules: vec![hule_data],
                 });
+            }
+            MjaiEvent::Kita { actor } => {
+                // Kita is treated as a special action; no separate Action variant needed
+                // The event handler handles it via MjaiEvent directly
             }
             MjaiEvent::Ryukyoku { delta, scores, .. } => {
                 if let Some(s) = scores {

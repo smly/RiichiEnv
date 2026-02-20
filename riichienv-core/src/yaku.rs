@@ -77,6 +77,7 @@ pub struct YakuContext {
     pub dora_count: u8,
     pub aka_dora: u8,
     pub ura_dora_count: u8,
+    pub nukidora_count: u8,
     pub round_wind: u8, // 27=East, 28=South, etc.
     pub seat_wind: u8,
 }
@@ -97,6 +98,7 @@ impl Default for YakuContext {
             dora_count: 0,
             aka_dora: 0,
             ura_dora_count: 0,
+            nukidora_count: 0,
             round_wind: 27,
             seat_wind: 27,
         }
@@ -760,6 +762,10 @@ fn apply_static_yaku(res: &mut YakuResult, ctx: &YakuContext) {
     if ctx.ura_dora_count > 0 {
         res.han += ctx.ura_dora_count;
         res.yaku_ids.push(ID_URADORA);
+    }
+    if ctx.nukidora_count > 0 {
+        res.han += ctx.nukidora_count;
+        res.yaku_ids.push(ID_NUKIDORA);
     }
 }
 

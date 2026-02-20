@@ -185,7 +185,7 @@ impl Meld {
 }
 
 #[cfg_attr(feature = "python", pyclass(get_all, set_all))]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Conditions {
     pub tsumo: bool,
     pub riichi: bool,
@@ -200,6 +200,32 @@ pub struct Conditions {
     pub tsumo_first_turn: bool,
     pub riichi_sticks: u32,
     pub honba: u32,
+    pub kita_count: u8,
+    pub is_sanma: bool,
+    pub num_players: u8,
+}
+
+impl Default for Conditions {
+    fn default() -> Self {
+        Self {
+            tsumo: false,
+            riichi: false,
+            double_riichi: false,
+            ippatsu: false,
+            haitei: false,
+            houtei: false,
+            rinshan: false,
+            player_wind: Wind::East,
+            round_wind: Wind::East,
+            chankan: false,
+            tsumo_first_turn: false,
+            riichi_sticks: 0,
+            honba: 0,
+            kita_count: 0,
+            is_sanma: false,
+            num_players: 4,
+        }
+    }
 }
 
 #[cfg(feature = "python")]
@@ -207,7 +233,7 @@ pub struct Conditions {
 impl Conditions {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (tsumo=false, riichi=false, double_riichi=false, ippatsu=false, haitei=false, houtei=false, rinshan=false, chankan=false, tsumo_first_turn=false, player_wind=Wind::East, round_wind=Wind::East, riichi_sticks=0, honba=0))]
+    #[pyo3(signature = (tsumo=false, riichi=false, double_riichi=false, ippatsu=false, haitei=false, houtei=false, rinshan=false, chankan=false, tsumo_first_turn=false, player_wind=Wind::East, round_wind=Wind::East, riichi_sticks=0, honba=0, kita_count=0, is_sanma=false, num_players=4))]
     pub fn py_new(
         tsumo: bool,
         riichi: bool,
@@ -222,6 +248,9 @@ impl Conditions {
         round_wind: Wind,
         riichi_sticks: u32,
         honba: u32,
+        kita_count: u8,
+        is_sanma: bool,
+        num_players: u8,
     ) -> Self {
         Self {
             tsumo,
@@ -237,6 +266,9 @@ impl Conditions {
             round_wind,
             riichi_sticks,
             honba,
+            kita_count,
+            is_sanma,
+            num_players,
         }
     }
 }
@@ -323,4 +355,35 @@ pub fn is_terminal_tile(t: u8) -> bool {
     let rank = t_type % 9;
     let suit = t_type / 9;
     suit == 3 || rank == 0 || rank == 8
+}
+
+/// Check if a tile ID (0-135) is excluded in sanma (2m through 8m).
+/// Manzu tiles: type 0-8 (IDs 0-35)
+/// 1m = type 0 (IDs 0-3) - KEPT
+/// 2m = type 1 (IDs 4-7) - EXCLUDED
+/// ...
+/// 8m = type 7 (IDs 28-31) - EXCLUDED
+/// 9m = type 8 (IDs 32-35) - KEPT
+pub fn is_sanma_excluded_tile(tile_id: u8) -> bool {
+    let tile_type = tile_id / 4;
+    // Manzu 2-8 (types 1-7)
+    (1..=7).contains(&tile_type)
+}
+
+/// Standard dora wrapping for 4-player mahjong.
+/// Input/output are tile types (0-33), not tile IDs.
+pub fn standard_next_dora_tile(tile: u8) -> u8 {
+    match tile {
+        // Manzu (0-8): 1m->2m->...->9m->1m
+        0..=8 => (tile + 1) % 9,
+        // Pinzu (9-17): 1p->2p->...->9p->1p
+        9..=17 => 9 + (tile - 9 + 1) % 9,
+        // Souzu (18-26): 1s->2s->...->9s->1s
+        18..=26 => 18 + (tile - 18 + 1) % 9,
+        // Winds (27-30): E->S->W->N->E
+        27..=30 => 27 + (tile - 27 + 1) % 4,
+        // Dragons (31-33): Haku->Hatsu->Chun->Haku
+        31..=33 => 31 + (tile - 31 + 1) % 3,
+        _ => tile,
+    }
 }

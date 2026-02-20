@@ -8,6 +8,19 @@ use serde_json::Value;
 use crate::errors::{RiichiError, RiichiResult};
 use crate::parser::tid_to_mjai;
 
+pub const ACTION_SPACE_4P: usize = 83;
+pub const ACTION_SPACE_3P: usize = 60;
+
+const TILE34_TO_COMPACT: [u8; 34] = [
+    0,                                     // type  0: 1m
+    255, 255, 255, 255, 255, 255, 255,     // type 1-7: 2m-8m (invalid)
+    1,                                     // type  8: 9m
+    2, 3, 4, 5, 6, 7, 8, 9, 10,           // type  9-17: 1p-9p
+    11, 12, 13, 14, 15, 16, 17, 18, 19,   // type 18-26: 1s-9s
+    20, 21, 22, 23,                        // type 27-30: ESWN
+    24, 25, 26,                            // type 31-33: PFC
+];
+
 #[cfg_attr(
     feature = "python",
     pyclass(module = "riichienv._riichienv", eq, eq_int)
@@ -45,6 +58,7 @@ pub enum ActionType {
     Ankan = 8,
     Kakan = 9,
     KyushuKyuhai = 10,
+    Kita = 11,
 }
 
 #[cfg(feature = "python")]
@@ -92,6 +106,7 @@ impl Action {
             ActionType::Riichi => "reach",
             ActionType::Tsumo | ActionType::Ron => "hora",
             ActionType::KyushuKyuhai => "ryukyoku",
+            ActionType::Kita => "kita",
             ActionType::Pass => "none",
         };
 
@@ -194,6 +209,126 @@ impl Action {
             ActionType::Ron | ActionType::Tsumo => Ok(79),
             ActionType::KyushuKyuhai => Ok(80),
             ActionType::Pass => Ok(81),
+            ActionType::Kita => Ok(82),
+        }
+    }
+}
+
+/// Separate encoder objects for 4P (default) and 3P action spaces.
+///
+/// `Action::encode()` always returns the 4P encoding (83 IDs).
+/// For 3P compact encoding (60 IDs), use `ActionEncoder::ThreePlayer`.
+#[derive(Debug, Clone, Copy)]
+pub enum ActionEncoder {
+    FourPlayer,
+    ThreePlayer,
+}
+
+impl ActionEncoder {
+    pub fn from_num_players(n: u8) -> Self {
+        match n {
+            3 => Self::ThreePlayer,
+            _ => Self::FourPlayer,
+        }
+    }
+
+    pub fn action_space_size(&self) -> usize {
+        match self {
+            Self::FourPlayer => ACTION_SPACE_4P,
+            Self::ThreePlayer => ACTION_SPACE_3P,
+        }
+    }
+
+    pub fn encode(&self, action: &Action) -> RiichiResult<i32> {
+        match self {
+            Self::FourPlayer => action.encode(),
+            Self::ThreePlayer => Self::encode_3p(action),
+        }
+    }
+
+    fn encode_3p(action: &Action) -> RiichiResult<i32> {
+        match action.action_type {
+            ActionType::Discard => {
+                if let Some(tile) = action.tile {
+                    let tile_type = (tile / 4) as usize;
+                    if tile_type >= 34 {
+                        return Err(RiichiError::InvalidAction {
+                            message: format!("Invalid tile type {} for 3P encode", tile_type),
+                        });
+                    }
+                    let compact = TILE34_TO_COMPACT[tile_type];
+                    if compact == 255 {
+                        return Err(RiichiError::InvalidAction {
+                            message: format!(
+                                "Tile type {} (manzu 2-8) is not valid in 3P mode",
+                                tile_type
+                            ),
+                        });
+                    }
+                    Ok(compact as i32)
+                } else {
+                    Err(RiichiError::InvalidAction {
+                        message: "Discard action requires a tile".to_string(),
+                    })
+                }
+            }
+            ActionType::Riichi => Ok(27),
+            ActionType::Chi => Err(RiichiError::InvalidAction {
+                message: "Chi is not allowed in 3P mode".to_string(),
+            }),
+            ActionType::Pon => Ok(28),
+            ActionType::Daiminkan => {
+                if let Some(tile) = action.tile {
+                    let tile_type = (tile / 4) as usize;
+                    if tile_type >= 34 {
+                        return Err(RiichiError::InvalidAction {
+                            message: format!("Invalid tile type {} for 3P encode", tile_type),
+                        });
+                    }
+                    let compact = TILE34_TO_COMPACT[tile_type];
+                    if compact == 255 {
+                        return Err(RiichiError::InvalidAction {
+                            message: format!(
+                                "Tile type {} (manzu 2-8) is not valid in 3P mode",
+                                tile_type
+                            ),
+                        });
+                    }
+                    Ok(29 + compact as i32)
+                } else {
+                    Err(RiichiError::InvalidAction {
+                        message: "Daiminkan action requires a tile".to_string(),
+                    })
+                }
+            }
+            ActionType::Ankan | ActionType::Kakan => {
+                if let Some(first) = action.consume_tiles.first() {
+                    let tile_type = (*first / 4) as usize;
+                    if tile_type >= 34 {
+                        return Err(RiichiError::InvalidAction {
+                            message: format!("Invalid tile type {} for 3P encode", tile_type),
+                        });
+                    }
+                    let compact = TILE34_TO_COMPACT[tile_type];
+                    if compact == 255 {
+                        return Err(RiichiError::InvalidAction {
+                            message: format!(
+                                "Tile type {} (manzu 2-8) is not valid in 3P mode",
+                                tile_type
+                            ),
+                        });
+                    }
+                    Ok(29 + compact as i32)
+                } else {
+                    Err(RiichiError::InvalidAction {
+                        message: "Ankan/Kakan action requires consumed tiles".to_string(),
+                    })
+                }
+            }
+            ActionType::Ron | ActionType::Tsumo => Ok(56),
+            ActionType::KyushuKyuhai => Ok(57),
+            ActionType::Pass => Ok(58),
+            ActionType::Kita => Ok(59),
         }
     }
 }

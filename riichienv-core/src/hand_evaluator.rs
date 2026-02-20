@@ -101,17 +101,21 @@ impl HandEvaluator {
             return WinResult::new(false, false, 0, 0, 0, vec![], 0, 0, None, false);
         }
 
+        let is_sanma = conditions.is_sanma;
         let mut dora_count = 0;
         for &indicator_136 in &dora_indicators {
-            let next_tile_34 = get_next_tile(indicator_136 / 4);
+            let next_tile_34 = get_next_tile_with_mode(indicator_136 / 4, is_sanma);
             dora_count += full_hand_14.counts[next_tile_34 as usize];
         }
 
         let mut ura_dora_count = 0;
         for &indicator_136 in &ura_indicators {
-            let next_tile_34 = get_next_tile(indicator_136 / 4);
+            let next_tile_34 = get_next_tile_with_mode(indicator_136 / 4, is_sanma);
             ura_dora_count += full_hand_14.counts[next_tile_34 as usize];
         }
+
+        // Nukidora (kita) count
+        let nukidora_count = conditions.kita_count;
 
         let mut aka_dora = self.aka_dora_count;
         if current_total == 13 && (win_tile_136 == 16 || win_tile_136 == 52 || win_tile_136 == 88) {
@@ -131,6 +135,7 @@ impl HandEvaluator {
             dora_count,
             aka_dora,
             ura_dora_count,
+            nukidora_count,
             round_wind: 27 + conditions.round_wind as u8,
             seat_wind: 27 + conditions.player_wind as u8,
             is_menzen: self.melds.iter().all(|m| !m.opened),
@@ -140,17 +145,23 @@ impl HandEvaluator {
         let yaku_res = yaku::calculate_yaku(&hand_14, &self.melds, &ctx, win_tile_34);
 
         let is_oya = conditions.player_wind == Wind::East;
+        let np = if conditions.num_players > 0 {
+            conditions.num_players
+        } else {
+            4
+        };
         let score_res = score::calculate_score(
             yaku_res.han,
             yaku_res.fu,
             is_oya,
             conditions.tsumo,
             conditions.honba,
+            np,
         );
         let has_yaku = yaku_res
             .yaku_ids
             .iter()
-            .any(|&id| id != yaku::ID_DORA && id != yaku::ID_AKADORA && id != yaku::ID_URADORA);
+            .any(|&id| id != yaku::ID_DORA && id != yaku::ID_AKADORA && id != yaku::ID_URADORA && id != yaku::ID_NUKIDORA);
 
         let official_yaku: Vec<u32> = yaku_res.yaku_ids.into_iter().collect();
 
@@ -305,5 +316,27 @@ fn get_next_tile(tile: u8) -> u8 {
         31
     } else {
         tile + 1
+    }
+}
+
+/// Sanma-aware dora indicator → dora tile mapping.
+/// In sanma, manzu wraps 1m(0)→9m(8) and 9m(8)→1m(0) directly (skipping 2m-8m).
+fn get_next_tile_with_mode(tile: u8, is_sanma: bool) -> u8 {
+    if !is_sanma {
+        return get_next_tile(tile);
+    }
+    match tile {
+        // Manzu: 1m(0) and 9m(8) only in sanma
+        0 => 8,  // 1m → 9m
+        8 => 0,  // 9m → 1m
+        1..=7 => tile, // shouldn't appear in sanma, but safe fallback
+        // Pinzu and Souzu: normal wrapping
+        9..=17 => 9 + (tile - 9 + 1) % 9,
+        18..=26 => 18 + (tile - 18 + 1) % 9,
+        // Winds
+        27..=30 => 27 + (tile - 27 + 1) % 4,
+        // Dragons
+        31..=33 => 31 + (tile - 31 + 1) % 3,
+        _ => tile,
     }
 }

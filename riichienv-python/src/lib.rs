@@ -3,15 +3,16 @@ use pyo3::prelude::*;
 mod env;
 
 #[pyfunction]
-#[pyo3(name = "calculate_score")]
+#[pyo3(name = "calculate_score", signature = (han, fu, is_oya, is_tsumo, honba, num_players=4))]
 fn calculate_score_py(
     han: u8,
     fu: u8,
     is_oya: bool,
     is_tsumo: bool,
     honba: u32,
+    num_players: u8,
 ) -> riichienv_core::score::Score {
-    riichienv_core::score::calculate_score(han, fu, is_oya, is_tsumo, honba)
+    riichienv_core::score::calculate_score(han, fu, is_oya, is_tsumo, honba, num_players)
 }
 
 #[pyfunction]
@@ -56,6 +57,7 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<riichienv_core::action::Phase>()?;
     m.add_class::<riichienv_core::action::Action>()?;
     m.add_class::<riichienv_core::observation::Observation>()?;
+    m.add_class::<riichienv_core::observation_3p::Observation3P>()?;
     m.add_class::<env::RiichiEnv>()?;
 
     m.add_function(wrap_pyfunction!(calculate_score_py, m)?)?;

@@ -1019,6 +1019,7 @@ impl<const MAX_TSUMO: usize> WinProjectionState<'_, MAX_TSUMO> {
             dora_count,
             aka_dora: aka_count,
             ura_dora_count: 0,
+            nukidora_count: 0,
             round_wind: self.sup.round_wind_tile,
             seat_wind: self.sup.seat_wind_tile,
         };
@@ -1030,7 +1031,7 @@ impl<const MAX_TSUMO: usize> WinProjectionState<'_, MAX_TSUMO> {
 
         if yaku_result.yakuman_count > 0 {
             let s =
-                score::calculate_score(yaku_result.han, yaku_result.fu, self.sup.is_oya, true, 0);
+                score::calculate_score(yaku_result.han, yaku_result.fu, self.sup.is_oya, true, 0, 4);
             return Some([s.total as f32; 4]);
         }
 
@@ -1042,6 +1043,7 @@ impl<const MAX_TSUMO: usize> WinProjectionState<'_, MAX_TSUMO> {
                 self.sup.is_oya,
                 true,
                 0,
+                4,
             );
             *score_val = s.total as f32;
         }

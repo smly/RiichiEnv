@@ -82,7 +82,7 @@ mod unit_tests {
         // Ko pays: ceil(1920/100)*100 = 2000.
         // Total: 3900 + 2000*2 = 7900.
 
-        let score = calculate_score(4, 30, false, true, 0); // Ko Tsumo
+        let score = calculate_score(4, 30, false, true, 0, 4); // Ko Tsumo
 
         assert_eq!(score.pay_tsumo_oya, 3900);
         assert_eq!(score.pay_tsumo_ko, 2000);
@@ -246,7 +246,7 @@ mod unit_tests {
         use crate::action::{Action, ActionType};
         use std::collections::HashMap;
 
-        let mut state = create_test_state(4);
+        let mut state = create_test_state(2);
         let pid = 0;
 
         // Hand: 4m, 5m, 6m, 6m. (12, 16, 20, 21)
@@ -319,6 +319,7 @@ mod unit_tests {
             round_wind: Wind::East,
             riichi_sticks: 0,
             honba: 0,
+            ..Default::default()
         };
 
         // 1. Check 6p (14 -> 56)
@@ -343,8 +344,7 @@ mod unit_tests {
 
     #[test]
     fn test_tobi_ends_game() {
-        let mut state = create_test_state(4);
-        state.game_mode = 2; // 4p-red-half (Hanchan)
+        let mut state = create_test_state(2);
 
         // Set scores with one player having negative score
         state.players[0].score = 30000;
@@ -368,7 +368,7 @@ mod unit_tests {
         use crate::replay::MjaiEvent;
 
         let mut state =
-            crate::state::GameState::new(4, true, None, 0, crate::rule::GameRule::default());
+            crate::state::GameState::new(2, true, None, 0, crate::rule::GameRule::default());
 
         // start_kyoku with mjai-format tiles: honors (E, S, W, N, P, F, C) and red fives (5pr, 5sr)
         let start = MjaiEvent::StartKyoku {
@@ -610,7 +610,7 @@ mod unit_tests {
 
     #[test]
     fn test_no_tobi_with_positive_scores() {
-        let mut state = create_test_state(4);
+        let mut state = create_test_state(2);
         state.game_mode = 2; // 4p-red-half (Hanchan)
         state.round_wind = 0; // East round
 
@@ -629,5 +629,411 @@ mod unit_tests {
             !state.is_done,
             "Game should NOT be done (all players have positive scores)"
         );
+    }
+
+    // ========== Sanma (3-player mahjong) Tests ==========
+
+    fn create_sanma_test_state(game_type: u8) -> crate::state_3p::GameState3P {
+        crate::state_3p::GameState3P::new(
+            game_type,
+            false,
+            None,
+            0,
+            crate::rule::GameRule::default(),
+        )
+    }
+
+    #[test]
+    fn test_sanma_game_mode_config() {
+        use crate::state_3p::game_mode;
+
+        assert_eq!(game_mode::num_players(), 3);
+        assert_eq!(game_mode::starting_score(), 35000);
+        assert_eq!(game_mode::tenpai_pool(), 2000);
+    }
+
+    #[test]
+    fn test_sanma_starting_scores() {
+        let state = create_sanma_test_state(3);
+        assert_eq!(state.players.len(), 3, "Should have exactly 3 players");
+        for p in &state.players {
+            assert_eq!(p.score, 35000, "Each player should start with 35000");
+        }
+    }
+
+    #[test]
+    fn test_sanma_wall_108_tiles() {
+        let state = create_sanma_test_state(3);
+
+        let total_tiles = state.wall.tiles.len()
+            + state.players.iter().map(|p| p.hand.len()).sum::<usize>();
+        assert_eq!(total_tiles, 108, "Total tiles should be 108 for sanma");
+
+        // Verify no manzu 2-8 tiles (tile types 1-7, tile IDs 4-31)
+        for p in &state.players {
+            for &t in &p.hand {
+                let tile_type = t / 4;
+                assert!(
+                    !(1..=7).contains(&tile_type),
+                    "Hand should not contain manzu 2-8 (tile type {}), but found tile {}",
+                    tile_type,
+                    t
+                );
+            }
+        }
+        for &t in &state.wall.tiles {
+            let tile_type = t / 4;
+            assert!(
+                !(1..=7).contains(&tile_type),
+                "Wall should not contain manzu 2-8 (tile type {}), but found tile {}",
+                tile_type,
+                t
+            );
+        }
+    }
+
+    #[test]
+    fn test_sanma_deal_3_players() {
+        let state = create_sanma_test_state(3);
+
+        assert_eq!(state.players.len(), 3);
+        assert_eq!(
+            state.players[0].hand.len(),
+            14,
+            "Oya (player 0) should have 14 tiles after deal"
+        );
+        for i in 1..3 {
+            assert_eq!(
+                state.players[i].hand.len(),
+                13,
+                "Player {} should have 13 tiles after deal",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_sanma_no_chi() {
+        use crate::action::{Action, ActionType};
+        use crate::state_3p::legal_actions::GameState3PLegalActions;
+        use std::collections::HashMap;
+
+        let mut state = create_sanma_test_state(5); // 3p-red-half
+        state._initialize_round(0, 0, 0, 0, None, None);
+
+        // Give player 1 a sequential hand that could chi
+        state.players[1].hand = vec![36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84];
+        state.current_player = 0;
+        state.drawn_tile = Some(state.players[0].hand[0]);
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![0];
+        state.needs_tsumo = false;
+
+        let discard_tile = state.players[0].hand[0];
+        let mut actions = HashMap::new();
+        actions.insert(
+            0,
+            Action::new(ActionType::Discard, Some(discard_tile), vec![], None),
+        );
+        state.step(&actions);
+
+        let legal = state._get_legal_actions_internal(1);
+        let has_chi = legal.iter().any(|a| a.action_type == ActionType::Chi);
+        assert!(!has_chi, "Chi should not be available in sanma");
+    }
+
+    #[test]
+    fn test_sanma_player_rotation() {
+        let state = create_sanma_test_state(3);
+        let np = state.np() as u8;
+
+        // In sanma, players cycle 0 → 1 → 2 → 0
+        assert_eq!((0u8 + 1) % np, 1, "Next player after 0 should be 1");
+        assert_eq!((1u8 + 1) % np, 2, "Next player after 1 should be 2");
+        assert_eq!((2u8 + 1) % np, 0, "Next player after 2 should be 0");
+    }
+
+    #[test]
+    fn test_sanma_kita_action() {
+        use crate::action::ActionType;
+        use crate::state_3p::legal_actions::GameState3PLegalActions;
+
+        let mut state = create_sanma_test_state(3);
+        state._initialize_round(0, 0, 0, 0, None, None);
+
+        state.players[0].hand = vec![0, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 120];
+        state.drawn_tile = Some(120);
+        state.current_player = 0;
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![0];
+        state.needs_tsumo = false;
+
+        let legal = state._get_legal_actions_internal(0);
+        let has_kita = legal.iter().any(|a| a.action_type == ActionType::Kita);
+        assert!(
+            has_kita,
+            "Kita should be available when holding North tile in sanma"
+        );
+    }
+
+    #[test]
+    fn test_sanma_dora_wrapping() {
+        use crate::state_3p::game_mode;
+
+        // 1m (type 0) → 9m (type 8)
+        assert_eq!(game_mode::get_next_dora_tile(0), 8);
+        // 9m (type 8) → 1m (type 0)
+        assert_eq!(game_mode::get_next_dora_tile(8), 0);
+        // Pin/sou/honor wrapping should be standard
+        assert_eq!(game_mode::get_next_dora_tile(9), 10); // 1p → 2p
+        assert_eq!(game_mode::get_next_dora_tile(17), 9); // 9p → 1p
+        assert_eq!(game_mode::get_next_dora_tile(27), 28); // East → South
+        assert_eq!(game_mode::get_next_dora_tile(30), 27); // North → East
+    }
+
+    #[test]
+    fn test_sanma_tsumo_scoring() {
+        let score = calculate_score(4, 30, false, true, 0, 3); // Ko Tsumo, 3 players
+        assert_eq!(score.pay_tsumo_oya, 3900);
+        assert_eq!(score.pay_tsumo_ko, 2000);
+        assert_eq!(score.total, 5900, "3P tsumo total should be 5900 (2 payers)");
+    }
+
+    #[test]
+    fn test_sanma_tenpai_payment() {
+        use crate::state_3p::game_mode;
+        assert_eq!(game_mode::tenpai_pool(), 2000, "Sanma tenpai pool should be 2000");
+    }
+
+    // ========== Action Encode Tests (4P/3P) ==========
+
+    #[test]
+    fn test_action_encode_4p_discard() {
+        use crate::action::{Action, ActionType};
+
+        // tile 0 (1m, type 0) → ID 0
+        let a = Action::new(ActionType::Discard, Some(0), vec![], None);
+        assert_eq!(a.encode().unwrap(), 0);
+
+        // tile 4 (2m, type 1) → ID 1
+        let a = Action::new(ActionType::Discard, Some(4), vec![], None);
+        assert_eq!(a.encode().unwrap(), 1);
+
+        // tile 132 (C/7z, type 33) → ID 33
+        let a = Action::new(ActionType::Discard, Some(132), vec![], None);
+        assert_eq!(a.encode().unwrap(), 33);
+    }
+
+    #[test]
+    fn test_action_encode_4p_special() {
+        use crate::action::{Action, ActionType};
+
+        assert_eq!(
+            Action::new(ActionType::Riichi, None, vec![], None)
+                .encode()
+                .unwrap(),
+            37
+        );
+        assert_eq!(
+            Action::new(ActionType::Pon, None, vec![], None)
+                .encode()
+                .unwrap(),
+            41
+        );
+        // Daiminkan tile 0 (1m) → 42 + 0 = 42
+        assert_eq!(
+            Action::new(ActionType::Daiminkan, Some(0), vec![], None)
+                .encode()
+                .unwrap(),
+            42
+        );
+        assert_eq!(
+            Action::new(ActionType::Ron, None, vec![], None)
+                .encode()
+                .unwrap(),
+            79
+        );
+        assert_eq!(
+            Action::new(ActionType::KyushuKyuhai, None, vec![], None)
+                .encode()
+                .unwrap(),
+            80
+        );
+        assert_eq!(
+            Action::new(ActionType::Pass, None, vec![], None)
+                .encode()
+                .unwrap(),
+            81
+        );
+        assert_eq!(
+            Action::new(ActionType::Kita, None, vec![], None)
+                .encode()
+                .unwrap(),
+            82
+        );
+    }
+
+    #[test]
+    fn test_action_encode_3p_discard() {
+        use crate::action::{Action, ActionEncoder, ActionType};
+        let enc = ActionEncoder::ThreePlayer;
+
+        // 1m (type 0) → compact 0
+        let a = Action::new(ActionType::Discard, Some(0), vec![], None);
+        assert_eq!(enc.encode(&a).unwrap(), 0);
+
+        // 9m (type 8, tile 32) → compact 1
+        let a = Action::new(ActionType::Discard, Some(32), vec![], None);
+        assert_eq!(enc.encode(&a).unwrap(), 1);
+
+        // 1p (type 9, tile 36) → compact 2
+        let a = Action::new(ActionType::Discard, Some(36), vec![], None);
+        assert_eq!(enc.encode(&a).unwrap(), 2);
+
+        // 9p (type 17, tile 68) → compact 10
+        let a = Action::new(ActionType::Discard, Some(68), vec![], None);
+        assert_eq!(enc.encode(&a).unwrap(), 10);
+
+        // 1s (type 18, tile 72) → compact 11
+        let a = Action::new(ActionType::Discard, Some(72), vec![], None);
+        assert_eq!(enc.encode(&a).unwrap(), 11);
+
+        // C (type 33, tile 132) → compact 26
+        let a = Action::new(ActionType::Discard, Some(132), vec![], None);
+        assert_eq!(enc.encode(&a).unwrap(), 26);
+    }
+
+    #[test]
+    fn test_action_encode_3p_special() {
+        use crate::action::{Action, ActionEncoder, ActionType};
+        let enc = ActionEncoder::ThreePlayer;
+
+        assert_eq!(
+            enc.encode(&Action::new(ActionType::Riichi, None, vec![], None))
+                .unwrap(),
+            27
+        );
+        assert_eq!(
+            enc.encode(&Action::new(ActionType::Pon, None, vec![], None))
+                .unwrap(),
+            28
+        );
+        // Kan 1m (type 0) → 29 + 0 = 29
+        assert_eq!(
+            enc.encode(&Action::new(ActionType::Daiminkan, Some(0), vec![], None))
+                .unwrap(),
+            29
+        );
+        // Kan 9m (type 8, tile 32) → 29 + 1 = 30
+        assert_eq!(
+            enc.encode(&Action::new(ActionType::Daiminkan, Some(32), vec![], None))
+                .unwrap(),
+            30
+        );
+        // Kan C (type 33, tile 132) → 29 + 26 = 55
+        assert_eq!(
+            enc.encode(&Action::new(ActionType::Ankan, None, vec![132], None))
+                .unwrap(),
+            55
+        );
+        assert_eq!(
+            enc.encode(&Action::new(ActionType::Ron, None, vec![], None))
+                .unwrap(),
+            56
+        );
+        assert_eq!(
+            enc.encode(&Action::new(ActionType::KyushuKyuhai, None, vec![], None))
+                .unwrap(),
+            57
+        );
+        assert_eq!(
+            enc.encode(&Action::new(ActionType::Pass, None, vec![], None))
+                .unwrap(),
+            58
+        );
+        assert_eq!(
+            enc.encode(&Action::new(ActionType::Kita, None, vec![], None))
+                .unwrap(),
+            59
+        );
+    }
+
+    #[test]
+    fn test_action_encode_3p_invalid_manzu() {
+        use crate::action::{Action, ActionEncoder, ActionType};
+        let enc = ActionEncoder::ThreePlayer;
+
+        // 2m (type 1, tile 4) should be invalid in 3P
+        let a = Action::new(ActionType::Discard, Some(4), vec![], None);
+        assert!(enc.encode(&a).is_err());
+
+        // 5m (type 4, tile 16) should be invalid in 3P
+        let a = Action::new(ActionType::Discard, Some(16), vec![], None);
+        assert!(enc.encode(&a).is_err());
+
+        // 8m (type 7, tile 28) should be invalid in 3P
+        let a = Action::new(ActionType::Discard, Some(28), vec![], None);
+        assert!(enc.encode(&a).is_err());
+    }
+
+    #[test]
+    fn test_action_encode_3p_chi_not_allowed() {
+        use crate::action::{Action, ActionEncoder, ActionType};
+        let enc = ActionEncoder::ThreePlayer;
+
+        let a = Action::new(ActionType::Chi, Some(36), vec![40, 44], None);
+        assert!(enc.encode(&a).is_err());
+    }
+
+    #[test]
+    fn test_action_space_size() {
+        use crate::action::ActionEncoder;
+
+        assert_eq!(ActionEncoder::FourPlayer.action_space_size(), 83);
+        assert_eq!(ActionEncoder::ThreePlayer.action_space_size(), 60);
+        assert_eq!(ActionEncoder::from_num_players(4).action_space_size(), 83);
+        assert_eq!(ActionEncoder::from_num_players(3).action_space_size(), 60);
+    }
+
+    #[test]
+    fn test_3p_encode_all_discard_ids_contiguous() {
+        use crate::action::{Action, ActionEncoder, ActionType};
+        let enc = ActionEncoder::ThreePlayer;
+
+        // All 27 valid tile types in 3P should map to discard IDs 0-26 contiguously
+        let valid_types: Vec<u8> = vec![
+            0, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+            29, 30, 31, 32, 33,
+        ];
+        assert_eq!(valid_types.len(), 27);
+
+        let mut ids: Vec<i32> = Vec::new();
+        for &tile_type in &valid_types {
+            let tile_136 = tile_type * 4;
+            let a = Action::new(ActionType::Discard, Some(tile_136), vec![], None);
+            ids.push(enc.encode(&a).unwrap());
+        }
+
+        ids.sort();
+        let expected: Vec<i32> = (0..27).collect();
+        assert_eq!(ids, expected, "3P discard IDs should be contiguous 0-26");
+    }
+
+    #[test]
+    fn test_sanma_observation_num_players() {
+        let mut state = create_sanma_test_state(3);
+        state._initialize_round(0, 0, 0, 0, None, None);
+
+        state.drawn_tile = Some(state.players[0].hand[0]);
+        state.current_player = 0;
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![0];
+        state.needs_tsumo = false;
+
+        let obs = state.get_observation(0);
+        assert_eq!(obs.hands.len(), 3, "Observation should have 3 hands");
+        assert_eq!(obs.scores.len(), 3, "Observation should have 3 scores");
+        assert_eq!(obs.discards.len(), 3, "Observation should have 3 discards");
+        assert_eq!(obs.melds.len(), 3, "Observation should have 3 melds");
     }
 }

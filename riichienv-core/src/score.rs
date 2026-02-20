@@ -10,7 +10,15 @@ pub struct Score {
     pub pay_tsumo_ko: u32,
 }
 
-pub fn calculate_score(han: u8, fu: u8, is_oya: bool, is_tsumo: bool, honba: u32) -> Score {
+pub fn calculate_score(
+    han: u8,
+    fu: u8,
+    is_oya: bool,
+    is_tsumo: bool,
+    honba: u32,
+    num_players: u8,
+) -> Score {
+    let np = num_players as u32;
     let mut s = if han >= 5 {
         let base_points = match han {
             5 => 2000,                     // Mangan
@@ -19,25 +27,26 @@ pub fn calculate_score(han: u8, fu: u8, is_oya: bool, is_tsumo: bool, honba: u32
             11 | 12 => 6000,               // Sanbaiman
             _ => 8000 * (han as u32 / 13), // Yakuman (13, 26, 39, ...)
         };
-        make_score_result(base_points, is_oya, is_tsumo)
+        make_score_result(base_points, is_oya, is_tsumo, np)
     } else {
         let fu = round_up_fu(fu);
         let bp = (fu as u32) * (2u32.pow(2 + han as u32));
         if bp > 2000 {
-            make_score_result(2000, is_oya, is_tsumo)
+            make_score_result(2000, is_oya, is_tsumo, np)
         } else {
-            make_score_result(bp, is_oya, is_tsumo)
+            make_score_result(bp, is_oya, is_tsumo, np)
         }
     };
 
-    // Add Honba (300 per honba stack)
+    // Add Honba
     if is_tsumo {
         s.pay_tsumo_oya += honba * 100;
         s.pay_tsumo_ko += honba * 100;
-        s.total += honba * 300;
+        s.total += honba * 100 * (np - 1);
     } else {
-        s.pay_ron += honba * 300;
-        s.total += honba * 300;
+        let honba_ron = honba * 100 * (np - 1);
+        s.pay_ron += honba_ron;
+        s.total += honba_ron;
     }
     s
 }
@@ -45,11 +54,18 @@ pub fn calculate_score(han: u8, fu: u8, is_oya: bool, is_tsumo: bool, honba: u32
 #[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(name = "calculate_score")]
-pub fn calculate_score_py(han: u8, fu: u8, is_oya: bool, is_tsumo: bool, honba: u32) -> Score {
-    calculate_score(han, fu, is_oya, is_tsumo, honba)
+pub fn calculate_score_py(
+    han: u8,
+    fu: u8,
+    is_oya: bool,
+    is_tsumo: bool,
+    honba: u32,
+    num_players: Option<u8>,
+) -> Score {
+    calculate_score(han, fu, is_oya, is_tsumo, honba, num_players.unwrap_or(4))
 }
 
-fn make_score_result(base_points: u32, is_oya: bool, is_tsumo: bool) -> Score {
+fn make_score_result(base_points: u32, is_oya: bool, is_tsumo: bool, np: u32) -> Score {
     let total_ron = if is_oya {
         ceil_100(base_points * 6)
     } else {
@@ -63,9 +79,9 @@ fn make_score_result(base_points: u32, is_oya: bool, is_tsumo: bool) -> Score {
     };
 
     let total_tsumo = if is_oya {
-        pay_ko * 3
+        pay_ko * (np - 1)
     } else {
-        pay_oya + pay_ko * 2
+        pay_oya + pay_ko * (np - 2)
     };
 
     if is_tsumo {

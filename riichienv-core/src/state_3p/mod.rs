@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::action::{Action, ActionType, Phase};
 use crate::errors::{RiichiError, RiichiResult};
-use crate::observation::Observation;
+use crate::observation_3p::Observation3P;
 use crate::parser::tid_to_mjai;
 use crate::replay::Action as LogAction;
 use crate::replay::MjaiEvent;
@@ -15,20 +15,20 @@ pub mod event_handler;
 pub mod game_mode;
 pub mod legal_actions;
 pub mod player;
+pub mod sanma;
 pub mod wall;
-use event_handler::GameStateEventHandler;
-use game_mode::GameModeConfig;
-use legal_actions::GameStateLegalActions;
-use player::PlayerState;
-use wall::WallState;
+use event_handler::GameState3PEventHandler;
+use game_mode::GameSubMode3P;
+use legal_actions::GameState3PLegalActions;
+use player::PlayerState3P;
+use wall::WallState3P;
 
-const NP: usize = 4;
+const NP: usize = 3;
 
-#[cfg_attr(feature = "python", pyo3::pyclass)]
 #[derive(Debug, Clone)]
-pub struct GameState {
-    pub wall: WallState,
-    pub players: Vec<PlayerState>,
+pub struct GameState3P {
+    pub wall: WallState3P,
+    pub players: Vec<PlayerState3P>,
 
     pub current_player: u8,
     pub turn_count: u32,
@@ -63,7 +63,7 @@ pub struct GameState {
     pub player_event_counts: Vec<usize>,
     pub mjai_log_per_player: Vec<Vec<String>>,
 
-    pub mode: GameModeConfig,
+    pub sub_mode: GameSubMode3P,
     pub game_mode: u8,
     pub skip_mjai_logging: bool,
     pub seed: Option<u64>,
@@ -71,11 +71,11 @@ pub struct GameState {
     pub last_error: Option<String>,
     pub is_after_kan: bool,
 
-    pub riichi_sutehais: Vec<Option<u8>>,  // Tile discarded when declaring riichi
-    pub last_tedashis: Vec<Option<u8>>,    // Last hand discard (not tsumogiri)
+    pub riichi_sutehais: Vec<Option<u8>>,
+    pub last_tedashis: Vec<Option<u8>>,
 }
 
-impl GameState {
+impl GameState3P {
     pub fn np(&self) -> usize {
         NP
     }
@@ -87,12 +87,12 @@ impl GameState {
         round_wind: u8,
         rule: GameRule,
     ) -> Self {
-        let mode = GameModeConfig::from_game_mode(game_mode, rule);
-        let players: Vec<PlayerState> = (0..NP)
-            .map(|_| PlayerState::new(mode.starting_score()))
+        let sub_mode = GameSubMode3P::from_game_mode(game_mode);
+        let players: Vec<PlayerState3P> = (0..NP)
+            .map(|_| PlayerState3P::new(game_mode::starting_score()))
             .collect();
 
-        let wall = WallState::new(seed);
+        let wall = WallState3P::new(seed);
 
         let mut state = Self {
             wall,
@@ -124,7 +124,7 @@ impl GameState {
             mjai_log: Vec::new(),
             player_event_counts: vec![0; NP],
             mjai_log_per_player: (0..NP).map(|_| Vec::new()).collect(),
-            mode,
+            sub_mode,
             game_mode,
             skip_mjai_logging,
             seed,
@@ -141,7 +141,6 @@ impl GameState {
             state._push_mjai_event(Value::Object(ev));
         }
 
-        // Initial setup
         state._initialize_round(0, round_wind, 0, 0, None, None);
         state
     }
@@ -158,7 +157,7 @@ impl GameState {
         }
     }
 
-    pub fn get_observation(&mut self, player_id: u8) -> Observation {
+    pub fn get_observation(&mut self, player_id: u8) -> Observation3P {
         let pid = player_id as usize;
 
         let mut masked_hands = Vec::new();
@@ -201,7 +200,7 @@ impl GameState {
         let scores: Vec<i32> = self.players.iter().map(|p| p.score).collect();
         let riichi_declared: Vec<bool> = self.players.iter().map(|p| p.riichi_declared).collect();
 
-        Observation::new(
+        Observation3P::new(
             player_id,
             masked_hands,
             melds,
@@ -221,7 +220,6 @@ impl GameState {
             self.riichi_sutehais.to_vec(),
             self.last_tedashis.to_vec(),
             self.last_discard.map(|(tile, _pid)| tile as u32),
-            NP as u8,
         )
     }
 
@@ -230,7 +228,7 @@ impl GameState {
         pid: u8,
         env_action: &Action,
         log_action_str: &str,
-    ) -> RiichiResult<Observation> {
+    ) -> RiichiResult<Observation3P> {
         let original_phase = self.phase;
         let original_active_players = self.active_players.clone();
         let original_claims = self.current_claims.clone();
@@ -302,9 +300,9 @@ impl GameState {
             self._initialize_next_round(self.pending_oya_won, self.pending_is_draw);
             return;
         }
+
         // Validation
-        let np = NP;
-        for pid in 0..np {
+        for pid in 0..NP {
             if let Some(act) = actions.get(&(pid as u8)) {
                 let legals = self._get_legal_actions_internal(pid as u8);
                 let is_valid = legals.iter().any(|l| {
@@ -319,11 +317,9 @@ impl GameState {
                         if consumes_match {
                             return true;
                         }
-                        // Allow empty consume for Kakan
                         if act.consume_tiles.is_empty() && l.action_type == ActionType::Kakan {
                             return true;
                         }
-                        // Allow empty consume for Discard, Riichi, Tsumo, Ron, Pass
                         if act.consume_tiles.is_empty()
                             && matches!(
                                 l.action_type,
@@ -344,7 +340,6 @@ impl GameState {
                         return true;
                     }
 
-                    // Allow None from python for context-implied actions
                     if act.tile.is_none() {
                         return matches!(
                             l.action_type,
@@ -367,7 +362,6 @@ impl GameState {
             }
         }
 
-        // --- Phase: WaitAct (Discards, Riichi, Tsumo, Kan) ---
         if self.phase == Phase::WaitAct {
             let pid = self.current_player;
             if let Some(act) = actions.get(&pid) {
@@ -405,7 +399,6 @@ impl GameState {
                         self._trigger_ryukyoku("kyushu_kyuhai");
                     }
                     ActionType::Riichi => {
-                        // Declare Riichi
                         if self.players[pid as usize].score >= 1000
                             && self.wall.tiles.len() >= 18
                             && !self.players[pid as usize].riichi_declared
@@ -424,9 +417,7 @@ impl GameState {
                                         tsumogiri = true;
                                     }
                                 }
-                                // Record riichi sutehai (riichi discard tile)
                                 self.riichi_sutehais[pid as usize] = Some(t);
-                                // Record last tedashi if not tsumogiri
                                 if !tsumogiri {
                                     self.last_tedashis[pid as usize] = Some(t);
                                 }
@@ -441,20 +432,15 @@ impl GameState {
                         }
                     }
                     ActionType::Ankan => {
-                        // Ankan Logic
                         let tile = act.tile.or(act.consume_tiles.first().copied()).unwrap_or(0);
                         let mut chankan_ronners = Vec::new();
                         if self.rule.allows_ron_on_ankan_for_kokushi_musou {
-                            for i in 0..np as u8 {
+                            for i in 0..NP as u8 {
                                 if i == pid {
                                     continue;
                                 }
-
-                                // Check Kokushi Only
                                 let hand = &self.players[i as usize].hand;
                                 let melds = &self.players[i as usize].melds;
-
-                                // Furiten check
                                 let tile_class = tile / 4;
                                 let in_discards = self.players[i as usize]
                                     .discards
@@ -463,14 +449,15 @@ impl GameState {
                                 if in_discards {
                                     continue;
                                 }
-
-                                let p_wind = (i + np as u8 - self.oya) % np as u8;
+                                let p_wind = (i + NP as u8 - self.oya) % NP as u8;
                                 let cond = Conditions {
                                     tsumo: false,
                                     riichi: self.players[i as usize].riichi_declared,
                                     chankan: true,
                                     player_wind: Wind::from(p_wind),
                                     round_wind: Wind::from(self.round_wind),
+                                    is_sanma: true,
+                                    num_players: NP as u8,
                                     ..Default::default()
                                 };
                                 let calc = crate::hand_evaluator::HandEvaluator::new(
@@ -483,8 +470,6 @@ impl GameState {
                                     vec![],
                                     Some(cond),
                                 );
-
-                                // 42=Kokushi, 49=Kokushi13
                                 if res.is_win && (res.yaku.contains(&42) || res.yaku.contains(&49))
                                 {
                                     chankan_ronners.push(i);
@@ -511,23 +496,19 @@ impl GameState {
                         let tile = act.tile.or(act.consume_tiles.first().copied()).unwrap_or(0);
                         let p_idx = pid as usize;
 
-                        // Update state BEFORE logging/waiting to keep observations in sync
                         if let Some(idx) = self.players[p_idx].hand.iter().position(|&x| x == tile)
                         {
                             self.players[p_idx].hand.remove(idx);
                         }
                         for m in self.players[p_idx].melds.iter_mut() {
-                            if m.meld_type == crate::types::MeldType::Pon
-                                && m.tiles[0] / 4 == tile / 4
-                            {
-                                m.meld_type = crate::types::MeldType::Kakan;
+                            if m.meld_type == MeldType::Pon && m.tiles[0] / 4 == tile / 4 {
+                                m.meld_type = MeldType::Kakan;
                                 m.tiles.push(tile);
                                 m.tiles.sort();
                                 break;
                             }
                         }
 
-                        // Log Kakan immediately (before Chankan check)
                         if !self.skip_mjai_logging {
                             let mut ev = serde_json::Map::new();
                             ev.insert("type".to_string(), Value::String("kakan".to_string()));
@@ -539,18 +520,15 @@ impl GameState {
                             self._push_mjai_event(Value::Object(ev));
                         }
 
-                        // Kakan Logic
-                        // Check Chankan
                         let tile = act.tile.or(act.consume_tiles.first().copied()).unwrap_or(0);
                         let mut chankan_ronners = Vec::new();
-                        for i in 0..np as u8 {
+                        for i in 0..NP as u8 {
                             if i == pid {
                                 continue;
                             }
-                            // Check WinResult
                             let hand = &self.players[i as usize].hand;
                             let melds = &self.players[i as usize].melds;
-                            let p_wind = (i + np as u8 - self.oya) % np as u8;
+                            let p_wind = (i + NP as u8 - self.oya) % NP as u8;
                             let cond = Conditions {
                                 tsumo: false,
                                 riichi: self.players[i as usize].riichi_declared,
@@ -565,6 +543,8 @@ impl GameState {
                                 tsumo_first_turn: false,
                                 riichi_sticks: self.riichi_sticks,
                                 honba: self.honba as u32,
+                                is_sanma: true,
+                                num_players: NP as u8,
                                 ..Default::default()
                             };
                             let calc = crate::hand_evaluator::HandEvaluator::new(
@@ -572,7 +552,6 @@ impl GameState {
                                 melds.clone(),
                             );
 
-                            // Check Furiten
                             let mut is_furiten = false;
                             let waits = calc.get_waits_u8();
                             for &w in &waits {
@@ -591,7 +570,6 @@ impl GameState {
                                 is_furiten = true;
                             }
 
-                            // If valid:
                             let res = if !is_furiten {
                                 calc.calc(
                                     tile,
@@ -600,22 +578,10 @@ impl GameState {
                                     Some(cond),
                                 )
                             } else {
-                                crate::types::WinResult::new(
-                                    false,
-                                    false,
-                                    0,
-                                    0,
-                                    0,
-                                    vec![],
-                                    0,
-                                    0,
-                                    None,
-                                    false,
-                                )
+                                WinResult::new(false, false, 0, 0, 0, vec![], 0, 0, None, false)
                             };
 
                             if res.is_win && (res.yakuman || res.han >= 1) {
-                                // Add Ron action offer
                                 chankan_ronners.push(i);
                                 self.current_claims.entry(i).or_default().push(Action::new(
                                     ActionType::Ron,
@@ -630,7 +596,7 @@ impl GameState {
                             self.pending_kan = Some((pid, act.clone()));
                             self.phase = Phase::WaitResponse;
                             self.active_players = chankan_ronners;
-                            self.last_discard = Some((pid, tile)); // Treat Kakan tile as discard for Ron targeting
+                            self.last_discard = Some((pid, tile));
                         } else {
                             self._resolve_kan(pid, act.clone());
                         }
@@ -638,7 +604,7 @@ impl GameState {
                     ActionType::Tsumo => {
                         let hand = &self.players[pid as usize].hand;
                         let melds = &self.players[pid as usize].melds;
-                        let p_wind = (pid + np as u8 - self.oya) % np as u8;
+                        let p_wind = (pid + NP as u8 - self.oya) % NP as u8;
                         let cond = Conditions {
                             tsumo: true,
                             riichi: self.players[pid as usize].riichi_declared,
@@ -652,10 +618,14 @@ impl GameState {
                             round_wind: Wind::from(self.round_wind),
                             riichi_sticks: self.riichi_sticks,
                             honba: self.honba as u32,
+                            is_sanma: true,
+                            num_players: NP as u8,
                             ..Default::default()
                         };
-                        let calc =
-                            crate::hand_evaluator::HandEvaluator::new(hand.clone(), melds.clone());
+                        let calc = crate::hand_evaluator::HandEvaluator::new(
+                            hand.clone(),
+                            melds.clone(),
+                        );
                         let win_tile = self.drawn_tile.unwrap_or(0);
                         let res = calc.calc(
                             win_tile,
@@ -665,21 +635,16 @@ impl GameState {
                         );
 
                         if res.is_win {
-                            let mut deltas = vec![0i32; np];
+                            let mut deltas = vec![0i32; NP];
                             let mut total_win = 0;
 
-                            // Check Pao
                             let mut pao_payer = None;
                             let mut pao_yakuman_val = 0;
                             let mut total_yakuman_val = 0;
 
                             if res.yakuman {
                                 for &yid in &res.yaku {
-                                    let val = if [47, 48, 49, 50].contains(&yid) {
-                                        2
-                                    } else {
-                                        1
-                                    };
+                                    let val = if [47, 48, 49, 50].contains(&yid) { 2 } else { 1 };
                                     total_yakuman_val += val;
                                     if let Some(liable) =
                                         self.players[pid as usize].pao.get(&(yid as u8))
@@ -696,17 +661,15 @@ impl GameState {
                                 let non_pao_yakuman_val = total_yakuman_val - pao_yakuman_val;
                                 let non_pao_amt = non_pao_yakuman_val * unit;
 
-                                // Pao Payer pays for Pao Part
                                 if let Some(pp) = pao_payer {
                                     deltas[pp as usize] -= pao_amt;
                                     total_win += pao_amt;
                                 }
 
-                                // Non-Pao Part split normally
                                 if non_pao_amt > 0 {
                                     if pid == self.oya {
-                                        let share = non_pao_amt / (np as i32 - 1);
-                                        for i in 0..np as u8 {
+                                        let share = non_pao_amt / (NP as i32 - 1);
+                                        for i in 0..NP as u8 {
                                             if i != pid {
                                                 deltas[i as usize] -= share;
                                                 total_win += share;
@@ -714,8 +677,8 @@ impl GameState {
                                         }
                                     } else {
                                         let oya_share = non_pao_amt / 2;
-                                        let ko_share = non_pao_amt / (np as i32 - 1);
-                                        for i in 0..np as u8 {
+                                        let ko_share = non_pao_amt / (NP as i32 - 1);
+                                        for i in 0..NP as u8 {
                                             if i != pid {
                                                 if i == self.oya {
                                                     deltas[i as usize] -= oya_share;
@@ -729,19 +692,19 @@ impl GameState {
                                     }
                                 }
                             } else {
-                                // Standard Scoring
                                 if pid == self.oya {
-                                    for i in 0..np as u8 {
+                                    for i in 0..NP as u8 {
                                         if i != pid {
                                             deltas[i as usize] = -(res.tsumo_agari_ko as i32);
                                             total_win += res.tsumo_agari_ko as i32;
                                         }
                                     }
                                 } else {
-                                    for i in 0..np as u8 {
+                                    for i in 0..NP as u8 {
                                         if i != pid {
                                             if i == self.oya {
-                                                deltas[i as usize] = -(res.tsumo_agari_oya as i32);
+                                                deltas[i as usize] =
+                                                    -(res.tsumo_agari_oya as i32);
                                                 total_win += res.tsumo_agari_oya as i32;
                                             } else {
                                                 deltas[i as usize] = -(res.tsumo_agari_ko as i32);
@@ -754,10 +717,9 @@ impl GameState {
 
                             total_win += (self.riichi_sticks * 1000) as i32;
                             self.riichi_sticks = 0;
-
                             deltas[pid as usize] += total_win;
 
-                            self.players[pid as usize].score_delta = deltas[pid as usize]; // Actually we need to set for all
+                            self.players[pid as usize].score_delta = deltas[pid as usize];
                             for (i, p) in self.players.iter_mut().enumerate() {
                                 p.score += deltas[i];
                                 p.score_delta = deltas[i];
@@ -774,7 +736,10 @@ impl GameState {
 
                             if !self.skip_mjai_logging {
                                 let mut ev = serde_json::Map::new();
-                                ev.insert("type".to_string(), Value::String("hora".to_string()));
+                                ev.insert(
+                                    "type".to_string(),
+                                    Value::String("hora".to_string()),
+                                );
                                 ev.insert("actor".to_string(), Value::Number(pid.into()));
                                 ev.insert("target".to_string(), Value::Number(pid.into()));
                                 ev.insert(
@@ -782,7 +747,6 @@ impl GameState {
                                     serde_json::to_value(deltas).unwrap(),
                                 );
                                 ev.insert("tsumo".to_string(), Value::Bool(true));
-
                                 let mut ura_markers = Vec::new();
                                 if self.players[pid as usize].riichi_declared {
                                     ura_markers = self._get_ura_markers();
@@ -791,24 +755,23 @@ impl GameState {
                                     "ura_markers".to_string(),
                                     serde_json::to_value(&ura_markers).unwrap(),
                                 );
-
                                 self._push_mjai_event(Value::Object(ev));
                             }
 
                             self._initialize_next_round(pid == self.oya, false);
                         } else {
-                            self.current_player = (self.current_player + 1) % np as u8;
+                            self.current_player = (self.current_player + 1) % NP as u8;
                             self._deal_next();
                         }
                     }
                     ActionType::Kita => {
-                        // Kita is only valid in 3P; handled by GameState3P
+                        self.handle_kita(pid, act);
                     }
                     _ => {}
                 }
             }
         } else if self.phase == Phase::WaitResponse {
-            // Check Missed WinResult for all who could Ron but didn't
+            // Check Missed WinResult
             for (&pid, legals) in &self.current_claims {
                 if legals.iter().any(|a| a.action_type == ActionType::Ron) {
                     let mut roned = false;
@@ -835,7 +798,6 @@ impl GameState {
                         ron_claims.push(pid);
                     } else if act.action_type == ActionType::Pon
                         || act.action_type == ActionType::Daiminkan
-                        || act.action_type == ActionType::Chi
                     {
                         if let Some((_old_pid, old_act)) = &call_claim {
                             let old_is_pon = old_act.action_type == ActionType::Pon
@@ -854,8 +816,7 @@ impl GameState {
 
             if !ron_claims.is_empty() {
                 let (target_pid, win_tile) = self.last_discard.unwrap_or((self.current_player, 0));
-
-                ron_claims.sort_by_key(|&pid| (pid + np as u8 - target_pid) % np as u8);
+                ron_claims.sort_by_key(|&pid| (pid + NP as u8 - target_pid) % NP as u8);
 
                 let winners = if self.rule.allow_double_ron {
                     ron_claims
@@ -863,14 +824,14 @@ impl GameState {
                     vec![ron_claims[0]]
                 };
 
-                let mut total_deltas = vec![0i32; np];
+                let mut total_deltas = vec![0i32; NP];
                 let mut oya_won = false;
                 let mut deposit_taken = false;
 
                 for &w_pid in &winners {
                     let hand = &self.players[w_pid as usize].hand;
                     let melds = &self.players[w_pid as usize].melds;
-                    let p_wind = (w_pid + np as u8 - self.oya) % np as u8;
+                    let p_wind = (w_pid + NP as u8 - self.oya) % NP as u8;
                     let is_chankan = self.pending_kan.is_some();
 
                     let cond = Conditions {
@@ -887,11 +848,15 @@ impl GameState {
                         round_wind: Wind::from(self.round_wind),
                         riichi_sticks: self.riichi_sticks,
                         honba: self.honba as u32,
+                        is_sanma: true,
+                        num_players: NP as u8,
                         ..Default::default()
                     };
 
-                    let calc =
-                        crate::hand_evaluator::HandEvaluator::new(hand.clone(), melds.clone());
+                    let calc = crate::hand_evaluator::HandEvaluator::new(
+                        hand.clone(),
+                        melds.clone(),
+                    );
                     let res = calc.calc(
                         win_tile,
                         self.wall.dora_indicators.clone(),
@@ -901,19 +866,13 @@ impl GameState {
 
                     if res.is_win {
                         let score = res.ron_agari as i32;
-
                         let mut pao_payer = target_pid;
                         let mut pao_amt = 0;
 
                         if res.yakuman {
                             let mut pao_yakuman_val = 0;
-                            // Calculate values
                             for &yid in &res.yaku {
-                                let val = if [47, 48, 49, 50].contains(&yid) {
-                                    2
-                                } else {
-                                    1
-                                };
+                                let val = if [47, 48, 49, 50].contains(&yid) { 2 } else { 1 };
                                 if let Some(liable) =
                                     self.players[w_pid as usize].pao.get(&(yid as u8))
                                 {
@@ -921,7 +880,6 @@ impl GameState {
                                     pao_payer = *liable;
                                 }
                             }
-
                             if pao_yakuman_val > 0 {
                                 let unit = if w_pid == self.oya { 48000 } else { 32000 };
                                 let honba_pts = (self.honba as i32) * 300;
@@ -929,7 +887,7 @@ impl GameState {
                             }
                         }
 
-                        let mut this_deltas = vec![0i32; np];
+                        let mut this_deltas = vec![0i32; NP];
                         this_deltas[w_pid as usize] += score;
                         this_deltas[pao_payer as usize] -= pao_amt as i32;
                         this_deltas[target_pid as usize] -= score - pao_amt as i32;
@@ -968,7 +926,6 @@ impl GameState {
                                 "deltas".to_string(),
                                 serde_json::to_value(this_deltas).unwrap(),
                             );
-
                             let mut ura_markers = Vec::new();
                             if self.players[w_pid as usize].riichi_declared {
                                 ura_markers = self._get_ura_markers();
@@ -977,7 +934,6 @@ impl GameState {
                                 "ura_markers".to_string(),
                                 serde_json::to_value(&ura_markers).unwrap(),
                             );
-
                             self._push_mjai_event(Value::Object(ev));
                         }
                     }
@@ -995,7 +951,7 @@ impl GameState {
                 self.is_first_turn = false;
                 self.players[claimer as usize].missed_agari_doujun = false;
 
-                for p in 0..np {
+                for p in 0..NP {
                     self.players[p].ippatsu_cycle = false;
                 }
 
@@ -1003,9 +959,8 @@ impl GameState {
                     self.current_player = claimer;
                     self.active_players = vec![claimer];
                     self.players[claimer as usize].forbidden_discards.clear();
-                    // Handled exclusively by _resolve_kan
                     self._resolve_kan(claimer, action.clone());
-                    return; // Skip the rest of claim handling (Pon/Chi)
+                    return;
                 }
 
                 for &t in &action.consume_tiles {
@@ -1023,8 +978,7 @@ impl GameState {
                 tiles.sort();
                 let meld_type = match action.action_type {
                     ActionType::Pon => MeldType::Pon,
-                    ActionType::Chi => MeldType::Chi,
-                    _ => MeldType::Chi, // Should not happen for this block anymore
+                    _ => MeldType::Pon,
                 };
                 self.players[claimer as usize].melds.push(Meld {
                     meld_type,
@@ -1037,25 +991,15 @@ impl GameState {
                 if !self.skip_mjai_logging {
                     let type_str = match action.action_type {
                         ActionType::Pon => Some("pon"),
-                        ActionType::Chi => Some("chi"),
                         ActionType::Daiminkan => Some("daiminkan"),
                         _ => None,
                     };
                     if let Some(s) = type_str {
                         let mut ev = serde_json::Map::new();
-                        ev.insert("type".to_string(), serde_json::Value::String(s.to_string()));
-                        ev.insert(
-                            "actor".to_string(),
-                            serde_json::Value::Number(claimer.into()),
-                        );
-                        ev.insert(
-                            "target".to_string(),
-                            serde_json::Value::Number(discarder.into()),
-                        );
-                        ev.insert(
-                            "pai".to_string(),
-                            serde_json::Value::String(tid_to_mjai(tile)),
-                        );
+                        ev.insert("type".to_string(), Value::String(s.to_string()));
+                        ev.insert("actor".to_string(), Value::Number(claimer.into()));
+                        ev.insert("target".to_string(), Value::Number(discarder.into()));
+                        ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
                         let cons_strs: Vec<String> = action
                             .consume_tiles
                             .iter()
@@ -1065,7 +1009,7 @@ impl GameState {
                             "consumed".to_string(),
                             serde_json::to_value(cons_strs).unwrap(),
                         );
-                        self._push_mjai_event(serde_json::Value::Object(ev));
+                        self._push_mjai_event(Value::Object(ev));
                     }
                 }
 
@@ -1109,27 +1053,6 @@ impl GameState {
 
                 if action.action_type == ActionType::Pon {
                     self.players[claimer as usize].forbidden_discards.push(tile);
-                } else if action.action_type == ActionType::Chi {
-                    self.players[claimer as usize].forbidden_discards.push(tile);
-                    let t34 = tile / 4;
-                    let mut consumed_34: Vec<u8> =
-                        action.consume_tiles.iter().map(|&x| x / 4).collect();
-                    consumed_34.sort();
-                    if consumed_34[0] == t34 + 1 && consumed_34[1] == t34 + 2 {
-                        if t34 % 9 <= 5 {
-                            self.players[claimer as usize]
-                                .forbidden_discards
-                                .push((t34 + 3) * 4);
-                        }
-                    } else if t34 >= 2
-                        && consumed_34[1] == t34 - 1
-                        && consumed_34[0] == t34 - 2
-                        && t34 % 9 >= 3
-                    {
-                        self.players[claimer as usize]
-                            .forbidden_discards
-                            .push((t34 - 3) * 4);
-                    }
                 }
 
                 if action.action_type == ActionType::Daiminkan {
@@ -1144,10 +1067,14 @@ impl GameState {
                 self.active_players.clear();
 
                 if let Some((pk_pid, pk_act)) = self.pending_kan.take() {
-                    self._resolve_kan(pk_pid, pk_act);
+                    if pk_act.action_type == ActionType::Kita {
+                        self.resolve_kita_rinshan(pk_pid);
+                    } else {
+                        self._resolve_kan(pk_pid, pk_act);
+                    }
                 } else {
                     self._accept_riichi();
-                    self.current_player = (self.current_player + 1) % np as u8;
+                    self.current_player = (self.current_player + 1) % NP as u8;
                     self._deal_next();
                 }
             }
@@ -1166,7 +1093,6 @@ impl GameState {
             .discard_is_riichi
             .push(riichi_stage);
 
-        // Track last tedashi (hand discard, not tsumogiri)
         if !tsumogiri {
             self.last_tedashis[pid as usize] = Some(tile);
         }
@@ -1190,7 +1116,6 @@ impl GameState {
             self._push_mjai_event(Value::Object(ev));
         }
 
-        // Reveal pending kan doras after dahai event (for daiminkan/kakan)
         while self.wall.pending_kan_dora_count > 0 {
             self.wall.pending_kan_dora_count -= 1;
             self._reveal_kan_dora();
@@ -1204,9 +1129,7 @@ impl GameState {
         let mut has_claims = false;
         let mut claim_active = Vec::new();
 
-        // Loop players for claim actions
-        let np = NP;
-        for i in 0..np as u8 {
+        for i in 0..NP as u8 {
             if i == pid {
                 continue;
             }
@@ -1229,7 +1152,7 @@ impl GameState {
                 self._accept_riichi();
             }
             if !self.check_abortive_draw() {
-                self.current_player = (pid + 1) % np as u8;
+                self.current_player = (pid + 1) % NP as u8;
                 self._deal_next();
                 if self.turn_count >= 4 {
                     self.is_first_turn = false;
@@ -1241,9 +1164,8 @@ impl GameState {
     pub fn _resolve_kan(&mut self, pid: u8, action: Action) {
         let p_idx = pid as usize;
         if action.action_type == ActionType::Kakan {
-            // Hand and melds were already updated in step() to keep observations in sync
+            // Already updated in step()
         } else {
-            // Ankan / Daiminkan
             for &t in &action.consume_tiles {
                 if let Some(idx) = self.players[p_idx].hand.iter().position(|&x| x == t) {
                     self.players[p_idx].hand.remove(idx);
@@ -1273,7 +1195,6 @@ impl GameState {
         }
 
         if self.wall.tiles.len() > 14 {
-            // Rinshan tiles are at the beginning of the wall vector (0-3)
             let t = self.wall.tiles.remove(0);
             self.players[p_idx].hand.push(t);
             self.drawn_tile = Some(t);
@@ -1284,7 +1205,7 @@ impl GameState {
                 let m_type = match action.action_type {
                     ActionType::Ankan => Some("ankan"),
                     ActionType::Daiminkan => Some("daiminkan"),
-                    ActionType::Kakan => None, // Logged in step()
+                    ActionType::Kakan => None,
                     _ => None,
                 };
                 if let Some(s) = m_type {
@@ -1313,10 +1234,7 @@ impl GameState {
                 }
             }
 
-            // Handle kan dora timing based on timing mode and kan type
-            // This applies to all kan types (ankan, daiminkan, kakan)
             let has_pending_doras = self.wall.pending_kan_dora_count > 0;
-
             match self.rule.kan_dora_timing {
                 crate::rule::KanDoraTimingMode::MajsoulImmediate => {
                     if action.action_type == ActionType::Ankan {
@@ -1331,9 +1249,6 @@ impl GameState {
                             self._reveal_kan_dora();
                         }
                     }
-
-                    // Tenhou: Ankan reveals before rinshan tsumo
-                    // Daiminkan/Kakan defer to before discard
                     if action.action_type == ActionType::Ankan {
                         self._reveal_kan_dora();
                     } else {
@@ -1343,7 +1258,6 @@ impl GameState {
             }
 
             if !self.skip_mjai_logging {
-                // Rinshan tsumo logging should apply to Kakan as well
                 let mut t_ev = serde_json::Map::new();
                 t_ev.insert("type".to_string(), Value::String("tsumo".to_string()));
                 t_ev.insert("actor".to_string(), Value::Number(pid.into()));
@@ -1407,7 +1321,6 @@ impl GameState {
 
         let np: u8 = NP as u8;
 
-        // Tobi (bankruptcy) check: game ends if any player has negative score
         if self.players.iter().any(|p| p.score < 0) {
             self._process_end_game();
             return;
@@ -1434,21 +1347,24 @@ impl GameState {
         }
 
         match self.game_mode {
-            1 | 4 => {
+            4 => {
+                // 3p-red-east
                 let max_score = self.players.iter().map(|p| p.score).max().unwrap_or(0);
                 if next_round_wind >= 1 && (max_score >= 30000 || next_round_wind > 1) {
                     self._process_end_game();
                     return;
                 }
             }
-            2 | 5 => {
+            5 => {
+                // 3p-red-half
                 let max_score = self.players.iter().map(|p| p.score).max().unwrap_or(0);
                 if next_round_wind >= 2 && (max_score >= 30000 || next_round_wind > 2) {
                     self._process_end_game();
                     return;
                 }
             }
-            0 | 3 => {
+            3 => {
+                // 3p-red-single
                 self._process_end_game();
                 return;
             }
@@ -1467,7 +1383,6 @@ impl GameState {
         }
 
         let next_scores: Vec<i32> = self.players.iter().map(|p| p.score).collect();
-
         let next_sticks = self.riichi_sticks;
         self._initialize_round(
             next_oya,
@@ -1488,7 +1403,6 @@ impl GameState {
         wall: Option<Vec<u8>>,
         scores: Option<Vec<i32>>,
     ) {
-        let np = NP;
         self.oya = oya;
         self.kyoku_idx = oya;
         self.current_player = oya;
@@ -1516,8 +1430,8 @@ impl GameState {
         self.win_results.clear();
         self.last_win_results.clear();
         self.round_end_scores = None;
-        self.riichi_sutehais = vec![None; np];
-        self.last_tedashis = vec![None; np];
+        self.riichi_sutehais = vec![None; NP];
+        self.last_tedashis = vec![None; NP];
 
         if let Some(s) = scores {
             for (i, &sc) in s.iter().enumerate() {
@@ -1535,8 +1449,8 @@ impl GameState {
 
         // Deal logic
         for _ in 0..3 {
-            for idx in 0..np {
-                let p = (idx + oya as usize) % np;
+            for idx in 0..NP {
+                let p = (idx + oya as usize) % NP;
                 for _ in 0..4 {
                     if let Some(t) = self.wall.tiles.pop() {
                         self.players[p].hand.push(t);
@@ -1544,8 +1458,8 @@ impl GameState {
                 }
             }
         }
-        for idx in 0..np {
-            let p = (idx + oya as usize) % np;
+        for idx in 0..NP {
+            let p = (idx + oya as usize) % NP;
             if let Some(t) = self.wall.tiles.pop() {
                 self.players[p].hand.push(t);
             }
@@ -1577,14 +1491,12 @@ impl GameState {
                 "dora_marker".to_string(),
                 Value::String(tid_to_mjai(self.wall.dora_indicators[0])),
             );
-
             let mut tehais = Vec::new();
             for p in &self.players {
                 let hand_strs: Vec<String> = p.hand.iter().map(|&t| tid_to_mjai(t)).collect();
                 tehais.push(hand_strs);
             }
             ev.insert("tehais".to_string(), serde_json::to_value(tehais).unwrap());
-
             self._push_mjai_event(Value::Object(ev));
         }
 
@@ -1592,7 +1504,6 @@ impl GameState {
         self.phase = Phase::WaitAct;
         self.active_players = vec![self.oya];
 
-        // Draw 14th tile for Oya
         if let Some(t) = self.wall.tiles.pop() {
             self.players[self.oya as usize].hand.push(t);
             self.drawn_tile = Some(t);
@@ -1614,8 +1525,7 @@ impl GameState {
     pub fn _trigger_ryukyoku(&mut self, reason: &str) {
         self._accept_riichi();
 
-        let np = NP;
-        let mut tenpai = vec![false; np];
+        let mut tenpai = vec![false; NP];
         let mut final_reason = reason.to_string();
         let mut nagashi_winners = Vec::new();
 
@@ -1636,11 +1546,11 @@ impl GameState {
             if !nagashi_winners.is_empty() {
                 final_reason = "nagashimangan".to_string();
             } else {
-                let tenpai_pool = 3000;
+                let tenpai_pool = game_mode::tenpai_pool();
                 let num_tp = tenpai.iter().filter(|&&t| t).count();
-                if num_tp > 0 && num_tp < np {
+                if num_tp > 0 && num_tp < NP {
                     let pk = tenpai_pool / num_tp as i32;
-                    let pn = tenpai_pool / (np - num_tp) as i32;
+                    let pn = tenpai_pool / (NP - num_tp) as i32;
                     for (i, tp) in tenpai.iter().enumerate() {
                         let delta = if *tp { pk } else { -pn };
                         self.players[i].score += delta;
@@ -1650,12 +1560,12 @@ impl GameState {
             }
         } else if let Some(stripped) = reason.strip_prefix("Error: Illegal Action by Player ") {
             if let Ok(pid) = stripped.parse::<usize>() {
-                if pid < np {
+                if pid < NP {
                     let is_offender_oya = (pid as u8) == self.oya;
                     if is_offender_oya {
-                        let penalty = 4000 * (np as i32 - 1);
-                        let each_get = penalty / (np as i32 - 1);
-                        for i in 0..np {
+                        let penalty = 4000 * (NP as i32 - 1);
+                        let each_get = penalty / (NP as i32 - 1);
+                        for i in 0..NP {
                             if i == pid {
                                 self.players[i].score -= penalty;
                                 self.players[i].score_delta = -penalty;
@@ -1665,8 +1575,8 @@ impl GameState {
                             }
                         }
                     } else {
-                        let total_penalty = 4000 + 2000 * (np as i32 - 2);
-                        for i in 0..np {
+                        let total_penalty = 4000 + 2000 * (NP as i32 - 2);
+                        for i in 0..NP {
                             if i == pid {
                                 self.players[i].score -= total_penalty;
                                 self.players[i].score_delta = -total_penalty;
@@ -1704,7 +1614,7 @@ impl GameState {
     }
 
     fn check_abortive_draw(&mut self) -> bool {
-        // 1. Sufuurenta (Four Winds)
+        // 1. Sufuurenta (Three/Four Winds) - in 3P it's 3 winds
         let turns_ok = self.players.iter().all(|p| p.discards.len() == 1);
         let melds_empty = self.players.iter().all(|p| p.melds.is_empty());
 
@@ -1727,9 +1637,9 @@ impl GameState {
         let mut kan_owners = Vec::new();
         for (pid, p) in self.players.iter().enumerate() {
             for m in &p.melds {
-                if m.meld_type == crate::types::MeldType::Daiminkan
-                    || m.meld_type == crate::types::MeldType::Ankan
-                    || m.meld_type == crate::types::MeldType::Kakan
+                if m.meld_type == MeldType::Daiminkan
+                    || m.meld_type == MeldType::Ankan
+                    || m.meld_type == MeldType::Kakan
                 {
                     kan_owners.push(pid);
                 }
@@ -1744,7 +1654,7 @@ impl GameState {
             }
         }
 
-        // 3. Suucha Riichi (Four Riichis)
+        // 3. Suucha Riichi (All Riichis)
         if self.players.iter().all(|p| p.riichi_declared) {
             self._trigger_ryukyoku("suucha_riichi");
             return true;
@@ -1756,8 +1666,6 @@ impl GameState {
     pub fn _reveal_kan_dora(&mut self) {
         let count = self.wall.dora_indicators.len();
         if count < 5 {
-            // Base indices for Omote Dora are 4, 6, 8, 10, 12 in the wall
-            // Since we use remove(0) for Rinshan draws, the indices shift down.
             let base_idx = (4 + 2 * count).saturating_sub(self.wall.rinshan_draw_count as usize);
             if base_idx < self.wall.tiles.len() {
                 self.wall.dora_indicators.push(self.wall.tiles[base_idx]);
@@ -1779,8 +1687,7 @@ impl GameState {
     pub fn _get_ura_markers(&self) -> Vec<String> {
         let mut markers = Vec::new();
         for i in 0..self.wall.dora_indicators.len() {
-            let idx = (5 + 2 * i).saturating_sub(self.wall.rinshan_draw_count as usize); // Ura is next to front.
-                                                                                         // Original: `self.wall[5 + 2*i]`
+            let idx = (5 + 2 * i).saturating_sub(self.wall.rinshan_draw_count as usize);
             if idx < self.wall.tiles.len() {
                 markers.push(tid_to_mjai(self.wall.tiles[idx]));
             }
@@ -1798,15 +1705,15 @@ impl GameState {
     }
 
     pub fn apply_mjai_event(&mut self, event: MjaiEvent) {
-        <Self as GameStateEventHandler>::apply_mjai_event(self, event)
+        <Self as GameState3PEventHandler>::apply_mjai_event(self, event)
     }
 
     pub fn apply_log_action(&mut self, action: &LogAction) {
-        <Self as GameStateEventHandler>::apply_log_action(self, action)
+        <Self as GameState3PEventHandler>::apply_log_action(self, action)
     }
 }
 
-impl GameState {
+impl GameState3P {
     pub fn _push_mjai_event(&mut self, event: Value) {
         if self.skip_mjai_logging {
             return;
@@ -1817,8 +1724,7 @@ impl GameState {
         let type_str = event["type"].as_str().unwrap_or("");
         let actor = event["actor"].as_u64().map(|a| a as usize);
 
-        let np = NP;
-        for pid in 0..np {
+        for pid in 0..NP {
             let should_push = true;
             let mut final_json = json_str.clone();
 

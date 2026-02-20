@@ -1,19 +1,19 @@
 use crate::action::Phase;
 use crate::parser::mjai_to_tid;
 use crate::replay::{Action as LogAction, MjaiEvent};
-use crate::state::GameState;
+use crate::state_3p::GameState3P;
 use crate::types::{Meld, MeldType, Wind};
 
 fn parse_mjai_tile(s: &str) -> u8 {
     mjai_to_tid(s).unwrap_or(0)
 }
 
-pub trait GameStateEventHandler {
+pub trait GameState3PEventHandler {
     fn apply_mjai_event(&mut self, event: MjaiEvent);
     fn apply_log_action(&mut self, action: &LogAction);
 }
 
-impl GameStateEventHandler for GameState {
+impl GameState3PEventHandler for GameState3P {
     fn apply_mjai_event(&mut self, event: MjaiEvent) {
         match event {
             MjaiEvent::StartKyoku {
@@ -26,7 +26,6 @@ impl GameStateEventHandler for GameState {
                 oya,
                 ..
             } => {
-                // Initialize round state from event
                 self.honba = honba;
                 self.riichi_sticks = kyoutaku as u32;
                 self.players.iter_mut().enumerate().for_each(|(i, p)| {
@@ -42,7 +41,6 @@ impl GameStateEventHandler for GameState {
                 self.oya = oya;
                 self.wall.dora_indicators = vec![parse_mjai_tile(&dora_marker)];
 
-                // Set hands
                 for (i, hand_strs) in tehais.iter().enumerate() {
                     let mut hand = Vec::new();
                     for tile_str in hand_strs {
@@ -52,7 +50,6 @@ impl GameStateEventHandler for GameState {
                     self.players[i].hand = hand;
                 }
 
-                // Clear other state
                 for p in &mut self.players {
                     p.discards.clear();
                     p.melds.clear();
@@ -60,7 +57,7 @@ impl GameStateEventHandler for GameState {
                     p.riichi_stage = false;
                 }
                 self.drawn_tile = None;
-                self.current_player = self.oya; // Oya starts
+                self.current_player = self.oya;
                 self.needs_tsumo = true;
                 self.is_done = false;
             }
@@ -124,6 +121,7 @@ impl GameStateEventHandler for GameState {
                 consumed,
                 ..
             } => {
+                // Chi shouldn't happen in 3P, but handle gracefully
                 let tile = parse_mjai_tile(&pai);
                 self.current_player = actor as u8;
                 let c1 = parse_mjai_tile(&consumed[0]);
@@ -219,8 +217,17 @@ impl GameStateEventHandler for GameState {
                 let tile = parse_mjai_tile(&dora_marker);
                 self.wall.dora_indicators.push(tile);
             }
-            MjaiEvent::Kita { .. } => {
-                // Kita is 3P only; ignored in 4P event handler
+            MjaiEvent::Kita { actor } => {
+                let north_id = 30;
+                if let Some(idx) = self.players[actor]
+                    .hand
+                    .iter()
+                    .position(|&t| t / 4 == north_id)
+                {
+                    let tile = self.players[actor].hand.remove(idx);
+                    self.players[actor].kita_tiles.push(tile);
+                }
+                self.needs_tsumo = true;
             }
             MjaiEvent::Hora { .. } | MjaiEvent::Ryukyoku { .. } | MjaiEvent::EndKyoku => {
                 self.is_done = true;
@@ -230,6 +237,7 @@ impl GameStateEventHandler for GameState {
     }
 
     fn apply_log_action(&mut self, action: &LogAction) {
+        let np: u8 = 3;
         match action {
             LogAction::DiscardTile {
                 seat,
@@ -263,7 +271,7 @@ impl GameStateEventHandler for GameState {
                     self.players[s].riichi_declaration_index =
                         Some(self.players[s].discards.len() - 1);
                 }
-                self.current_player = (s as u8 + 1) % 4;
+                self.current_player = (s as u8 + 1) % np;
                 self.phase = Phase::WaitAct;
                 self.active_players = vec![self.current_player];
                 self.needs_tsumo = true;
@@ -290,7 +298,6 @@ impl GameStateEventHandler for GameState {
                 tiles,
                 froms,
             } => {
-                // Remove tiles from hand
                 for (i, t) in tiles.iter().enumerate() {
                     if i < froms.len() && froms[i] == *seat {
                         if let Some(idx) = self.players[*seat].hand.iter().position(|&x| x == *t) {

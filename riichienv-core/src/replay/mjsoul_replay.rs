@@ -252,7 +252,7 @@ impl MjSoulReplay {
                 last.ben,
                 last.liqibang as u32,
                 None, // No left tile count override needed for score calc
-                Some(initial_scores),
+                Some(initial_scores.to_vec()),
             );
 
             // Apply all actions

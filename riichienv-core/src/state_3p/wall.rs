@@ -2,9 +2,11 @@ use rand::prelude::*;
 use rand::rngs::StdRng;
 use sha2::{Digest, Sha256};
 
-/// Wall state for 4-player mahjong (136 tiles).
+use crate::types::is_sanma_excluded_tile;
+
+/// Wall state for 3-player mahjong (108 tiles, sanma hardcoded).
 #[derive(Debug, Clone)]
-pub struct WallState {
+pub struct WallState3P {
     pub tiles: Vec<u8>,
     pub dora_indicators: Vec<u8>,
     pub rinshan_draw_count: u8,
@@ -15,7 +17,7 @@ pub struct WallState {
     pub hand_index: u64,
 }
 
-impl WallState {
+impl WallState3P {
     pub fn new(seed: Option<u64>) -> Self {
         Self {
             tiles: Vec::new(),
@@ -30,7 +32,11 @@ impl WallState {
     }
 
     pub fn shuffle(&mut self) {
-        let mut w: Vec<u8> = (0..136).collect();
+        // 3P: 108 tiles (no 2m-8m)
+        let mut w: Vec<u8> = (0..136u8)
+            .filter(|&t| !is_sanma_excluded_tile(t))
+            .collect();
+
         let mut rng = if let Some(episode_seed) = self.seed {
             let hand_seed = splitmix64(episode_seed.wrapping_add(self.hand_index));
             self.hand_index = self.hand_index.wrapping_add(1);
@@ -43,6 +49,7 @@ impl WallState {
         w.shuffle(&mut rng);
         self.salt = format!("{:016x}", rng.next_u64());
 
+        // Calculate digest
         let mut hasher = Sha256::new();
         hasher.update(self.salt.as_bytes());
         for &t in &w {

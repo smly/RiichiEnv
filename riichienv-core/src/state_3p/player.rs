@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::types::Meld;
 
 #[derive(Debug, Clone)]
-pub struct PlayerState {
+pub struct PlayerState3P {
     pub hand: Vec<u8>,
     pub melds: Vec<Meld>,
     pub discards: Vec<u8>,
@@ -25,7 +25,7 @@ pub struct PlayerState {
     pub kita_tiles: Vec<u8>,
 }
 
-impl PlayerState {
+impl PlayerState3P {
     pub fn new(starting_score: i32) -> Self {
         Self {
             hand: Vec::new(),
@@ -67,7 +67,6 @@ impl PlayerState {
         self.forbidden_discards.clear();
         self.mjai_log.clear();
         self.kita_tiles.clear();
-        // pao is usually cleared? Original code: self.pao = [HashMap::new(); 4]; in _initialize_round
         self.pao.clear();
     }
 }
