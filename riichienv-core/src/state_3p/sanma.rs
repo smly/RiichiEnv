@@ -18,6 +18,14 @@ impl GameState3P {
         // Add to kita_tiles
         self.players[p_idx].kita_tiles.push(tile);
 
+        // Kita declaration breaks first-turn status (invalidates Tenhou/Chiihou)
+        self.is_first_turn = false;
+
+        // Kita declaration breaks ippatsu for all players
+        for p in &mut self.players {
+            p.ippatsu_cycle = false;
+        }
+
         // Log kita event
         if !self.skip_mjai_logging {
             let mut ev = serde_json::Map::new();

@@ -667,7 +667,7 @@ fn apply_static_yaku(res: &mut YakuResult, ctx: &YakuContext3P) {
         res.han += 1;
         res.yaku_ids.push(ID_IPPATSU);
     }
-    // Menzen Tsumo (same rule as 4P in MjSoul sanma)
+    // Menzen Tsumo
     if ctx.is_menzen && ctx.is_tsumo {
         res.han += 1;
         res.yaku_ids.push(ID_TSUMO);

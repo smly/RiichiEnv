@@ -1154,9 +1154,10 @@ impl GameState3P {
                 self._accept_riichi();
             }
             if !self.check_abortive_draw() {
+                self.turn_count += 1;
                 self.current_player = (pid + 1) % NP as u8;
                 self._deal_next();
-                if self.turn_count >= 4 {
+                if self.turn_count >= NP as u32 {
                     self.is_first_turn = false;
                 }
             }
