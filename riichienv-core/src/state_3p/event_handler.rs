@@ -507,9 +507,7 @@ impl GameState3PEventHandler for GameState3P {
                                     1
                                 };
                                 total_yakuman_val += val;
-                                if let Some(&liable) =
-                                    self.players[winner].pao.get(&(yid as u8))
-                                {
+                                if let Some(&liable) = self.players[winner].pao.get(&(yid as u8)) {
                                     pao_yakuman_val += val;
                                     pao_payer = Some(liable);
                                 }
@@ -524,8 +522,7 @@ impl GameState3PEventHandler for GameState3P {
                                 h.point_zimo_xian as i32 * (np as i32 - 1)
                             } else {
                                 // Ko: oya pays qin, each other ko pays xian
-                                h.point_zimo_qin as i32
-                                    + h.point_zimo_xian as i32 * (np as i32 - 2)
+                                h.point_zimo_qin as i32 + h.point_zimo_xian as i32 * (np as i32 - 2)
                             };
                             let pao_amt = if total_yakuman_val > 0 {
                                 tsumo_total * pao_yakuman_val / total_yakuman_val
@@ -547,13 +544,9 @@ impl GameState3PEventHandler for GameState3P {
                                             non_pao_amt / (np as i32 - 1)
                                         } else if (i as u8) == self.oya {
                                             // Approximate: qin share
-                                            h.point_zimo_qin as i32
-                                                * non_pao_amt
-                                                / tsumo_total
+                                            h.point_zimo_qin as i32 * non_pao_amt / tsumo_total
                                         } else {
-                                            h.point_zimo_xian as i32
-                                                * non_pao_amt
-                                                / tsumo_total
+                                            h.point_zimo_xian as i32 * non_pao_amt / tsumo_total
                                         };
                                         self.players[i].score -= share;
                                         self.players[winner].score += share;
@@ -606,9 +599,7 @@ impl GameState3PEventHandler for GameState3P {
                                     1
                                 };
                                 total_yakuman_val += val;
-                                if let Some(&liable) =
-                                    self.players[winner].pao.get(&(yid as u8))
-                                {
+                                if let Some(&liable) = self.players[winner].pao.get(&(yid as u8)) {
                                     pao_yakuman_val += val;
                                     pao_payer = Some(liable);
                                 }
@@ -619,21 +610,19 @@ impl GameState3PEventHandler for GameState3P {
                             let pp = pao_payer.unwrap_or(discarder);
                             let ron_total = h.point_rong as i32;
                             let pao_amt = ron_total * pao_yakuman_val / total_yakuman_val;
-                            let honba_pts =
-                                ron_honba as i32 * (np as i32 - 1) * 100;
+                            let honba_pts = ron_honba as i32 * (np as i32 - 1) * 100;
 
                             // PAO ron: split between pao payer and discarder
                             let pao_share = pao_amt / 2 + honba_pts;
-                            let discarder_share =
-                                ron_total - pao_amt / 2;
+                            let discarder_share = ron_total - pao_amt / 2;
 
                             self.players[pp as usize].score -= pao_share;
                             self.players[discarder as usize].score -= discarder_share;
                             self.players[winner].score += pao_share + discarder_share;
                         } else {
                             // Standard ron
-                            let pay = h.point_rong as i32
-                                + ron_honba as i32 * (np as i32 - 1) * 100;
+                            let pay =
+                                h.point_rong as i32 + ron_honba as i32 * (np as i32 - 1) * 100;
                             self.players[discarder as usize].score -= pay;
                             self.players[winner].score += pay;
                         }
@@ -668,14 +657,12 @@ impl GameState3PEventHandler for GameState3P {
                     // Nagashi mangan: apply mangan tsumo payment (no honba)
                     for &w in &nagashi_winners {
                         let is_oya = w == self.oya;
-                        let score_res =
-                            crate::score::calculate_score(5, 30, is_oya, true, 0, np);
+                        let score_res = crate::score::calculate_score(5, 30, is_oya, true, 0, np);
                         if is_oya {
                             for i in 0..np as usize {
                                 if i as u8 != w {
                                     self.players[i].score -= score_res.pay_tsumo_ko as i32;
-                                    self.players[w as usize].score +=
-                                        score_res.pay_tsumo_ko as i32;
+                                    self.players[w as usize].score += score_res.pay_tsumo_ko as i32;
                                 }
                             }
                         } else {
@@ -697,8 +684,7 @@ impl GameState3PEventHandler for GameState3P {
                     let mut tenpai = [false; 3];
                     for (i, p) in self.players.iter().enumerate() {
                         if i < 3 {
-                            let calc =
-                                HandEvaluator3P::new(p.hand.clone(), p.melds.clone());
+                            let calc = HandEvaluator3P::new(p.hand.clone(), p.melds.clone());
                             tenpai[i] = calc.is_tenpai();
                         }
                     }

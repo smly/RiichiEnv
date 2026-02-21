@@ -847,9 +847,10 @@ impl GameState3P {
                     let p_wind = (w_pid + NP as u8 - self.oya) % NP as u8;
                     // Chankan yaku applies to kakan/ankan, but NOT to kita (BaBei).
                     // MjSoul allows ron on kita tiles but does not award chankan yaku.
-                    let is_chankan = self.pending_kan.as_ref().is_some_and(|(_, act)| {
-                        act.action_type != ActionType::Kita
-                    });
+                    let is_chankan = self
+                        .pending_kan
+                        .as_ref()
+                        .is_some_and(|(_, act)| act.action_type != ActionType::Kita);
 
                     // Only the first winner (closest to discarder) gets honba
                     let ron_honba = if !honba_taken {
