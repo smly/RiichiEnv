@@ -412,6 +412,7 @@ impl GameStateEventHandler for GameState {
 
                 let honba = self.honba;
                 let riichi_on_table = self.riichi_sticks;
+                let mut honba_taken = false;
 
                 for h in hules {
                     let winner = h.seat;
@@ -434,7 +435,14 @@ impl GameStateEventHandler for GameState {
                             }
                         }
                     } else if let Some((discarder, _)) = self.last_discard {
-                        let pay = h.point_rong as i32 + honba as i32 * 300;
+                        // Only the first ron winner gets the honba bonus
+                        let ron_honba = if !honba_taken {
+                            honba_taken = true;
+                            honba
+                        } else {
+                            0
+                        };
+                        let pay = h.point_rong as i32 + ron_honba as i32 * 300;
                         self.players[discarder as usize].score -= pay;
                         self.players[winner].score += pay;
                     }
