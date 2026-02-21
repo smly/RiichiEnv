@@ -14,7 +14,7 @@ use super::Observation;
 impl Observation {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (player_id, hands, melds, discards, dora_indicators, scores, riichi_declared, legal_actions, events, honba, riichi_sticks, round_wind, oya, kyoku_index, waits, is_tenpai, riichi_sutehais, last_tedashis, last_discard, num_players=4))]
+    #[pyo3(signature = (player_id, hands, melds, discards, dora_indicators, scores, riichi_declared, legal_actions, events, honba, riichi_sticks, round_wind, oya, kyoku_index, waits, is_tenpai, riichi_sutehais, last_tedashis, last_discard))]
     pub fn py_new(
         player_id: u8,
         hands: Vec<Vec<u8>>,
@@ -35,7 +35,6 @@ impl Observation {
         riichi_sutehais: Vec<Option<u8>>,
         last_tedashis: Vec<Option<u8>>,
         last_discard: Option<u32>,
-        num_players: u8,
     ) -> Self {
         Self::new(
             player_id,
@@ -57,7 +56,6 @@ impl Observation {
             riichi_sutehais,
             last_tedashis,
             last_discard,
-            num_players,
         )
     }
 

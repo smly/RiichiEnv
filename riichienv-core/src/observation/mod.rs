@@ -39,7 +39,6 @@ pub struct Observation {
     pub riichi_sutehais: Vec<Option<u8>>,
     pub last_tedashis: Vec<Option<u8>>,
     pub last_discard: Option<u32>,
-    pub num_players: u8,
 }
 
 /// Pure Rust methods (no PyO3 dependency).
@@ -65,7 +64,6 @@ impl Observation {
         riichi_sutehais: Vec<Option<u8>>,
         last_tedashis: Vec<Option<u8>>,
         last_discard: Option<u32>,
-        num_players: u8,
     ) -> Self {
         let hands_u32 = hands
             .iter()
@@ -94,11 +92,10 @@ impl Observation {
             kyoku_index,
             waits,
             is_tenpai,
-            tsumogiri_flags: vec![vec![]; num_players as usize],
+            tsumogiri_flags: vec![vec![]; 4],
             riichi_sutehais,
             last_tedashis,
             last_discard,
-            num_players,
         }
     }
 

@@ -5,6 +5,9 @@ use crate::types::{Meld, MeldType};
 use super::helpers::{add_val, broadcast_scalar, get_next_tile, set_val};
 use super::Observation;
 
+/// Number of players (4P-only; 3P uses observation_3p).
+const NP: u8 = 4;
+
 /// Internal (non-PyO3) methods that write features directly into a flat f32 buffer.
 /// Buffer layout: channel-major, buf[(ch_offset + ch) * 34 + tile] = value.
 impl Observation {
@@ -82,8 +85,8 @@ impl Observation {
         }
 
         // Opponents discards last 4 (ch 14-25)
-        for i in 1..self.num_players {
-            let opp_id = (self.player_id + i) % self.num_players;
+        for i in 1..NP {
+            let opp_id = (self.player_id + i) % NP;
             if (opp_id as usize) < self.discards.len() {
                 let discs = &self.discards[opp_id as usize];
                 for (j, &t) in discs.iter().rev().take(4).enumerate() {
@@ -129,8 +132,8 @@ impl Observation {
         {
             broadcast_scalar(buf, ch_offset, 31, 1.0);
         }
-        for i in 1..self.num_players {
-            let opp_id = (self.player_id + i) % self.num_players;
+        for i in 1..NP {
+            let opp_id = (self.player_id + i) % NP;
             if (opp_id as usize) < self.riichi_declared.len()
                 && self.riichi_declared[opp_id as usize]
             {
@@ -143,7 +146,7 @@ impl Observation {
         if 27 + rw < 34 {
             set_val(buf, ch_offset, 35, 27 + rw, 1.0);
         }
-        let np = self.num_players;
+        let np = NP;
         let seat = (self.player_id + np - self.oya) % np;
         if 27 + (seat as usize) < 34 {
             set_val(buf, ch_offset, 36, 27 + (seat as usize), 1.0);
@@ -322,7 +325,7 @@ impl Observation {
     /// Write 4 discard history decay channels into buf starting at ch_offset.
     pub(crate) fn encode_discard_decay_into(&self, buf: &mut [f32], ch_offset: usize) {
         let decay_rate = 0.2f32;
-        for player_idx in 0..self.num_players as usize {
+        for player_idx in 0..NP as usize {
             if player_idx >= self.discards.len() {
                 continue;
             }
@@ -356,7 +359,7 @@ impl Observation {
         }
         all_visible.extend(self.dora_indicators.iter().copied());
 
-        for player_idx in 0..self.num_players as usize {
+        for player_idx in 0..NP as usize {
             if player_idx >= self.hands.len() {
                 continue;
             }
@@ -563,7 +566,7 @@ impl Observation {
             .collect();
 
         let mut opp_idx = 0;
-        for player_id in 0..self.num_players as usize {
+        for player_id in 0..NP as usize {
             if player_id == self.player_id as usize {
                 continue;
             }
@@ -600,7 +603,7 @@ impl Observation {
             .collect();
 
         let mut opp_idx = 0;
-        for player_id in 0..self.num_players as usize {
+        for player_id in 0..NP as usize {
             if player_id == self.player_id as usize {
                 continue;
             }
@@ -740,7 +743,7 @@ impl Observation {
             true
         };
 
-        let seat = (self.player_id + self.num_players - self.oya) % self.num_players;
+        let seat = (self.player_id + NP - self.oya) % NP;
         let is_oya = seat == 0;
         let round_wind_tile = 27 + self.round_wind;
         let seat_wind_tile = 27 + seat;

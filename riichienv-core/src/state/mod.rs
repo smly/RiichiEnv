@@ -221,7 +221,6 @@ impl GameState {
             self.riichi_sutehais.to_vec(),
             self.last_tedashis.to_vec(),
             self.last_discard.map(|(tile, _pid)| tile as u32),
-            NP as u8,
         )
     }
 
