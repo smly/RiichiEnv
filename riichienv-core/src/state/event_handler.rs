@@ -261,6 +261,9 @@ impl GameStateEventHandler for GameState {
                 if *is_liqi || *is_wliqi {
                     if !self.players[s].riichi_declared {
                         self.players[s].riichi_declared = true;
+                        if *is_wliqi {
+                            self.players[s].double_riichi_declared = true;
+                        }
                         // Defer the 1000 deposit; it gets voided if this
                         // discard is ronned, otherwise finalized on the next
                         // DealTile / ChiPengGang.

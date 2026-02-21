@@ -266,8 +266,11 @@ impl GameState3PEventHandler for GameState3P {
                 self.last_discard = Some((s as u8, t));
                 self.drawn_tile = None;
 
-                self.players[s].riichi_declared = self.players[s].riichi_declared || *is_liqi;
-                if *is_liqi {
+                self.players[s].riichi_declared = self.players[s].riichi_declared || *is_liqi || *is_wliqi;
+                if *is_wliqi {
+                    self.players[s].double_riichi_declared = true;
+                }
+                if *is_liqi || *is_wliqi {
                     self.players[s].riichi_declaration_index =
                         Some(self.players[s].discards.len() - 1);
                 }

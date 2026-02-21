@@ -1142,6 +1142,9 @@ impl GameState3P {
 
         if self.players[pid as usize].riichi_stage {
             self.players[pid as usize].riichi_declared = true;
+            if self.is_first_turn {
+                self.players[pid as usize].double_riichi_declared = true;
+            }
             self.players[pid as usize].riichi_declaration_index =
                 Some(self.players[pid as usize].discards.len() - 1);
             self.players[pid as usize].riichi_stage = false;
