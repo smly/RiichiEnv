@@ -623,8 +623,7 @@ impl GameStateEventHandler for GameState {
                             for i in 0..np {
                                 if i as u8 != w {
                                     self.players[i].score -= score_res.pay_tsumo_ko as i32;
-                                    self.players[w as usize].score +=
-                                        score_res.pay_tsumo_ko as i32;
+                                    self.players[w as usize].score += score_res.pay_tsumo_ko as i32;
                                 }
                             }
                         } else {
