@@ -853,12 +853,12 @@ impl Observation3P {
             let hand = &self.hands[player_idx];
 
             if player_idx == self.player_id as usize {
-                let shanten = crate::shanten::calculate_shanten(hand);
-                let effective = crate::shanten::calculate_effective_tiles(hand);
-                let best_ukeire = crate::shanten::calculate_best_ukeire(hand, &all_visible);
+                let shanten = crate::shanten::calculate_shanten_3p(hand);
+                let effective = crate::shanten::calculate_effective_tiles_3p(hand);
+                let best_ukeire = crate::shanten::calculate_best_ukeire_3p(hand, &all_visible);
 
                 arr[[player_idx, 0]] = (shanten as f32).max(0.0) / 8.0;
-                arr[[player_idx, 1]] = (effective as f32) / 34.0;
+                arr[[player_idx, 1]] = (effective as f32) / 27.0;
                 arr[[player_idx, 2]] = (best_ukeire as f32) / 80.0;
             } else {
                 arr[[player_idx, 0]] = 0.5;
@@ -1201,7 +1201,7 @@ impl Observation3P {
         }
 
         let hand = &self.hands[player_idx];
-        let current_shanten = shanten::calculate_shanten(hand);
+        let current_shanten = shanten::calculate_shanten_3p(hand);
 
         arr[0] = hand.len() as f32 / 34.0;
 
@@ -1216,7 +1216,7 @@ impl Observation3P {
                 .map(|(_, &t)| t)
                 .collect();
 
-            let new_shanten = shanten::calculate_shanten(&new_hand);
+            let new_shanten = shanten::calculate_shanten_3p(&new_hand);
 
             if new_shanten == current_shanten {
                 keep_shanten_count += 1;

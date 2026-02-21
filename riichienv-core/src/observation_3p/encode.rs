@@ -365,12 +365,12 @@ impl Observation3P {
 
             if player_idx == self.player_id as usize {
                 let hand = &self.hands[player_idx];
-                let shanten_val = shanten::calculate_shanten(hand);
-                let effective = shanten::calculate_effective_tiles(hand);
-                let best_ukeire = shanten::calculate_best_ukeire(hand, &all_visible);
+                let shanten_val = shanten::calculate_shanten_3p(hand);
+                let effective = shanten::calculate_effective_tiles_3p(hand);
+                let best_ukeire = shanten::calculate_best_ukeire_3p(hand, &all_visible);
 
                 broadcast_scalar(buf, ch_offset, base_ch, (shanten_val as f32).max(0.0) / 8.0);
-                broadcast_scalar(buf, ch_offset, base_ch + 1, (effective as f32) / 34.0);
+                broadcast_scalar(buf, ch_offset, base_ch + 1, (effective as f32) / 27.0);
                 broadcast_scalar(buf, ch_offset, base_ch + 2, (best_ukeire as f32) / 80.0);
             } else {
                 broadcast_scalar(buf, ch_offset, base_ch, 0.5);
@@ -478,7 +478,7 @@ impl Observation3P {
         }
 
         let hand = &self.hands[player_idx];
-        let current_shanten = shanten::calculate_shanten(hand);
+        let current_shanten = shanten::calculate_shanten_3p(hand);
 
         broadcast_scalar(buf, ch_offset, 0, hand.len() as f32 / 34.0);
 
@@ -491,7 +491,7 @@ impl Observation3P {
                 .filter(|(i, _)| *i != idx)
                 .map(|(_, &t)| t)
                 .collect();
-            let new_shanten = shanten::calculate_shanten(&new_hand);
+            let new_shanten = shanten::calculate_shanten_3p(&new_hand);
             if new_shanten == current_shanten {
                 keep_count += 1;
             } else if new_shanten > current_shanten {

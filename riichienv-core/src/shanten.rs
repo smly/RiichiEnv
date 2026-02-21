@@ -238,6 +238,14 @@ pub fn calc_shanten_from_counts(tehai: &[u8; TILE_MAX], tehai_len_div3: u8) -> i
     }
 }
 
+/// Valid tile types for 3-player mahjong (sanma): 1m, 9m, 1-9p, 1-9s, 7 honor tiles.
+/// Excludes 2m-8m (tile types 1-7) which don't exist in sanma.
+#[cfg(feature = "python")]
+const SANMA_VALID_TILE_TYPES: [u32; 27] = [
+    0, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+    31, 32, 33,
+];
+
 /// Calculate shanten from 136-tile ID hand.
 #[cfg(feature = "python")]
 pub fn calculate_shanten(hand_tiles: &[u32]) -> i32 {
@@ -307,6 +315,81 @@ pub fn calculate_best_ukeire(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
 
         let mut ukeire = 0;
         for tile_type in 0..34 {
+            let mut test_hand = new_hand.clone();
+            test_hand.push(tile_type * 4);
+            let test_shanten = calculate_shanten(&test_hand);
+
+            if test_shanten < new_shanten {
+                ukeire += 4 - visible_counts[tile_type as usize];
+            }
+        }
+
+        max_ukeire = max_ukeire.max(ukeire);
+    }
+
+    max_ukeire
+}
+
+/// Calculate shanten for 3-player mahjong (same algorithm, explicit API).
+#[cfg(feature = "python")]
+pub fn calculate_shanten_3p(hand_tiles: &[u32]) -> i32 {
+    calculate_shanten(hand_tiles)
+}
+
+/// Calculate effective tiles for 3-player mahjong (only valid sanma tile types).
+#[cfg(feature = "python")]
+pub fn calculate_effective_tiles_3p(hand_tiles: &[u32]) -> u32 {
+    let current_shanten = calculate_shanten(hand_tiles);
+    let mut effective_count = 0;
+
+    for &tile_type in &SANMA_VALID_TILE_TYPES {
+        let count_in_hand = hand_tiles.iter().filter(|&&t| (t / 4) == tile_type).count();
+        if count_in_hand >= 4 {
+            continue;
+        }
+
+        let mut new_hand = hand_tiles.to_vec();
+        new_hand.push(tile_type * 4);
+        let new_shanten = calculate_shanten(&new_hand);
+
+        if new_shanten < current_shanten {
+            effective_count += 1;
+        }
+    }
+
+    effective_count
+}
+
+/// Calculate best ukeire for 3-player mahjong (only valid sanma tile types).
+#[cfg(feature = "python")]
+pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
+    let mut max_ukeire = 0;
+    let mut visible_counts = [0u32; 34];
+
+    for &tile in visible_tiles {
+        let tile_type = (tile / 4) as usize;
+        if tile_type < 34 {
+            visible_counts[tile_type] += 1;
+        }
+    }
+
+    let current_shanten = calculate_shanten(hand_tiles);
+
+    for (idx, _) in hand_tiles.iter().enumerate() {
+        let new_hand: Vec<u32> = hand_tiles
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != idx)
+            .map(|(_, &t)| t)
+            .collect();
+
+        let new_shanten = calculate_shanten(&new_hand);
+        if new_shanten > current_shanten {
+            continue;
+        }
+
+        let mut ukeire = 0;
+        for &tile_type in &SANMA_VALID_TILE_TYPES {
             let mut test_hand = new_hand.clone();
             test_hand.push(tile_type * 4);
             let test_shanten = calculate_shanten(&test_hand);
