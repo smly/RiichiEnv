@@ -1183,6 +1183,11 @@ impl GameState {
     }
 
     fn _resolve_discard(&mut self, pid: u8, tile: u8, tsumogiri: bool) {
+        // After a discard the rinshan context is over. Clearing here ensures
+        // that houtei (last-discard win) is correctly detected even when the
+        // discard comes after a kan draw.
+        self.is_rinshan_flag = false;
+
         // Clear ippatsu for the discarding player. When a riichi player discards
         // without tsumo winning, their ippatsu window is over. Note: the riichi
         // declaration discard won't wrongly clear it because _accept_riichi() runs
