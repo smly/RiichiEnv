@@ -20,8 +20,8 @@
 
 * **High Performance**: Core logic implemented in Rust for lightning-fast state transitions and rollouts.
 * **Gym-style API**: Intuitive interface designed specifically for reinforcement learning.
-* **Mortal Compatibility**: Seamlessly interface with the Mortal Bot using the standard MJAI protocol.
-* **Rule Flexibility**: Support for diverse rule sets, including three-player mahjong (sanma) with Kita (BaBei) declarations.
+* **Mortal Compatibility**: Seamlessly interface with the Mortal Bot using the MJAI protocol.
+* **Rule Flexibility**: Support for diverse rule sets, including three-player mahjong (sanma).
 * **Game Visualization**: Integrated replay viewer for Jupyter Notebooks.
 
 <div align="center">
