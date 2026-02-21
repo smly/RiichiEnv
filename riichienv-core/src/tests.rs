@@ -748,7 +748,7 @@ mod unit_tests {
         let np = state.np() as u8;
 
         // In sanma, players cycle 0 → 1 → 2 → 0
-        assert_eq!((0u8 + 1) % np, 1, "Next player after 0 should be 1");
+        assert_eq!(1u8 % np, 1, "Next player after 0 should be 1");
         assert_eq!((1u8 + 1) % np, 2, "Next player after 1 should be 2");
         assert_eq!((2u8 + 1) % np, 0, "Next player after 2 should be 0");
     }
