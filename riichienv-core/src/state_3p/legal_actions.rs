@@ -188,8 +188,9 @@ impl GameState3PLegalActions for GameState3P {
                                 -1,
                                 None,
                             ));
-                            let calc_post =
-                                crate::hand_evaluator_3p::HandEvaluator3P::new(hand_post, melds_post);
+                            let calc_post = crate::hand_evaluator_3p::HandEvaluator3P::new(
+                                hand_post, melds_post,
+                            );
                             let mut waits_post = calc_post.get_waits();
                             waits_post.sort();
 

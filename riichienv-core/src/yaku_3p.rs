@@ -3,14 +3,13 @@ use crate::types::{Hand, Meld};
 
 // Re-export yaku IDs from the main yaku module
 pub use crate::yaku::{
-    ID_AKADORA, ID_BAKAZE, ID_CHANTA, ID_CHIHO, ID_CHINITSU, ID_CHITOITSU, ID_CHUN,
-    ID_CHUUREN, ID_DAISANGEN, ID_DAISUUSHI, ID_DORA, ID_DOUBLE_RIICHI, ID_HAITEI, ID_HAKU,
-    ID_HATSU, ID_HONROUTO, ID_HOUTEI, ID_IPEIKO, ID_IPPATSU, ID_ITTSU, ID_JIKAZE, ID_JUNCHAN,
-    ID_JUNSEI_CHUUREN, ID_KOKUSHI, ID_KOKUSHI_13, ID_NUKIDORA, ID_PINFU, ID_RIICHI, ID_RINSHAN,
-    ID_RYANPEIKO, ID_RYUISOU, ID_SANSHOKU, ID_SANSHOKU_DOKO, ID_SANKANTSU, ID_SANANKOU,
-    ID_SHOSANGEN, ID_SHOUSUUSHI, ID_SUANKO, ID_SUANKO_TANKI, ID_SUKANTSU, ID_TANYAO, ID_TENHO,
-    ID_TOITOI, ID_TSUISO, ID_TSUMO, ID_URADORA, ID_CHANKAN, ID_CHINROUTO, ID_HONITSU,
-    YakuResult,
+    YakuResult, ID_AKADORA, ID_BAKAZE, ID_CHANKAN, ID_CHANTA, ID_CHIHO, ID_CHINITSU, ID_CHINROUTO,
+    ID_CHITOITSU, ID_CHUN, ID_CHUUREN, ID_DAISANGEN, ID_DAISUUSHI, ID_DORA, ID_DOUBLE_RIICHI,
+    ID_HAITEI, ID_HAKU, ID_HATSU, ID_HONITSU, ID_HONROUTO, ID_HOUTEI, ID_IPEIKO, ID_IPPATSU,
+    ID_ITTSU, ID_JIKAZE, ID_JUNCHAN, ID_JUNSEI_CHUUREN, ID_KOKUSHI, ID_KOKUSHI_13, ID_NUKIDORA,
+    ID_PINFU, ID_RIICHI, ID_RINSHAN, ID_RYANPEIKO, ID_RYUISOU, ID_SANANKOU, ID_SANKANTSU,
+    ID_SANSHOKU, ID_SANSHOKU_DOKO, ID_SHOSANGEN, ID_SHOUSUUSHI, ID_SUANKO, ID_SUANKO_TANKI,
+    ID_SUKANTSU, ID_TANYAO, ID_TENHO, ID_TOITOI, ID_TSUISO, ID_TSUMO, ID_URADORA,
 };
 
 #[derive(Debug)]
@@ -56,7 +55,12 @@ impl Default for YakuContext3P {
     }
 }
 
-pub fn calculate_yaku_3p(hand: &Hand, melds: &[Meld], ctx: &YakuContext3P, win_tile: u8) -> YakuResult {
+pub fn calculate_yaku_3p(
+    hand: &Hand,
+    melds: &[Meld],
+    ctx: &YakuContext3P,
+    win_tile: u8,
+) -> YakuResult {
     let divisions = agari::find_divisions(hand);
     let mut best_res = YakuResult::default();
 
@@ -404,19 +408,17 @@ fn calculate_fu_with_waiting(
     // Waiting fu
     match wg_idx {
         None => fu += 2, // Tanki
-        Some(idx) => {
-            match div.body[idx] {
-                Mentsu::Koutsu(_) => {}
-                Mentsu::Shuntsu(t) => {
-                    if win_tile == t + 1
-                        || (win_tile == t + 2 && (t % 9 == 0))
-                        || (win_tile == t && (t % 9 == 6))
-                    {
-                        fu += 2;
-                    }
+        Some(idx) => match div.body[idx] {
+            Mentsu::Koutsu(_) => {}
+            Mentsu::Shuntsu(t) => {
+                if win_tile == t + 1
+                    || (win_tile == t + 2 && (t % 9 == 0))
+                    || (win_tile == t && (t % 9 == 6))
+                {
+                    fu += 2;
                 }
             }
-        }
+        },
     }
 
     for (idx, m) in div.body.iter().enumerate() {

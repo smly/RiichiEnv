@@ -98,7 +98,8 @@ impl RiichiEnv {
     }
     #[setter]
     pub fn set_wall(&mut self, v: Vec<u32>) {
-        with_variant_mut!(self, |s| s.wall.tiles = v.iter().map(|&x| x as u8).collect());
+        with_variant_mut!(self, |s| s.wall.tiles =
+            v.iter().map(|&x| x as u8).collect());
     }
 
     #[getter]
@@ -123,7 +124,11 @@ impl RiichiEnv {
 
     #[getter]
     pub fn get_melds(&self) -> Vec<Vec<Meld>> {
-        with_variant!(self, |s| s.players.iter().map(|p| p.melds.clone()).collect())
+        with_variant!(self, |s| s
+            .players
+            .iter()
+            .map(|p| p.melds.clone())
+            .collect())
     }
     #[setter]
     pub fn set_melds(&mut self, v: Vec<Vec<Meld>>) {
@@ -612,8 +617,7 @@ impl RiichiEnv {
 
     pub fn ranks(&self) -> Vec<usize> {
         let np = self.variant.num_players() as usize;
-        let scores: Vec<i32> =
-            with_variant!(self, |s| s.players.iter().map(|p| p.score).collect());
+        let scores: Vec<i32> = with_variant!(self, |s| s.players.iter().map(|p| p.score).collect());
         let mut indices: Vec<usize> = (0..np).collect();
         indices.sort_by(|&a, &b| {
             if scores[a] != scores[b] {
@@ -655,8 +659,7 @@ impl RiichiEnv {
             }
         };
 
-        let scores: Vec<i32> =
-            with_variant!(self, |s| s.players.iter().map(|p| p.score).collect());
+        let scores: Vec<i32> = with_variant!(self, |s| s.players.iter().map(|p| p.score).collect());
         let ranks = self.ranks();
         let mut points = vec![0.0; np];
         for i in 0..np {
@@ -706,22 +709,16 @@ impl RiichiEnv {
         }
     }
 
-    pub fn get_observation<'py>(
-        &mut self,
-        py: Python<'py>,
-        player_id: u8,
-    ) -> PyResult<Py<PyAny>> {
+    pub fn get_observation<'py>(&mut self, py: Python<'py>, player_id: u8) -> PyResult<Py<PyAny>> {
         match &mut self.variant {
-            GameStateVariant::FourPlayer(s) => {
-                s.get_observation(player_id)
-                    .into_pyobject(py)
-                    .map(|o| o.unbind().into())
-            }
-            GameStateVariant::ThreePlayer(s) => {
-                s.get_observation(player_id)
-                    .into_pyobject(py)
-                    .map(|o| o.unbind().into())
-            }
+            GameStateVariant::FourPlayer(s) => s
+                .get_observation(player_id)
+                .into_pyobject(py)
+                .map(|o| o.unbind().into()),
+            GameStateVariant::ThreePlayer(s) => s
+                .get_observation(player_id)
+                .into_pyobject(py)
+                .map(|o| o.unbind().into()),
         }
     }
 

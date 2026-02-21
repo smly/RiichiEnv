@@ -792,8 +792,14 @@ impl<const MAX_TSUMO: usize> WinProjectionState<'_, MAX_TSUMO> {
         }
 
         if yaku_result.yakuman_count > 0 {
-            let s =
-                score::calculate_score(yaku_result.han, yaku_result.fu, self.sup.is_oya, true, 0, 4);
+            let s = score::calculate_score(
+                yaku_result.han,
+                yaku_result.fu,
+                self.sup.is_oya,
+                true,
+                0,
+                4,
+            );
             return Some([s.total as f32; 4]);
         }
 

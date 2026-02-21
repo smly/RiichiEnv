@@ -650,7 +650,11 @@ impl GameState3P {
 
                             if res.yakuman {
                                 for &yid in &res.yaku {
-                                    let val = if [47, 48, 49, 50].contains(&yid) { 2 } else { 1 };
+                                    let val = if [47, 48, 49, 50].contains(&yid) {
+                                        2
+                                    } else {
+                                        1
+                                    };
                                     total_yakuman_val += val;
                                     if let Some(liable) =
                                         self.players[pid as usize].pao.get(&(yid as u8))
@@ -708,8 +712,7 @@ impl GameState3P {
                                 for i in 0..NP as u8 {
                                     if i != pid {
                                         if i == self.oya {
-                                            deltas[i as usize] =
-                                                -(res.tsumo_agari_oya as i32);
+                                            deltas[i as usize] = -(res.tsumo_agari_oya as i32);
                                             total_win += res.tsumo_agari_oya as i32;
                                         } else {
                                             deltas[i as usize] = -(res.tsumo_agari_ko as i32);
@@ -740,10 +743,7 @@ impl GameState3P {
 
                             if !self.skip_mjai_logging {
                                 let mut ev = serde_json::Map::new();
-                                ev.insert(
-                                    "type".to_string(),
-                                    Value::String("hora".to_string()),
-                                );
+                                ev.insert("type".to_string(), Value::String("hora".to_string()));
                                 ev.insert("actor".to_string(), Value::Number(pid.into()));
                                 ev.insert("target".to_string(), Value::Number(pid.into()));
                                 ev.insert(
@@ -876,10 +876,8 @@ impl GameState3P {
                         num_players: NP as u8,
                     };
 
-                    let calc = crate::hand_evaluator_3p::HandEvaluator3P::new(
-                        hand.clone(),
-                        melds.clone(),
-                    );
+                    let calc =
+                        crate::hand_evaluator_3p::HandEvaluator3P::new(hand.clone(), melds.clone());
                     let ura_indicators = if self.players[w_pid as usize].riichi_declared {
                         self._get_ura_indicators()
                     } else {
@@ -900,7 +898,11 @@ impl GameState3P {
                         if res.yakuman {
                             let mut pao_yakuman_val = 0;
                             for &yid in &res.yaku {
-                                let val = if [47, 48, 49, 50].contains(&yid) { 2 } else { 1 };
+                                let val = if [47, 48, 49, 50].contains(&yid) {
+                                    2
+                                } else {
+                                    1
+                                };
                                 if let Some(liable) =
                                     self.players[w_pid as usize].pao.get(&(yid as u8))
                                 {
@@ -1616,7 +1618,8 @@ impl GameState3P {
                                 self.players[i].score -= score_res.pay_tsumo_ko as i32;
                                 self.players[i].score_delta -= score_res.pay_tsumo_ko as i32;
                                 self.players[w as usize].score += score_res.pay_tsumo_ko as i32;
-                                self.players[w as usize].score_delta += score_res.pay_tsumo_ko as i32;
+                                self.players[w as usize].score_delta +=
+                                    score_res.pay_tsumo_ko as i32;
                             }
                         }
                     } else {

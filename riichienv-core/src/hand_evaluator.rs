@@ -308,4 +308,3 @@ fn get_next_tile(tile: u8) -> u8 {
         tile + 1
     }
 }
-

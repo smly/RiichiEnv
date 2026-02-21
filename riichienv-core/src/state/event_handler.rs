@@ -476,9 +476,7 @@ impl GameStateEventHandler for GameState {
                                     1
                                 };
                                 total_yakuman_val += val;
-                                if let Some(&liable) =
-                                    self.players[winner].pao.get(&(yid as u8))
-                                {
+                                if let Some(&liable) = self.players[winner].pao.get(&(yid as u8)) {
                                     pao_yakuman_val += val;
                                     pao_payer = Some(liable);
                                 }
@@ -559,9 +557,7 @@ impl GameStateEventHandler for GameState {
                         let mut pao_payer_ron: Option<u8> = None;
                         if h.yiman {
                             for &yid in &h.fans {
-                                if let Some(&liable) =
-                                    self.players[winner].pao.get(&(yid as u8))
-                                {
+                                if let Some(&liable) = self.players[winner].pao.get(&(yid as u8)) {
                                     pao_payer_ron = Some(liable);
                                     break;
                                 }

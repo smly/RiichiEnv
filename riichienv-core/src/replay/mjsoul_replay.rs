@@ -257,17 +257,13 @@ impl MjSoulReplay {
         }
 
         // Calculate game end scores using the last round
-        let is_3p = rounds
-            .first()
-            .map(|r| r.scores.len() == 3)
-            .unwrap_or(false);
+        let is_3p = rounds.first().map(|r| r.scores.len() == 3).unwrap_or(false);
 
         let game_end_scores = if let Some(last) = rounds.last_mut() {
             if is_3p {
                 // For 3P, simulate using GameState3P
                 let mut state = crate::state_3p::GameState3P::new(0, false, None, 0, last.rule);
-                let initial_scores: [i32; 3] =
-                    last.scores.clone().try_into().unwrap_or([35000; 3]);
+                let initial_scores: [i32; 3] = last.scores.clone().try_into().unwrap_or([35000; 3]);
                 let oya = last.ju % 3;
                 let bakaze = match last.chang {
                     0 => crate::types::Wind::East,
@@ -300,8 +296,7 @@ impl MjSoulReplay {
             } else {
                 // 4P path
                 let mut state = crate::state::GameState::new(0, false, None, 0, last.rule);
-                let initial_scores: [i32; 4] =
-                    last.scores.clone().try_into().unwrap_or([25000; 4]);
+                let initial_scores: [i32; 4] = last.scores.clone().try_into().unwrap_or([25000; 4]);
                 let oya = last.ju % 4;
                 let bakaze = match last.chang {
                     0 => crate::types::Wind::East,

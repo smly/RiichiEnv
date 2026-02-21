@@ -13,11 +13,11 @@ use std::sync::Arc;
 use crate::action::Action as EnvAction;
 #[cfg(feature = "python")]
 use crate::hand_evaluator::HandEvaluator;
+use crate::types::MeldType;
 #[cfg(feature = "python")]
 use crate::types::WinResult;
 #[cfg(feature = "python")]
 use crate::types::{Conditions, Meld};
-use crate::types::MeldType;
 
 pub mod mjai_replay;
 pub mod mjsoul_replay;
@@ -1311,7 +1311,11 @@ impl WinResultContextIterator {
                         let mut hand_136 = self.current_hands[seat].clone();
                         let melds_136 = self.melds[seat].clone();
 
-                        let num_players = if self.kyoku.rule.is_sanma { 3usize } else { 4usize };
+                        let num_players = if self.kyoku.rule.is_sanma {
+                            3usize
+                        } else {
+                            4usize
+                        };
                         let conditions = Conditions {
                             tsumo: is_zimo,
                             riichi: self.liqi[seat],
@@ -1326,7 +1330,9 @@ impl WinResultContextIterator {
                             rinshan: self.rinshan[seat],
                             chankan: is_chankan,
                             tsumo_first_turn: self.is_first_turn[seat] && is_zimo,
-                            player_wind: (((seat + num_players - self.kyoku.ju as usize) % num_players) as u8).into(),
+                            player_wind: (((seat + num_players - self.kyoku.ju as usize)
+                                % num_players) as u8)
+                                .into(),
                             round_wind: self.kyoku.chang.into(),
                             riichi_sticks: 0, // Not tracked in basic loop?
                             honba: 0,         // Not tracked

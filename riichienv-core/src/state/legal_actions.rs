@@ -230,7 +230,6 @@ impl GameStateLegalActions for GameState {
                     ));
                 }
             }
-
         } else if self.phase == Phase::WaitResponse {
             if let Some(acts) = self.current_claims.get(&pid) {
                 legals.extend(acts.clone());

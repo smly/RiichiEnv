@@ -71,8 +71,8 @@ pub struct GameState {
     pub last_error: Option<String>,
     pub is_after_kan: bool,
 
-    pub riichi_sutehais: Vec<Option<u8>>,  // Tile discarded when declaring riichi
-    pub last_tedashis: Vec<Option<u8>>,    // Last hand discard (not tsumogiri)
+    pub riichi_sutehais: Vec<Option<u8>>, // Tile discarded when declaring riichi
+    pub last_tedashis: Vec<Option<u8>>,   // Last hand discard (not tsumogiri)
 }
 
 impl GameState {
@@ -1687,8 +1687,7 @@ impl GameState {
                 // Apply mangan tsumo payment for each nagashi winner (no honba)
                 for &w in &nagashi_winners {
                     let is_oya = w == self.oya;
-                    let score_res =
-                        crate::score::calculate_score(5, 30, is_oya, true, 0, np as u8);
+                    let score_res = crate::score::calculate_score(5, 30, is_oya, true, 0, np as u8);
                     if is_oya {
                         for i in 0..np {
                             if i as u8 != w {

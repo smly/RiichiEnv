@@ -665,8 +665,8 @@ mod unit_tests {
     fn test_sanma_wall_108_tiles() {
         let state = create_sanma_test_state(3);
 
-        let total_tiles = state.wall.tiles.len()
-            + state.players.iter().map(|p| p.hand.len()).sum::<usize>();
+        let total_tiles =
+            state.wall.tiles.len() + state.players.iter().map(|p| p.hand.len()).sum::<usize>();
         assert_eq!(total_tiles, 108, "Total tiles should be 108 for sanma");
 
         // Verify no manzu 2-8 tiles (tile types 1-7, tile IDs 4-31)
@@ -796,13 +796,20 @@ mod unit_tests {
         let score = calculate_score(4, 30, false, true, 0, 3); // Ko Tsumo, 3 players
         assert_eq!(score.pay_tsumo_oya, 3900);
         assert_eq!(score.pay_tsumo_ko, 2000);
-        assert_eq!(score.total, 5900, "3P tsumo total should be 5900 (2 payers)");
+        assert_eq!(
+            score.total, 5900,
+            "3P tsumo total should be 5900 (2 payers)"
+        );
     }
 
     #[test]
     fn test_sanma_tenpai_payment() {
         use crate::state_3p::game_mode;
-        assert_eq!(game_mode::tenpai_pool(), 2000, "Sanma tenpai pool should be 2000");
+        assert_eq!(
+            game_mode::tenpai_pool(),
+            2000,
+            "Sanma tenpai pool should be 2000"
+        );
     }
 
     // ========== Action Encode Tests (4P/3P) ==========
@@ -866,11 +873,9 @@ mod unit_tests {
             81
         );
         // Kita is not valid in 4P mode
-        assert!(
-            Action::new(ActionType::Kita, None, vec![], None)
-                .encode()
-                .is_err()
-        );
+        assert!(Action::new(ActionType::Kita, None, vec![], None)
+            .encode()
+            .is_err());
     }
 
     #[test]

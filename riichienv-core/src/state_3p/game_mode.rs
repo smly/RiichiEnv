@@ -33,9 +33,7 @@ pub fn starting_score() -> i32 {
 }
 
 pub fn tile_set() -> Vec<u8> {
-    (0..136u8)
-        .filter(|&t| !is_sanma_excluded_tile(t))
-        .collect()
+    (0..136u8).filter(|&t| !is_sanma_excluded_tile(t)).collect()
 }
 
 pub fn tenpai_pool() -> i32 {

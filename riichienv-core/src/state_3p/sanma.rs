@@ -7,7 +7,9 @@ use super::GameState3P;
 
 impl GameState3P {
     pub fn handle_kita(&mut self, pid: u8, act: &Action) {
-        let tile = act.tile.unwrap_or_else(|| act.consume_tiles.first().copied().unwrap_or(0));
+        let tile = act
+            .tile
+            .unwrap_or_else(|| act.consume_tiles.first().copied().unwrap_or(0));
         let p_idx = pid as usize;
 
         // Remove North tile from hand
@@ -86,12 +88,7 @@ impl GameState3P {
                 ..Default::default()
             };
 
-            let res = calc.calc(
-                tile,
-                self.wall.dora_indicators.clone(),
-                vec![],
-                Some(cond),
-            );
+            let res = calc.calc(tile, self.wall.dora_indicators.clone(), vec![], Some(cond));
 
             if res.is_win && (res.yakuman || res.han >= 1) {
                 chankan_ronners.push(i);
@@ -159,10 +156,7 @@ impl GameState3P {
                 let mut t_ev = serde_json::Map::new();
                 t_ev.insert("type".to_string(), Value::String("tsumo".to_string()));
                 t_ev.insert("actor".to_string(), Value::Number(pid.into()));
-                t_ev.insert(
-                    "pai".to_string(),
-                    Value::String(tid_to_mjai(t)),
-                );
+                t_ev.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
                 self._push_mjai_event(Value::Object(t_ev));
             }
 

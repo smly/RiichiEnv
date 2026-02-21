@@ -161,10 +161,12 @@ impl HandEvaluator3P {
             conditions.honba,
             3, // Always 3 players
         );
-        let has_yaku = yaku_res
-            .yaku_ids
-            .iter()
-            .any(|&id| id != yaku::ID_DORA && id != yaku::ID_AKADORA && id != yaku::ID_URADORA && id != yaku::ID_NUKIDORA);
+        let has_yaku = yaku_res.yaku_ids.iter().any(|&id| {
+            id != yaku::ID_DORA
+                && id != yaku::ID_AKADORA
+                && id != yaku::ID_URADORA
+                && id != yaku::ID_NUKIDORA
+        });
 
         let official_yaku: Vec<u32> = yaku_res.yaku_ids.into_iter().collect();
 
@@ -293,8 +295,8 @@ pub fn check_riichi_candidates_3p(tiles_136: Vec<u8>) -> Vec<u32> {
 /// In sanma, manzu wraps 1m(0)->9m(8) and 9m(8)->1m(0) directly (skipping 2m-8m).
 fn get_next_tile_sanma(tile: u8) -> u8 {
     match tile {
-        0 => 8,  // 1m -> 9m
-        8 => 0,  // 9m -> 1m
+        0 => 8,        // 1m -> 9m
+        8 => 0,        // 9m -> 1m
         1..=7 => tile, // shouldn't appear in sanma, but safe fallback
         9..=17 => 9 + (tile - 9 + 1) % 9,
         18..=26 => 18 + (tile - 18 + 1) % 9,

@@ -33,9 +33,7 @@ impl WallState3P {
 
     pub fn shuffle(&mut self) {
         // 3P: 108 tiles (no 2m-8m)
-        let mut w: Vec<u8> = (0..136u8)
-            .filter(|&t| !is_sanma_excluded_tile(t))
-            .collect();
+        let mut w: Vec<u8> = (0..136u8).filter(|&t| !is_sanma_excluded_tile(t)).collect();
 
         let mut rng = if let Some(episode_seed) = self.seed {
             let hand_seed = splitmix64(episode_seed.wrapping_add(self.hand_index));

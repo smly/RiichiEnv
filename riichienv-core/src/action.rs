@@ -12,13 +12,13 @@ pub const ACTION_SPACE_4P: usize = 82;
 pub const ACTION_SPACE_3P: usize = 60;
 
 const TILE34_TO_COMPACT: [u8; 34] = [
-    0,                                     // type  0: 1m
-    255, 255, 255, 255, 255, 255, 255,     // type 1-7: 2m-8m (invalid)
-    1,                                     // type  8: 9m
-    2, 3, 4, 5, 6, 7, 8, 9, 10,           // type  9-17: 1p-9p
-    11, 12, 13, 14, 15, 16, 17, 18, 19,   // type 18-26: 1s-9s
-    20, 21, 22, 23,                        // type 27-30: ESWN
-    24, 25, 26,                            // type 31-33: PFC
+    0, // type  0: 1m
+    255, 255, 255, 255, 255, 255, 255, // type 1-7: 2m-8m (invalid)
+    1,   // type  8: 9m
+    2, 3, 4, 5, 6, 7, 8, 9, 10, // type  9-17: 1p-9p
+    11, 12, 13, 14, 15, 16, 17, 18, 19, // type 18-26: 1s-9s
+    20, 21, 22, 23, // type 27-30: ESWN
+    24, 25, 26, // type 31-33: PFC
 ];
 
 #[cfg_attr(
