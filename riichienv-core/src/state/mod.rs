@@ -28,7 +28,7 @@ const NP: usize = 4;
 #[derive(Debug, Clone)]
 pub struct GameState {
     pub wall: WallState,
-    pub players: Vec<PlayerState>,
+    pub players: [PlayerState; 4],
 
     pub current_player: u8,
     pub turn_count: u32,
@@ -88,9 +88,7 @@ impl GameState {
         rule: GameRule,
     ) -> Self {
         let mode = GameModeConfig::from_game_mode(game_mode, rule);
-        let players: Vec<PlayerState> = (0..NP)
-            .map(|_| PlayerState::new(mode.starting_score()))
-            .collect();
+        let players = [(); 4].map(|_| PlayerState::new(mode.starting_score()));
 
         let wall = WallState::new(seed);
 
