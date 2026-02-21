@@ -15,7 +15,6 @@ pub mod observation_3p;
 pub mod parser;
 pub mod replay;
 pub mod rule;
-#[cfg(feature = "python")]
 mod shanten;
 pub mod state;
 pub mod state_3p;
