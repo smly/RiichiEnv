@@ -53,6 +53,39 @@ def test_shanten_3p_chiitoitsu():
     assert riichienv.calculate_shanten_3p(hand) == 0
 
 
+def test_shanten_3p_manzu_shuntsu_blocked():
+    """3P blocks manzu shuntsu: 123m is a complete shuntsu in 4P but 3 isolated tiles in 3P."""
+    # 123m456p789s11z (11 tiles): complete in 4P, 1-shanten in 3P
+    tiles, _ = riichienv.parse_hand("123m456p789s11z")
+    hand = list(tiles)
+    assert riichienv.calculate_shanten(hand) == -1
+    assert riichienv.calculate_shanten_3p(hand) == 1
+
+
+def test_shanten_3p_manzu_shuntsu_blocked_13():
+    """3P blocks manzu shuntsu: 123m makes tenpai in 4P but not in 3P (13 tiles)."""
+    # 123m111z222z333z4z: tenpai in 4P (123m+3 koutsu+tanki), 2-shanten in 3P
+    tiles, _ = riichienv.parse_hand("123m111z222z333z4z")
+    hand = list(tiles)
+    assert riichienv.calculate_shanten(hand) == 0
+    assert riichienv.calculate_shanten_3p(hand) == 2
+
+
+def test_shanten_3p_manzu_taatsu_blocked():
+    """3P blocks manzu taatsu/kanchan partial sequences."""
+    # 12m taatsu counts as partial in 4P but not in 3P
+    tiles, _ = riichienv.parse_hand("12m111p222s333z44z")
+    hand = list(tiles)
+    assert riichienv.calculate_shanten(hand) == 0
+    assert riichienv.calculate_shanten_3p(hand) == 1
+
+    # 13m kanchan counts as partial in 4P but not in 3P
+    tiles, _ = riichienv.parse_hand("13m111p222s333z44z")
+    hand = list(tiles)
+    assert riichienv.calculate_shanten(hand) == 0
+    assert riichienv.calculate_shanten_3p(hand) == 1
+
+
 def test_shanten_3p_consistency_with_4p():
     """For valid 3P hands (no 2m-8m), 3P and 4P shanten should match."""
     test_hands = [
