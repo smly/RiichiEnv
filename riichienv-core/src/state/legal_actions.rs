@@ -327,15 +327,31 @@ impl GameStateLegalActions for GameState {
                     false
                 };
 
-                let consumes: Vec<u8> = hand
+                // Generate all distinct pon consume pairs.
+                // When a player has 3 copies of a tile (e.g. red 5m + 5m + 5m),
+                // we need separate pon options with and without the red five.
+                let matching: Vec<u8> = hand
                     .iter()
                     .filter(|&&t| t / 4 == tile / 4)
-                    .take(2)
                     .cloned()
                     .collect();
-
-                if check_pon_kuikae(&consumes) {
-                    legals.push(Action::new(ActionType::Pon, Some(tile), consumes, Some(i)));
+                let mut seen_pairs: Vec<(u8, u8)> = Vec::new();
+                for a in 0..matching.len() {
+                    for b in (a + 1)..matching.len() {
+                        let pair = (matching[a], matching[b]);
+                        if !seen_pairs.contains(&pair) {
+                            seen_pairs.push(pair);
+                            let consumes = vec![pair.0, pair.1];
+                            if check_pon_kuikae(&consumes) {
+                                legals.push(Action::new(
+                                    ActionType::Pon,
+                                    Some(tile),
+                                    consumes,
+                                    Some(i),
+                                ));
+                            }
+                        }
+                    }
                 }
             }
             if count >= 3 {

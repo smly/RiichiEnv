@@ -330,16 +330,160 @@ pub fn calculate_best_ukeire(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
     max_ukeire
 }
 
-/// Calculate shanten for 3-player mahjong (same algorithm, explicit API).
+/// Check whether a tile position allows sequences in 3-player mahjong.
+/// Only pinzu (9-17) and souzu (18-26) suits allow sequences.
+#[inline]
+fn can_sequence_3p(pos: usize) -> bool {
+    (9..=26).contains(&pos)
+}
+
+/// Recursive normal-form shanten for 3-player mahjong.
+/// Manzu tiles (1m at pos 0, 9m at pos 8) are treated as honor-like
+/// (koutsu/pair only, no sequences).
+fn calc_normal_3p_rec(
+    tiles: &mut [u8; TILE_MAX],
+    pos: usize,
+    mentsu: i8,
+    jantai: i8,
+    target: i8,
+    best_so_far: i8,
+) -> i8 {
+    // Skip zero-count positions
+    let mut pos = pos;
+    while pos < TILE_MAX && tiles[pos] == 0 {
+        pos += 1;
+    }
+
+    if pos >= TILE_MAX {
+        let jcap = jantai.min((target - mentsu + 1).max(0));
+        return (target - mentsu) * 2 - jcap;
+    }
+
+    // Upper bound pruning: even if all remaining tiles form perfect sets,
+    // we can't beat the current best
+    let jcap = jantai.min((target - mentsu + 1).max(0));
+    let current_est = (target - mentsu) * 2 - jcap;
+    if current_est <= best_so_far {
+        // Already at or below best — can't improve by skipping to end
+        // but might improve by taking more sets. Don't prune yet.
+    }
+
+    // Option 1: skip this position (tiles become leftover)
+    let mut best = calc_normal_3p_rec(tiles, pos + 1, mentsu, jantai, target, best_so_far);
+
+    // Option 2: koutsu
+    if tiles[pos] >= 3 {
+        tiles[pos] -= 3;
+        let v = calc_normal_3p_rec(tiles, pos, mentsu + 1, jantai, target, best);
+        best = best.min(v);
+        tiles[pos] += 3;
+    }
+
+    // Option 3: pair (jantai)
+    if tiles[pos] >= 2 {
+        tiles[pos] -= 2;
+        let v = calc_normal_3p_rec(tiles, pos + 1, mentsu, jantai + 1, target, best);
+        best = best.min(v);
+        tiles[pos] += 2;
+    }
+
+    let seq_ok = can_sequence_3p(pos) && pos % 9 <= 6;
+
+    // Option 4: shuntsu (complete sequence)
+    if seq_ok && tiles[pos + 1] > 0 && tiles[pos + 2] > 0 {
+        tiles[pos] -= 1;
+        tiles[pos + 1] -= 1;
+        tiles[pos + 2] -= 1;
+        let v = calc_normal_3p_rec(tiles, pos, mentsu + 1, jantai, target, best);
+        best = best.min(v);
+        tiles[pos] += 1;
+        tiles[pos + 1] += 1;
+        tiles[pos + 2] += 1;
+    }
+
+    if can_sequence_3p(pos) {
+        // Option 5: taatsu (adjacent partial sequence)
+        if pos % 9 <= 7 && pos + 1 < TILE_MAX && tiles[pos + 1] > 0 {
+            tiles[pos] -= 1;
+            tiles[pos + 1] -= 1;
+            let v = calc_normal_3p_rec(tiles, pos + 1, mentsu, jantai + 1, target, best);
+            best = best.min(v);
+            tiles[pos] += 1;
+            tiles[pos + 1] += 1;
+        }
+
+        // Option 6: kanchan (skip partial sequence)
+        if pos % 9 <= 6 && pos + 2 < TILE_MAX && tiles[pos + 2] > 0 {
+            tiles[pos] -= 1;
+            tiles[pos + 2] -= 1;
+            let v = calc_normal_3p_rec(tiles, pos + 1, mentsu, jantai + 1, target, best);
+            best = best.min(v);
+            tiles[pos] += 1;
+            tiles[pos + 2] += 1;
+        }
+    }
+
+    best
+}
+
+fn calc_normal_3p(tiles: &[u8; TILE_MAX], len_div3: u8) -> i8 {
+    let mut tiles = *tiles;
+    calc_normal_3p_rec(&mut tiles, 0, 0, 0, len_div3 as i8, 13)
+}
+
+fn calc_chitoi_3p(tiles: &[u8; TILE_MAX]) -> i8 {
+    let mut pairs = 0u8;
+    let mut kinds = 0u8;
+    for (i, &c) in tiles.iter().enumerate() {
+        // Skip 2m-8m (indices 1-7) which don't exist in 3P
+        if (1..=7).contains(&i) {
+            continue;
+        }
+        if c > 0 {
+            kinds += 1;
+            if c >= 2 {
+                pairs += 1;
+            }
+        }
+    }
+    let redunct = 7u8.saturating_sub(kinds) as i8;
+    7 - pairs as i8 + redunct - 1
+}
+
+pub fn calc_shanten_from_counts_3p(tehai: &[u8; TILE_MAX], tehai_len_div3: u8) -> i8 {
+    let mut shanten = calc_normal_3p(tehai, tehai_len_div3);
+    if shanten <= 0 || tehai_len_div3 < 4 {
+        return shanten;
+    }
+    shanten = shanten.min(calc_chitoi_3p(tehai));
+    if shanten > 0 {
+        // Kokushi terminals are same for 3P: 1m,9m,1p,9p,1s,9s,1-7z = 13
+        shanten.min(calc_kokushi(tehai))
+    } else {
+        shanten
+    }
+}
+
+/// Calculate shanten for 3-player mahjong.
+/// Manzu tiles (1m, 9m) cannot form sequences — only koutsu/pair.
 #[cfg(feature = "python")]
 pub fn calculate_shanten_3p(hand_tiles: &[u32]) -> i32 {
-    calculate_shanten(hand_tiles)
+    let mut tile_counts = [0u8; TILE_MAX];
+    for &tile in hand_tiles {
+        let tile_type = (tile / 4) as usize;
+        if tile_type < TILE_MAX {
+            tile_counts[tile_type] += 1;
+        }
+    }
+    let num_tiles: u8 = tile_counts.iter().sum();
+    let len_div3 = num_tiles / 3;
+    calc_shanten_from_counts_3p(&tile_counts, len_div3) as i32
 }
 
 /// Calculate effective tiles for 3-player mahjong (only valid sanma tile types).
 #[cfg(feature = "python")]
 pub fn calculate_effective_tiles_3p(hand_tiles: &[u32]) -> u32 {
-    let current_shanten = calculate_shanten(hand_tiles);
+    let current_shanten = calculate_shanten_3p(hand_tiles);
     let mut effective_count = 0;
 
     for &tile_type in &SANMA_VALID_TILE_TYPES {
@@ -350,7 +494,7 @@ pub fn calculate_effective_tiles_3p(hand_tiles: &[u32]) -> u32 {
 
         let mut new_hand = hand_tiles.to_vec();
         new_hand.push(tile_type * 4);
-        let new_shanten = calculate_shanten(&new_hand);
+        let new_shanten = calculate_shanten_3p(&new_hand);
 
         if new_shanten < current_shanten {
             effective_count += 1;
@@ -373,7 +517,7 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
         }
     }
 
-    let current_shanten = calculate_shanten(hand_tiles);
+    let current_shanten = calculate_shanten_3p(hand_tiles);
 
     for (idx, _) in hand_tiles.iter().enumerate() {
         let new_hand: Vec<u32> = hand_tiles
@@ -383,7 +527,7 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
             .map(|(_, &t)| t)
             .collect();
 
-        let new_shanten = calculate_shanten(&new_hand);
+        let new_shanten = calculate_shanten_3p(&new_hand);
         if new_shanten > current_shanten {
             continue;
         }
@@ -392,7 +536,7 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
         for &tile_type in &SANMA_VALID_TILE_TYPES {
             let mut test_hand = new_hand.clone();
             test_hand.push(tile_type * 4);
-            let test_shanten = calculate_shanten(&test_hand);
+            let test_shanten = calculate_shanten_3p(&test_hand);
 
             if test_shanten < new_shanten {
                 ukeire += 4 - visible_counts[tile_type as usize];
