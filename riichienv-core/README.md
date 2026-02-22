@@ -85,7 +85,6 @@ state.step(&actions);
 | `rule` | Game rule configuration with Tenhou/MJSoul presets (4-player and sanma) |
 | `score` | Han/fu-based score calculation |
 | `replay` | MJAI and MJSoul replay parsing with step-by-step iteration (requires `python` feature) |
-| `win_projection` | Win probability and expected value projection |
 | `errors` | Error types (`RiichiError`) and result alias (`RiichiResult`) |
 
 ## Tile representation

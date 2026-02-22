@@ -185,19 +185,3 @@ class ExtendedEncoder:
 class ExtendedDataset(MCDataset):
     """MCDataset with extended features (215 channels)."""
     encoder = ExtendedEncoder
-
-
-class ExtendedWinProjectionEncoder:
-    """Encodes observation into (304, 34) tensor using a single consolidated Rust call."""
-
-    @staticmethod
-    def encode(obs) -> torch.Tensor:
-        raw = obs.encode_extended_win_projection()
-        return torch.from_numpy(
-            np.frombuffer(raw, dtype=np.float32).reshape(304, 34).copy()
-        )
-
-
-class ExtendedWinProjectionDataset(MCDataset):
-    """MCDataset with extended + win projection features (304 channels)."""
-    encoder = ExtendedWinProjectionEncoder

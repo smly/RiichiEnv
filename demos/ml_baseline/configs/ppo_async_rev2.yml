@@ -29,9 +29,9 @@ cql:
   wandb_entity: smly
   wandb_project: riichienv-offline
   model_class: riichienv_ml.models.cql_model.QNetwork
-  dataset_class: riichienv_ml.data.cql_dataset.ExtendedWinProjectionDataset
+  dataset_class: riichienv_ml.data.cql_dataset.ExtendedDataset
   model:
-    in_channels: 304
+    in_channels: 215
     num_blocks: 16
     conv_channels: 192
     fc_dim: 512
@@ -43,7 +43,7 @@ online:
   load_model: /data/workspace/riichienv/ppo_async_rev2/cql_model.pth
   device: cuda
   model_class: riichienv_ml.models.actor_critic.ActorCriticNetwork
-  encoder_class: riichienv_ml.data.cql_dataset.ExtendedWinProjectionEncoder
+  encoder_class: riichienv_ml.data.cql_dataset.ExtendedEncoder
   num_workers: 4
   num_steps: 500
   lr: 1e-5
@@ -73,7 +73,7 @@ online:
   checkpoint_dir: /data/workspace/riichienv/ppo_async_rev2/checkpoints
   wandb_project: riichienv-online
   model:
-    in_channels: 304
+    in_channels: 215
     num_blocks: 16
     conv_channels: 192
     fc_dim: 512

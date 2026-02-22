@@ -18,7 +18,6 @@ pub mod rule;
 pub mod shanten;
 pub mod state;
 pub mod state_3p;
-pub mod win_projection;
 #[cfg(feature = "python")]
 mod yaku_checker;
 
