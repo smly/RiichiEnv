@@ -46,16 +46,30 @@ export class Renderer3D implements IRenderer {
 
     /**
      * Set 3D tile content on a table-surface element.
-     * Creates a CSS 3D box with top face, front edge, and right edge.
+     * Creates a CSS 3D box with top face and specified side faces.
      * Returns the top-face element for appending overlays (e.g. highlights).
+     *
+     * @param faces Which side faces to render (default: front + right).
+     *   - relIndex 0 (self):     { front: true }
+     *   - relIndex 1 (right):    { back: true, left: true }
+     *   - relIndex 2 (opposite): { back: true }
+     *   - relIndex 3 (left):     { right: true, back: true }
      */
-    private setTile3D(el: HTMLElement, tileId: string, depth: number): HTMLElement {
+    private setTile3D(
+        el: HTMLElement, tileId: string, depth: number,
+        faces: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } = { front: true, right: true },
+    ): HTMLElement {
         el.style.transformStyle = 'preserve-3d';
         const face = TileRenderer.getTileHtml(tileId);
-        el.innerHTML =
-            `<div class="tile-3d-top" style="transform:translateZ(${depth}px)">${face}</div>` +
-            `<div class="tile-3d-front" style="height:${depth}px"></div>` +
-            `<div class="tile-3d-right" style="width:${depth}px"></div>`;
+        // Side faces are 1px taller/wider than depth to overlap with the top face,
+        // preventing sub-pixel rendering gaps at the seams.
+        const d1 = depth + 1;
+        let html = `<div class="tile-3d-top" style="transform:translateZ(${depth}px)">${face}</div>`;
+        if (faces.front) html += `<div class="tile-3d-front" style="height:${d1}px"></div>`;
+        if (faces.back) html += `<div class="tile-3d-back" style="height:${d1}px"></div>`;
+        if (faces.right) html += `<div class="tile-3d-right" style="width:${d1}px"></div>`;
+        if (faces.left) html += `<div class="tile-3d-left" style="width:${d1}px"></div>`;
+        el.innerHTML = html;
         return el.querySelector('.tile-3d-top') as HTMLElement;
     }
 
@@ -298,7 +312,7 @@ export class Renderer3D implements IRenderer {
         doraTiles.forEach(t => {
             const d = document.createElement('div');
             d.className = 'dora-tile-3d';
-            this.setTile3D(d, t, Math.round(this.layout.tileSizes.doraTile[0] / 2));
+            this.setTile3D(d, t, this.layout.tileSizes.doraTile[0]);
             row3.appendChild(d);
         });
         contentDiv.appendChild(row3);
@@ -387,6 +401,19 @@ export class Renderer3D implements IRenderer {
 
         const normalize = (t: string) => t.replace('0', '5').replace('r', '');
 
+        // Determine which side faces to render based on viewing angle
+        // relIndex 0 (self):     top + front
+        // relIndex 1 (right):    top + back + left
+        // relIndex 2 (opposite): top + back
+        // relIndex 3 (left):     top + right + back
+        const riverFaces: { [key: number]: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } } = {
+            0: { front: true },
+            1: { back: true, left: true },
+            2: { back: true },
+            3: { right: true, back: true },
+        };
+        const faces = riverFaces[relIndex] || { front: true, right: true };
+
         // Split into 3 rows of 6
         const rows: Tile[][] = [[], [], []];
         discards.forEach((d, idx) => {
@@ -405,7 +432,21 @@ export class Renderer3D implements IRenderer {
                 cell.className = isRiichi ? 'table-tile-rotated' : 'table-tile';
                 if (d.isTsumogiri) cell.classList.add('table-tile-tsumogiri');
 
-                const topFace = this.setTile3D(cell, d.tile, Math.round(tw / 2));
+                const tileDepth = tw;
+                const topFace = this.setTile3D(cell, d.tile, tileDepth, faces);
+
+                // Tsumogiri: darken with black overlay on top face only
+                if (d.isTsumogiri) {
+                    const ov = document.createElement('div');
+                    Object.assign(ov.style, {
+                        position: 'absolute', top: '0', left: '0',
+                        width: '100%', height: '100%',
+                        backgroundColor: 'rgba(0, 0, 0, 0.35)',
+                        pointerEvents: 'none', borderRadius: '3px',
+                        zIndex: '5',
+                    });
+                    topFace.appendChild(ov);
+                }
 
                 // Highlight (append to top face so it's at the correct Z level)
                 if (activeWaits.size > 0) {
@@ -477,10 +518,18 @@ export class Renderer3D implements IRenderer {
         const pos = positions[relIndex];
         if (pos) Object.assign(wrapper.style, pos);
 
+        // Determine visible side faces based on relIndex (same logic as river)
+        const oppFaces: { [key: number]: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } } = {
+            1: { back: true, left: true },
+            2: { back: true },
+            3: { right: true, back: true },
+        };
+        const faces = oppFaces[relIndex] || { front: true, right: true };
+
         player.hand.forEach(t => {
             const tile = document.createElement('div');
             tile.className = 'opp-tile';
-            this.setTile3D(tile, t, Math.round(tw / 2));
+            this.setTile3D(tile, t, tw, faces);
             wrapper.appendChild(tile);
         });
 
@@ -518,6 +567,14 @@ export class Renderer3D implements IRenderer {
         const pos = positions[relIndex];
         if (pos) Object.assign(wrapper.style, pos);
 
+        // Determine visible side faces based on relIndex (same logic as river)
+        const meldFaces: { [key: number]: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } } = {
+            1: { back: true, left: true },
+            2: { back: true },
+            3: { right: true, back: true },
+        };
+        const faces = meldFaces[relIndex] || { front: true, right: true };
+
         melds.forEach(m => {
             const mGroup = document.createElement('div');
             Object.assign(mGroup.style, {
@@ -527,14 +584,14 @@ export class Renderer3D implements IRenderer {
             const rel = (m.from - playerIdx + pc) % pc;
             const tiles = [...m.tiles];
 
-            const meldDepth = Math.round(this.layout.tileSizes.meldTileTable[0] / 2);
+            const meldDepth = this.layout.tileSizes.meldTileTable[0];
 
             if (m.type === 'ankan') {
                 tiles.forEach((t, i) => {
                     const tileId = (i === 0 || i === 3) ? 'back' : t;
                     const d = document.createElement('div');
                     d.className = 'meld-tile-table';
-                    this.setTile3D(d, tileId, meldDepth);
+                    this.setTile3D(d, tileId, meldDepth, faces);
                     mGroup.appendChild(d);
                 });
             } else {
@@ -545,13 +602,13 @@ export class Renderer3D implements IRenderer {
                 const addUpright = (t: string) => {
                     const d = document.createElement('div');
                     d.className = 'meld-tile-table';
-                    this.setTile3D(d, t, meldDepth);
+                    this.setTile3D(d, t, meldDepth, faces);
                     mGroup.appendChild(d);
                 };
                 const addRotated = (t: string) => {
                     const d = document.createElement('div');
                     d.className = 'meld-tile-table-rotated';
-                    this.setTile3D(d, t, meldDepth);
+                    this.setTile3D(d, t, meldDepth, faces);
                     mGroup.appendChild(d);
                 };
 

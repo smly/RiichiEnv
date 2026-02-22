@@ -106,11 +106,7 @@ export const VIEWER_3D_CSS = `
         transform: rotate(90deg) scale(0.88);
         transform-origin: center center;
     }
-    .table-tile-tsumogiri > .tile-3d-top,
-    .table-tile-tsumogiri > .tile-3d-front,
-    .table-tile-tsumogiri > .tile-3d-right {
-        opacity: 0.6;
-    }
+    /* tsumogiri darkening is applied via overlay in renderer */
 
     /* ---- 3D Tile Box (table surface tiles) ---- */
     .tile-3d-top {
@@ -121,12 +117,18 @@ export const VIEWER_3D_CSS = `
         overflow: hidden;
         background: #f0ead6;
     }
+    /* Remove inner border-radius and box-shadow inside 3D top face
+       to prevent black gaps between top face and side faces */
+    .tile-3d-top .tile-bg {
+        border-radius: 0;
+        box-shadow: none;
+    }
     .tile-3d-front {
         position: absolute;
         bottom: 0;
         left: 0;
         width: 100%;
-        background: #c8a030;
+        background: linear-gradient(to bottom, #e4dec8 50%, #c8a030 50%);
         transform-origin: bottom center;
         transform: rotateX(-90deg);
         border-radius: 0 0 2px 2px;
@@ -136,10 +138,30 @@ export const VIEWER_3D_CSS = `
         top: 0;
         left: 100%;
         height: 100%;
-        background: #b08828;
+        background: linear-gradient(to right, #b08828 50%, #dcd6c0 50%);
         transform-origin: left center;
-        transform: rotateY(90deg);
+        transform: rotateY(-90deg);
         border-radius: 0 2px 2px 0;
+    }
+    .tile-3d-back {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        background: linear-gradient(to bottom, #c8a030 50%, #e4dec8 50%);
+        transform-origin: top center;
+        transform: rotateX(90deg);
+        border-radius: 2px 2px 0 0;
+    }
+    .tile-3d-left {
+        position: absolute;
+        top: 0;
+        right: 100%;
+        height: 100%;
+        background: linear-gradient(to right, #dcd6c0 50%, #b08828 50%);
+        transform-origin: right center;
+        transform: rotateY(90deg);
+        border-radius: 2px 0 0 2px;
     }
 
     /* Opponent hand on table edge */
