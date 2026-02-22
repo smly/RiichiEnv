@@ -16,17 +16,17 @@ export const VIEWER_3D_CSS = `
         position: absolute;
         top: 0; left: 0;
         width: 100%; height: 100%;
-        perspective: 1800px;
+        perspective: 1500px;
         perspective-origin: 50% 40%;
     }
 
     .table-surface {
         position: absolute;
-        width: 800px;
-        height: 800px;
+        width: 750px;
+        height: 750px;
         left: 50%;
-        top: 42%;
-        transform: translate(-50%, -50%) rotateX(55deg);
+        top: 40%;
+        transform: translate(-50%, -50%) rotateX(35deg);
         transform-style: preserve-3d;
         background: #1e2844;
         border-radius: 6px;

@@ -69,9 +69,12 @@ export class Renderer3D implements IRenderer {
 
         const tableSurface = document.createElement('div');
         tableSurface.className = 'table-surface';
+        // Position: flatter tilt → move table up to balance with hand layer
+        const tableTop = this.layout.tiltAngle <= 40 ? '40%' : '42%';
         Object.assign(tableSurface.style, {
             width: `${this.layout.tableSize}px`,
             height: `${this.layout.tableSize}px`,
+            top: tableTop,
             transform: `translate(-50%, -50%) rotateX(${this.layout.tiltAngle}deg)`,
         });
 
@@ -293,6 +296,7 @@ export class Renderer3D implements IRenderer {
     // Riichi Sticks on table
     // =========================================================================
     private renderRiichiSticks(table: HTMLElement, state: BoardState, pc: number): void {
+        const ts = this.layout.tableSize;
         state.players.forEach((p, i) => {
             if (!p.riichi) return;
             const relPos = (i - this.viewpoint + pc) % pc;
@@ -303,25 +307,27 @@ export class Renderer3D implements IRenderer {
             dot.className = 'dot';
             stick.appendChild(dot);
 
-            // Position between river and center
+            // Position between river and center (proportional to table size)
+            const near = Math.round(ts * 0.6625);
+            const far = Math.round(ts * 0.3375);
             if (relPos === 0) {
                 Object.assign(stick.style, {
-                    left: '50%', top: '530px',
+                    left: '50%', top: `${near}px`,
                     transform: 'translateX(-50%)',
                 });
             } else if (relPos === 1) {
                 Object.assign(stick.style, {
-                    left: '530px', top: '50%',
+                    left: `${near}px`, top: '50%',
                     transform: 'translateY(-50%) rotate(90deg)',
                 });
             } else if (relPos === 2) {
                 Object.assign(stick.style, {
-                    left: '50%', top: '270px',
+                    left: '50%', top: `${far}px`,
                     transform: 'translateX(-50%)',
                 });
             } else if (relPos === 3) {
                 Object.assign(stick.style, {
-                    left: '270px', top: '50%',
+                    left: `${far}px`, top: '50%',
                     transform: 'translateY(-50%) rotate(90deg)',
                 });
             }
@@ -340,12 +346,13 @@ export class Renderer3D implements IRenderer {
         const wrapper = document.createElement('div');
         wrapper.className = 'river-3d';
 
-        // Position on table
+        // Position on table (proportional to table size)
+        const ts = this.layout.tableSize;
         const positions: { [key: number]: { left: string; top: string; transform: string } } = {
-            0: { left: '50%', top: '600px', transform: 'translate(-50%, -50%)' },
-            1: { left: '620px', top: '50%', transform: 'translate(-50%, -50%) rotate(-90deg)' },
-            2: { left: '50%', top: '200px', transform: 'translate(-50%, -50%) rotate(180deg)' },
-            3: { left: '180px', top: '50%', transform: 'translate(-50%, -50%) rotate(90deg)' },
+            0: { left: '50%', top: `${Math.round(ts * 0.75)}px`, transform: 'translate(-50%, -50%)' },
+            1: { left: `${Math.round(ts * 0.775)}px`, top: '50%', transform: 'translate(-50%, -50%) rotate(-90deg)' },
+            2: { left: '50%', top: `${Math.round(ts * 0.25)}px`, transform: 'translate(-50%, -50%) rotate(180deg)' },
+            3: { left: `${Math.round(ts * 0.225)}px`, top: '50%', transform: 'translate(-50%, -50%) rotate(90deg)' },
         };
         const pos = positions[relIndex] || positions[0];
         Object.assign(wrapper.style, pos);
@@ -432,11 +439,13 @@ export class Renderer3D implements IRenderer {
         const wrapper = document.createElement('div');
         wrapper.className = 'opp-meld-3d';
 
-        // Position near the corner, between hand and edge
+        // Position near the corner, between hand and edge (proportional to table size)
+        const ts = this.layout.tableSize;
+        const meldOffset = `${Math.round(ts * 0.1)}px`;
         const positions: { [key: number]: { [k: string]: string } } = {
-            1: { right: '12px', bottom: '80px', transform: 'rotate(-90deg)' },
-            2: { right: '80px', top: '12px', transform: 'rotate(180deg)' },
-            3: { left: '12px', top: '80px', transform: 'rotate(90deg)' },
+            1: { right: '12px', bottom: meldOffset, transform: 'rotate(-90deg)' },
+            2: { right: meldOffset, top: '12px', transform: 'rotate(180deg)' },
+            3: { left: '12px', top: meldOffset, transform: 'rotate(90deg)' },
         };
         const pos = positions[relIndex];
         if (pos) Object.assign(wrapper.style, pos);
