@@ -11,14 +11,17 @@
     "build": "npm run build:wasm && npm run build:tiles && npm run build:bundle && npm run build:compress && npm run build:copy",
     "build:no-wasm": "npm run build:tiles && npm run build:bundle && npm run build:compress && npm run build:copy",
     "watch": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --loader:.wasm=binary --global-name=RiichiEnvViewer --watch",
-    "dev": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --loader:.wasm=binary --servedir=."
+    "dev": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --loader:.wasm=binary --servedir=.",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "esbuild": "^0.19.0",
     "sharp": "^0.34.5",
     "svgo": "^2.8.0",
     "text-to-svg": "^3.1.5",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.18"
   },
   "author": "",
   "license": "Apache-2.0"

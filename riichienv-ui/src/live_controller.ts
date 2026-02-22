@@ -28,7 +28,8 @@ export class LiveController {
 
     private cycleViewpoint(delta: number) {
         const current = this.viewer.renderer.viewpoint;
-        const next = (current + delta + 4) % 4;
+        const pc = this.viewer.gameState.config.playerCount;
+        const next = (current + delta + pc) % pc;
         this.viewer.renderer.viewpoint = next;
         this.viewer.update();
     }

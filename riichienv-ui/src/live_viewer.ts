@@ -1,6 +1,8 @@
 import { GameState } from './game_state';
+import { GameConfig, LayoutConfig, createGameConfig4P, createLayoutConfig4P } from './config';
 import { COLORS } from './constants';
-import { Renderer } from './renderer';
+import { Renderer2D } from './renderers/renderer_2d';
+import { IRenderer } from './renderers/renderer_interface';
 import { MjaiEvent } from './types';
 import { LiveController } from './live_controller';
 import { ICON_EYE } from './icons';
@@ -16,12 +18,15 @@ import { initWasm } from './wasm/loader';
  */
 export class LiveViewer {
     gameState: GameState;
-    renderer: Renderer;
+    renderer: IRenderer;
     container: HTMLElement;
     controller: LiveController;
     debugPanel: HTMLElement;
 
-    constructor(containerId: string, options?: { perspective?: number }) {
+    constructor(containerId: string, options?: { perspective?: number, config?: GameConfig, layout?: LayoutConfig }) {
+        const gc = options?.config ?? createGameConfig4P();
+        const lc = options?.layout ?? createLayoutConfig4P();
+
         const el = document.getElementById(containerId);
         if (!el) throw new Error(`Container #${containerId} not found`);
         this.container = el;
@@ -76,8 +81,8 @@ export class LiveViewer {
             position: 'absolute',
             top: '0',
             left: '0',
-            width: '970px',
-            height: '900px',
+            width: `${lc.contentWidth}px`,
+            height: `${lc.contentHeight}px`,
             flexShrink: '0',
             transformOrigin: 'top left'
         });
@@ -87,8 +92,8 @@ export class LiveViewer {
         const viewArea = document.createElement('div');
         viewArea.id = `${containerId}-board`;
         Object.assign(viewArea.style, {
-            width: '880px',
-            height: '880px',
+            width: `${lc.viewAreaSize}px`,
+            height: `${lc.viewAreaSize}px`,
             position: 'relative',
             backgroundColor: COLORS.boardBackground,
             boxShadow: '0 0 20px rgba(0,0,0,0.5)',
@@ -150,8 +155,8 @@ export class LiveViewer {
         };
 
         // Initialize with empty event list
-        this.gameState = new GameState([]);
-        this.renderer = new Renderer(viewArea);
+        this.gameState = new GameState([], gc);
+        this.renderer = new Renderer2D(viewArea, lc);
 
         if (typeof options?.perspective === 'number') {
             this.renderer.viewpoint = options.perspective;
@@ -175,14 +180,15 @@ export class LiveViewer {
         };
 
         // Resize logic
+        const baseW = lc.contentWidth;
+        const baseH = lc.contentHeight;
+
         const resizeObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
                 const availableW = entry.contentRect.width;
                 const availableH = window.innerHeight;
                 if (availableW === 0) continue;
 
-                const baseW = 970;
-                const baseH = 900;
                 const scale = Math.min(availableW / baseW, availableH / baseH, 1.0);
 
                 contentWrapper.style.transform = `scale(${scale})`;
@@ -195,7 +201,6 @@ export class LiveViewer {
         window.addEventListener('resize', () => {
             const availableW = this.container.clientWidth;
             const availableH = window.innerHeight;
-            const baseW = 970; const baseH = 900;
             const scale = Math.min(availableW / baseW, availableH / baseH, 1.0);
             contentWrapper.style.transform = `scale(${scale})`;
             scaleWrapper.style.width = `${Math.floor(baseW * scale)}px`;
