@@ -10,8 +10,8 @@
     "build:copy": "cp dist/viewer.js.gz ../src/riichienv/visualizer/assets/viewer.js.gz",
     "build": "npm run build:wasm && npm run build:tiles && npm run build:bundle && npm run build:compress && npm run build:copy",
     "build:no-wasm": "npm run build:tiles && npm run build:bundle && npm run build:compress && npm run build:copy",
-    "watch": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --global-name=RiichiEnvViewer --watch",
-    "dev": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --servedir=."
+    "watch": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --loader:.wasm=binary --global-name=RiichiEnvViewer --watch",
+    "dev": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --loader:.wasm=binary --servedir=."
   },
   "devDependencies": {
     "esbuild": "^0.19.0",

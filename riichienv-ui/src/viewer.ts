@@ -1,9 +1,10 @@
 import { GameState } from './game_state';
+import { GameConfig, LayoutConfig, createGameConfig4P, createLayoutConfig4P } from './config';
 import { COLORS } from './constants';
-import { Renderer } from './renderer';
+import { Renderer2D } from './renderers/renderer_2d';
+import { IRenderer } from './renderers/renderer_interface';
 import { MjaiEvent } from './types';
 import { ReplayController } from './controller';
-import { LiveViewer } from './live_viewer';
 import { initWasm } from './wasm/loader';
 import {
     ICON_EYE, ICON_ARROW_LEFT, ICON_ARROW_RIGHT,
@@ -12,7 +13,7 @@ import {
 
 export class Viewer {
     gameState: GameState;
-    renderer: Renderer;
+    renderer: IRenderer;
     container: HTMLElement;
     log: MjaiEvent[];
     controller!: ReplayController;
@@ -21,7 +22,18 @@ export class Viewer {
 
     debugPanel!: HTMLElement;
 
-    constructor(containerId: string, log: MjaiEvent[], initialStep?: number, perspective?: number, freeze: boolean = false) {
+    constructor(
+        containerId: string,
+        log: MjaiEvent[],
+        initialStep?: number,
+        perspective?: number,
+        freeze: boolean = false,
+        config?: GameConfig,
+        layout?: LayoutConfig
+    ) {
+        const gc = config ?? createGameConfig4P();
+        const lc = layout ?? createLayoutConfig4P();
+
         this.isFrozen = freeze;
         const el = document.getElementById(containerId);
         if (!el) throw new Error(`Container #${containerId} not found`);
@@ -70,7 +82,7 @@ export class Viewer {
         });
         scrollContainer.appendChild(scaleWrapper);
 
-        // 2b. Content Wrapper 
+        // 2b. Content Wrapper
         const contentWrapper = document.createElement('div');
         Object.assign(contentWrapper.style, {
             display: 'flex',
@@ -79,8 +91,8 @@ export class Viewer {
             position: 'absolute',
             top: '0',
             left: '0',
-            width: '970px',
-            height: '900px',
+            width: `${lc.contentWidth}px`,
+            height: `${lc.contentHeight}px`,
             flexShrink: '0',
             transformOrigin: 'top left'
         });
@@ -90,8 +102,8 @@ export class Viewer {
         const viewArea = document.createElement('div');
         viewArea.id = `${containerId}-board`;
         Object.assign(viewArea.style, {
-            width: '880px',
-            height: '880px',
+            width: `${lc.viewAreaSize}px`,
+            height: `${lc.viewAreaSize}px`,
             position: 'relative',
             backgroundColor: COLORS.boardBackground,
             boxShadow: '0 0 20px rgba(0,0,0,0.5)',
@@ -152,18 +164,17 @@ export class Viewer {
         };
 
         console.log("[Viewer] Initializing GameState with log length:", log.length);
-        this.gameState = new GameState(log);
+        this.gameState = new GameState(log, gc);
         console.log("[Viewer] GameState initialized. Current event index:", this.gameState.current.eventIndex);
 
-        console.log("[Viewer] Initializing Renderer");
-        this.renderer = new Renderer(viewArea);
+        console.log("[Viewer] Initializing Renderer2D");
+        this.renderer = new Renderer2D(viewArea, lc);
 
         // Create Buttons
         if (typeof perspective === 'number') {
             this.renderer.viewpoint = perspective;
         }
 
-        // Create Buttons
         // Create Buttons
         if (!this.isFrozen) {
             const btnLog = createBtn('btn-log', ICON_EYE, "Debug");
@@ -231,24 +242,16 @@ export class Viewer {
         }
 
         // Resize Logic to scale the entire content (Board + Sidebar)
-        // We use ResizeObserver on the container to detect size changes.
+        const baseW = lc.contentWidth;
+        const baseH = lc.contentHeight;
+
         const resizeObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
-                // this.container.clientWidth reflects the PARENT's constraint.
-
                 const availableW = entry.contentRect.width;
-                // For height, we might not be constrained by parent height in Jupyter (it grows).
-                // But we want to fit within window height if it's full screen.
-                // If Jupyter, height is usually auto.
-                // If we use window.innerHeight, we ensure it doesn't get taller than the viewport.
-                const availableH = window.innerHeight; // Still useful to prevent being too tall
+                const availableH = window.innerHeight;
 
                 if (availableW === 0) continue;
 
-                const baseW = 970;
-                const baseH = 900;
-
-                // Calculate scale
                 const scale = Math.min(availableW / baseW, availableH / baseH, 1.0);
 
                 contentWrapper.style.transform = `scale(${scale})`;
@@ -258,9 +261,6 @@ export class Viewer {
 
                 scaleWrapper.style.width = `${finalW}px`;
                 scaleWrapper.style.height = `${finalH}px`;
-
-                // We do NOT touch this.container dimensions here. 
-                // It will shrink-wrap scaleWrapper height naturally if display: block/flex.
             }
         });
 
@@ -271,16 +271,11 @@ export class Viewer {
         window.addEventListener('resize', () => {
             const availableW = this.container.clientWidth;
             const availableH = window.innerHeight;
-            const baseW = 970; const baseH = 900;
             const scale = Math.min(availableW / baseW, availableH / baseH, 1.0);
             contentWrapper.style.transform = `scale(${scale})`;
             scaleWrapper.style.width = `${Math.floor(baseW * scale)}px`;
             scaleWrapper.style.height = `${Math.floor(baseH * scale)}px`;
         });
-
-        // Wire up buttons - Moved to creation block to handle freeze safely and avoid ID collisions.
-
-        // Ensure log panel is initially hidden if desired, or handled by controller.
 
         // Handle Viewpoint Change from Renderer (Click on Player Info)
         if (!this.isFrozen) {
@@ -304,6 +299,8 @@ export class Viewer {
     }
 
     showRoundSelector() {
+        const pc = this.gameState.config.playerCount;
+
         // Create Modal Overlay
         const overlay = document.createElement('div');
         overlay.className = 're-modal-overlay';
@@ -324,18 +321,14 @@ export class Viewer {
         const table = document.createElement('table');
         table.className = 're-kyoku-table';
 
-        // Header
+        // Header - dynamic columns based on player count
         const thead = document.createElement('thead');
-        thead.innerHTML = `
-            <tr>
-                <th>Round</th>
-                <th>Honba</th>
-                <th>P0 Score</th>
-                <th>P1 Score</th>
-                <th>P2 Score</th>
-                <th>P3 Score</th>
-            </tr>
-        `;
+        const headerRow = document.createElement('tr');
+        headerRow.innerHTML = '<th>Round</th><th>Honba</th>';
+        for (let i = 0; i < pc; i++) {
+            headerRow.innerHTML += `<th>P${i} Score</th>`;
+        }
+        thead.appendChild(headerRow);
         table.appendChild(thead);
 
         const tbody = document.createElement('tbody');
@@ -350,18 +343,20 @@ export class Viewer {
             };
 
             // Round Name
-            const winds = ['E', 'S', 'W', 'N'];
-            const w = winds[Math.floor(k.round / 4)];
-            const rNum = (k.round % 4) + 1;
+            const winds = this.gameState.config.winds;
+            const w = winds[Math.floor(k.round / pc)] || winds[0];
+            const rNum = (k.round % pc) + 1;
             const roundStr = `${w}${rNum}`;
+
+            let scoresCells = '';
+            for (let i = 0; i < pc; i++) {
+                scoresCells += `<td>${k.scores[i] ?? '-'}</td>`;
+            }
 
             tr.innerHTML = `
                 <td>${roundStr}</td>
                 <td>${k.honba}</td>
-                <td>${k.scores[0]}</td>
-                <td>${k.scores[1]}</td>
-                <td>${k.scores[2]}</td>
-                <td>${k.scores[3]}</td>
+                ${scoresCells}
             `;
             tbody.appendChild(tr);
         });
@@ -379,6 +374,3 @@ export class Viewer {
         // Update URL/History?
     }
 }
-
-(window as any).RiichiEnvViewer = Viewer;
-(window as any).RiichiEnvLiveViewer = LiveViewer;

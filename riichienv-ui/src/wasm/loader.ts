@@ -6,6 +6,9 @@
  * so no separate .wasm file fetch is needed at runtime.
  */
 
+// @ts-ignore - esbuild binary loader provides Uint8Array
+import wasmBinary from './pkg/riichienv_wasm_bg.wasm';
+
 type WasmModule = typeof import('./pkg/riichienv_wasm');
 
 let wasmModule: WasmModule | null = null;
@@ -24,11 +27,15 @@ export async function initWasm(): Promise<void> {
     initPromise = (async () => {
         try {
             const mod = await import('./pkg/riichienv_wasm');
-            await mod.default();
+            // Pass the inlined WASM binary directly to avoid import.meta.url
+            // issues in IIFE format. esbuild's --loader:.wasm=binary provides
+            // the binary as a Uint8Array.
+            await mod.default({ module_or_path: wasmBinary });
             wasmModule = mod;
         } catch (e) {
             initFailed = true;
             console.warn('[WASM] Initialization failed:', e);
+            throw e; // Re-throw so callers' .catch() handlers fire
         }
     })();
 

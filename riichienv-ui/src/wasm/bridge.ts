@@ -32,6 +32,7 @@ export interface ConditionsInput {
     houtei?: boolean;
     rinshan?: boolean;
     chankan?: boolean;
+    tsumo_first_turn?: boolean;
     player_wind?: number;
     round_wind?: number;
     honba?: number;

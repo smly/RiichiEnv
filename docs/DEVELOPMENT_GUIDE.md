@@ -9,6 +9,8 @@ Ensure you have the following tools installed:
 - Python 3.10+
 - `uv` (for Python package management)
 - `maturin` (for building the Rust extension)
+- Node.js (v18+) and `npm` (for UI development)
+- `wasm-pack` (for WASM builds, https://rustwasm.github.io/wasm-pack/)
 
 Install development dependencies:
 ```bash
@@ -17,12 +19,14 @@ uv sync --dev
 
 ## Workspace Structure
 
-The project uses a Cargo workspace with two crates:
+The project uses a Cargo workspace with multiple crates and a TypeScript UI package:
 
-| Crate | Role |
+| Crate / Package | Role |
 |---|---|
 | `riichienv-core` | Pure Rust library (rlib). No Python dependency by default. |
 | `riichienv-python` | PyO3 wrapper (cdylib). Depends on `riichienv-core` with `python` feature. |
+| `riichienv-wasm` | WASM wrapper (cdylib). Depends on `riichienv-core` with `wasm` feature. |
+| `riichienv-ui` | TypeScript UI (replay viewer + live viewer). Depends on `riichienv-wasm`. |
 
 ## Pre-commit
 
@@ -38,16 +42,20 @@ ruff-format..............................................................Passed
 
 ## Feature Flags
 
-The `riichienv-core` crate uses feature flags to separate the core library from PyO3 bindings:
+The `riichienv-core` crate uses feature flags to control optional dependencies and bindings:
 
 | Feature | Description |
 |---|---|
-| *(none)* | Pure Rust library — no Python dependency |
-| `python` | Enables PyO3 bindings (`#[pyclass]`, `#[pymethods]`, etc.) |
+| `default` | Enables `flate2` (gzip) and `ndarray` — standard desktop/server builds |
+| `python` | Enables PyO3 bindings (`#[pyclass]`, `#[pymethods]`, etc.) + `flate2`/`ndarray` |
+| `wasm` | Marker feature for WASM builds (no additional deps) |
+| *(no default features)* | Minimal pure Rust library — no `flate2`/`ndarray`/PyO3 |
 
-`default = []` — by default no features are enabled, so `cargo build -p riichienv-core` produces a pure Rust library.
+`default = ["dep:flate2", "dep:ndarray"]` — standard builds include gzip and ndarray support.
 
 The `riichienv-python` crate depends on `riichienv-core` with the `python` feature enabled, and adds the `extension-module` feature for maturin builds (configured in `pyproject.toml` under `[tool.maturin]`).
+
+The `riichienv-wasm` crate depends on `riichienv-core` with `default-features = false, features = ["wasm"]` to exclude desktop-only dependencies (`flate2`, `ndarray`).
 
 ## Rust Development
 
@@ -72,6 +80,12 @@ cargo check -p riichienv-core --features python
 To check the Python wrapper crate:
 ```bash
 cargo check -p riichienv-python
+```
+
+To check the WASM crate (requires `wasm32-unknown-unknown` target):
+```bash
+rustup target add wasm32-unknown-unknown
+cargo check -p riichienv-wasm --target wasm32-unknown-unknown
 ```
 
 ### Formatting
@@ -152,6 +166,65 @@ impl Foo {
 ```
 
 **Error handling** — use `RiichiError` / `RiichiResult<T>` (defined in `errors.rs`) for pure Rust code. `RiichiError` is an enum with variants: `Parse`, `InvalidAction`, `InvalidState`, `Serialization`. The `From<RiichiError> for PyErr` conversion is provided when the `python` feature is enabled, so `?` works seamlessly in Python wrappers.
+
+## WASM Development
+
+### Prerequisites
+
+- `wasm-pack` ([https://rustwasm.github.io/wasm-pack/](https://rustwasm.github.io/wasm-pack/))
+- `rustup target add wasm32-unknown-unknown`
+
+### Build
+
+```bash
+wasm-pack build riichienv-wasm --target web
+```
+
+### Notes
+
+- `.cargo/config.toml` contains `getrandom_backend = "wasm_js"` rustflag for `wasm32-unknown-unknown` target.
+- `riichienv-core` is used with `default-features = false, features = ["wasm"]` to exclude `flate2`/`ndarray`.
+- The `riichienv-wasm` crate exposes functions via `wasm-bindgen`: `calc_waits`, `calc_shanten`, `calc_score`, `mjai_to_tile_id`, `tile_id_to_mjai`, `is_tenpai`.
+
+## UI Development
+
+### Prerequisites
+
+- Node.js (v18+) and `npm`
+- `wasm-pack` (for WASM builds)
+
+### Build (full: WASM + UI)
+
+```bash
+cd riichienv-ui
+npm install
+npm run build
+```
+
+This runs the full build pipeline: `build:wasm` → `build:tiles` → `build:bundle` → `build:compress` → `build:copy`.
+
+### Build (UI only, skip WASM rebuild)
+
+```bash
+cd riichienv-ui
+npm run build:no-wasm
+```
+
+### Development
+
+```bash
+cd riichienv-ui
+npm run dev    # Local dev server with hot-reload
+npm run watch  # File watcher with auto-rebuild
+```
+
+### Build Chain
+
+```
+riichienv-core → riichienv-wasm (wasm-pack) → riichienv-ui (esbuild) → src/riichienv/visualizer/assets/viewer.js.gz
+```
+
+The esbuild step inlines the WASM binary into the JavaScript bundle (`--loader:.wasm=binary`), producing a single self-contained `viewer.js` file. This is then gzip-compressed and copied to the Python package assets directory.
 
 ## Python Development
 
@@ -243,10 +316,10 @@ This project uses an automated GitHub Actions workflow for releases.
 ### 3. Creating a Release
 To publish a new version:
 
-1. Update the version number in `riichienv-core/Cargo.toml`, `riichienv-python/Cargo.toml`, and `pyproject.toml`.
+1. Update the version number in `riichienv-core/Cargo.toml`, `riichienv-python/Cargo.toml`, `riichienv-wasm/Cargo.toml`, and `pyproject.toml`.
 2. Commit and push the changes:
    ```bash
-   git add riichienv-core/Cargo.toml riichienv-python/Cargo.toml pyproject.toml
+   git add riichienv-core/Cargo.toml riichienv-python/Cargo.toml riichienv-wasm/Cargo.toml pyproject.toml
    git commit -m "chore: bump version to X.Y.Z"
    git push
    ```

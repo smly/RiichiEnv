@@ -14,6 +14,7 @@ This is the core engine behind [RiichiEnv](https://github.com/smly/RiichiEnv), a
 - **Hand evaluation** -- Comprehensive agari (winning hand) detection with all standard yaku, including yakuman
 - **Score calculation** -- Han/fu-based scoring with support for honba, tsumo/ron, and oya/ko distinctions
 - **Rule presets** -- Built-in presets for Tenhou and MJSoul rule sets, with granular customization options
+- **WASM support** -- Compile to WebAssembly via the `wasm` feature flag for browser-side computation (waits, shanten, scoring)
 
 ## Usage
 

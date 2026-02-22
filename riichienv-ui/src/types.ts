@@ -35,7 +35,19 @@ export interface PlayerState {
     lastDrawnTile?: string;
 }
 
+export interface ConditionTracker {
+    ippatsu: boolean[];              // [p0, p1, p2, p3]
+    afterKan: boolean;               // Post-kan flag (for rinshan)
+    pendingChankan: boolean;         // Kakan pending flag (for chankan)
+    chankanTarget?: number;          // Actor who declared kakan
+    callsMade: boolean;              // Any call made in this kyoku
+    firstTurnCompleted: boolean[];   // Per-player first dahai completed
+    turnCount: number;               // Total dahai count in kyoku
+    doubleRiichi: boolean[];         // Per-player double riichi declared
+}
+
 export interface BoardState {
+    playerCount: number;
     players: PlayerState[];
     doraMarkers: string[];
     round: number; // Kyoku (0-indexed, 0=E1)
@@ -52,4 +64,5 @@ export interface BoardState {
         tsumogiri: boolean;
         drawnTile?: string;
     };
+    conditions: ConditionTracker;
 }

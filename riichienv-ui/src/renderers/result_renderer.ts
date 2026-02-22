@@ -207,80 +207,95 @@ export class ResultRenderer {
 
             body.appendChild(doraContainer);
 
-            // 4. Yaku List - Updated Style
-            if (score.yaku && score.yaku.length > 0) {
-                // Sort by ID ascending (copy to avoid mutation)
-                const sortedYaku = [...score.yaku].sort((a: number, b: number) => a - b);
-                
-                const yakuList = document.createElement('ul');
-                yakuList.className = 're-yaku-list';
-                Object.assign(yakuList.style, {
-                    columns: '2',
-                    listStyleType: 'none', 
-                    paddingLeft: '0',
-                    margin: '15px 0',
-                    columnGap: '40px',
-                    fontFamily: '"Times New Roman", Times, serif', 
-                    fontSize: '1.8em', 
-                    fontWeight: 'bold', 
-                    lineHeight: '1.8'
+            // Guard: if score is unavailable (WASM failed and no meta), show minimal info
+            if (!score) {
+                const noScoreMsg = document.createElement('div');
+                Object.assign(noScoreMsg.style, {
+                    marginTop: '15px',
+                    padding: '10px',
+                    textAlign: 'center',
+                    color: '#aaa',
+                    fontStyle: 'italic',
                 });
-
-                sortedYaku.forEach((yId: number) => {
-                    const li = document.createElement('li');
-                    li.textContent = YAKU_MAP[yId] || `Yaku ${yId}`;
-                    li.style.borderBottom = '1px dotted #555';
-                    li.style.marginBottom = '5px';
-                    yakuList.appendChild(li);
-                });
-                body.appendChild(yakuList);
-            }
-
-            // Calculate Limit / Rank
-            const han = score.han;
-            const fu = score.fu;
-            // Check for Yakuman IDs (>= 35)
-            const isYakuman = score.yaku?.some((y: number) => y >= 35) ?? false;
-            const isKazoe = !isYakuman && han >= 13;
-
-            // Apply special styling to content if Yakuman
-            if (isYakuman || isKazoe) {
-                content.classList.add('is-yakuman'); // Helper class for specific borders
-
+                noScoreMsg.textContent = 'Score data unavailable';
+                body.appendChild(noScoreMsg);
+                content.appendChild(body);
             } else {
-                content.classList.remove('is-yakuman');
+                // 4. Yaku List - Updated Style
+                if (score.yaku && score.yaku.length > 0) {
+                    // Sort by ID ascending (copy to avoid mutation)
+                    const sortedYaku = [...score.yaku].sort((a: number, b: number) => a - b);
+
+                    const yakuList = document.createElement('ul');
+                    yakuList.className = 're-yaku-list';
+                    Object.assign(yakuList.style, {
+                        columns: '2',
+                        listStyleType: 'none',
+                        paddingLeft: '0',
+                        margin: '15px 0',
+                        columnGap: '40px',
+                        fontFamily: '"Times New Roman", Times, serif',
+                        fontSize: '1.8em',
+                        fontWeight: 'bold',
+                        lineHeight: '1.8'
+                    });
+
+                    sortedYaku.forEach((yId: number) => {
+                        const li = document.createElement('li');
+                        li.textContent = YAKU_MAP[yId] || `Yaku ${yId}`;
+                        li.style.borderBottom = '1px dotted #555';
+                        li.style.marginBottom = '5px';
+                        yakuList.appendChild(li);
+                    });
+                    body.appendChild(yakuList);
+                }
+
+                // Calculate Limit / Rank
+                const han = score.han;
+                const fu = score.fu;
+                // Check for Yakuman IDs (>= 35)
+                const isYakuman = score.yaku?.some((y: number) => y >= 35) ?? false;
+                const isKazoe = !isYakuman && han >= 13;
+
+                // Apply special styling to content if Yakuman
+                if (isYakuman || isKazoe) {
+                    content.classList.add('is-yakuman'); // Helper class for specific borders
+
+                } else {
+                    content.classList.remove('is-yakuman');
+                }
+
+                // Limit Banner
+                const limitInfo = ResultRenderer.getLimitInfo(han, fu, isYakuman, isKazoe);
+                if (limitInfo) {
+                    const limitBanner = document.createElement('div');
+                    limitBanner.className = `limit-banner ${limitInfo.css}`;
+                    limitBanner.textContent = limitInfo.text;
+                    body.appendChild(limitBanner);
+                }
+
+                // 5. Han / Fu
+                const statsRow = document.createElement('div');
+                Object.assign(statsRow.style, {
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    marginTop: '15px',
+                    fontWeight: 'bold',
+                    fontSize: '1.1em',
+                    borderTop: '1px solid #444',
+                    paddingTop: '10px'
+                });
+                statsRow.innerHTML = `<span>${score.han} Han</span><span>${score.fu} Fu</span>`;
+                body.appendChild(statsRow);
+
+                content.appendChild(body);
+
+                // 6. Points
+                const scoreDisplay = document.createElement('div');
+                scoreDisplay.className = 're-score-display';
+                scoreDisplay.textContent = `${score.points} Points`;
+                content.appendChild(scoreDisplay);
             }
-            
-            // Limit Banner
-            const limitInfo = ResultRenderer.getLimitInfo(han, fu, isYakuman, isKazoe);
-            if (limitInfo) {
-                const limitBanner = document.createElement('div');
-                limitBanner.className = `limit-banner ${limitInfo.css}`;
-                limitBanner.textContent = limitInfo.text;
-                body.appendChild(limitBanner);
-            }
-
-            // 5. Han / Fu
-            const statsRow = document.createElement('div');
-            Object.assign(statsRow.style, {
-                display: 'flex',
-                justifyContent: 'space-between', 
-                marginTop: '15px',
-                fontWeight: 'bold',
-                fontSize: '1.1em',
-                borderTop: '1px solid #444',
-                paddingTop: '10px'
-            });
-            statsRow.innerHTML = `<span>${score.han} Han</span><span>${score.fu} Fu</span>`;
-            body.appendChild(statsRow);
-
-            content.appendChild(body);
-
-            // 6. Points
-            const scoreDisplay = document.createElement('div');
-            scoreDisplay.className = 're-score-display';
-            scoreDisplay.textContent = `${score.points} Points`;
-            content.appendChild(scoreDisplay);
 
             // Pagination Controls
             if (totalPages > 1) {

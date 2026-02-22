@@ -74,11 +74,12 @@ export class CenterRenderer {
         };
 
         // 1. Render Wind Labels (Corners)
-        const windMap = ['東_red', '南', '西', '北']; // Keys in CHAR_MAP
+        const pc = state.playerCount || 4;
+        const windMap = ['東_red', '南', '西', '北'].slice(0, pc); // Keys in CHAR_MAP
         state.players.forEach((p: any, i: number) => {
-            const relPos = (i - viewpoint + 4) % 4; // 0: Bottom, 1: Right, 2: Top, 3: Left
+            const relPos = (i - viewpoint + pc) % pc; // 0: Bottom, 1: Right, 2: Top, 3: Left
             const windIdx = p.wind; // 0: East, 1: South, ...
-            if (windIdx < 0 || windIdx > 3) return;
+            if (windIdx < 0 || windIdx >= pc) return;
 
             const key = windMap[windIdx];
             const asset = CHAR_MAP[key];
@@ -141,7 +142,7 @@ export class CenterRenderer {
 
         // Render Scores (Edges)
         state.players.forEach((p: any, i: number) => {
-            const relPos = (i - viewpoint + 4) % 4;
+            const relPos = (i - viewpoint + pc) % pc;
             const scoreRow = makeScoreRow(p.score);
 
             Object.assign(scoreRow.style, {
@@ -241,11 +242,11 @@ export class CenterRenderer {
 
         // Round Wind (0-3 -> E S W N)
         const roundWindNames = ['東', '南', '西', '北'];
-        const rWindIdx = Math.floor(state.round / 4);
+        const rWindIdx = Math.floor(state.round / pc);
         const rWindKey = roundWindNames[rWindIdx] || '東';
 
         // Round Number (0-3 -> 1 2 3 4)
-        const rNumIdx = state.round % 4;
+        const rNumIdx = state.round % pc;
         const rNumKey = ['一', '二', '三', '四'][rNumIdx] || '一';
 
         row1.appendChild(makeImg(rWindKey, 26));

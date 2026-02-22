@@ -1,4 +1,4 @@
-import { Viewer } from './index';
+import { Viewer } from './viewer';
 
 export class ReplayController {
     viewer: Viewer;

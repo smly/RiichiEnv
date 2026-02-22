@@ -1,7 +1,7 @@
 import { TileRenderer } from './tile_renderer';
 
 export class HandRenderer {
-    static renderHand(hand: string[], melds: any[], playerIndex: number, highlightTiles?: Set<string>, hasDraw?: boolean, dahaiAnim?: { insertIdx: number, tsumogiri: boolean }, shouldAnimate: boolean = true): HTMLElement {
+    static renderHand(hand: string[], melds: any[], playerIndex: number, highlightTiles?: Set<string>, hasDraw?: boolean, dahaiAnim?: { insertIdx: number, tsumogiri: boolean }, shouldAnimate: boolean = true, playerCount: number = 4): HTMLElement {
         // Hand & Melds Area
         const handArea = document.createElement('div');
         Object.assign(handArea.style, {
@@ -93,14 +93,14 @@ export class HandRenderer {
 
         if (melds.length > 0) {
             melds.forEach(m => {
-                this.renderMeld(meldsDiv, m, playerIndex);
+                this.renderMeld(meldsDiv, m, playerIndex, playerCount);
             });
         }
         handArea.appendChild(meldsDiv);
         return handArea;
     }
 
-    public static renderMeld(container: HTMLElement, m: { type: string, tiles: string[], from: number }, actor: number) {
+    public static renderMeld(container: HTMLElement, m: { type: string, tiles: string[], from: number }, actor: number, playerCount: number = 4) {
         const mGroup = document.createElement('div');
         Object.assign(mGroup.style, {
             display: 'flex',
@@ -109,9 +109,9 @@ export class HandRenderer {
             gap: '0px' // Reduce gap between tiles within meld to 0 (borders provide separation)
         });
 
-        // Determine relative position of target: (target - actor + 4) % 4
+        // Determine relative position of target: (target - actor + pc) % pc
         // 1: Right, 2: Front, 3: Left
-        const rel = (m.from - actor + 4) % 4;
+        const rel = (m.from - actor + playerCount) % playerCount;
 
         const tiles = [...m.tiles]; // 3 for Pon/Chi, 4 for Kan
 
