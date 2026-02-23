@@ -272,6 +272,35 @@ In 3-player mahjong (sanma), tiles 2m-8m do not exist. `calculate_shanten_3p` co
 (1, 2)  # 4P tenpai path requires drawing 2m/3m, which don't exist in 3P
 ```
 
+### Game Visualization
+
+`GameViewer` renders an interactive 3D replay viewer in Jupyter Notebooks. Create a viewer from a `RiichiEnv` instance, a JSONL file, or a list of MJAI events.
+
+```python
+from riichienv import RiichiEnv
+from riichienv.visualizer import GameViewer
+from riichienv.agents import RandomAgent
+
+agent = RandomAgent()
+env = RiichiEnv(game_mode="4p-red-half")
+obs_dict = env.reset()
+while not env.done():
+    actions = {pid: agent.act(obs) for pid, obs in obs_dict.items()}
+    obs_dict = env.step(actions)
+
+viewer = GameViewer.from_env(env, perspective=0)
+viewer  # displays the 3D viewer in Jupyter
+```
+
+The returned `GameViewer` object also provides methods for programmatic inspection:
+
+```python
+viewer.summary()        # list of round info dicts (bakaze, kyoku, honba, oya, scores)
+viewer.get_results(0)   # list[WinResult] for round 0
+```
+
+See [demos/README.md](demos/README.md) for full API details and notebook examples.
+
 ## 🛠 Development
 
 For more architectural details and contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md) and [DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md).

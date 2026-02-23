@@ -10,7 +10,7 @@ from typing import Any
 
 from IPython.display import HTML
 
-from riichienv import Conditions, HandEvaluator, Meld, MeldType, Wind
+from riichienv import Conditions, HandEvaluator, Meld, MeldType, WinResult, Wind
 from riichienv import convert as cvt
 
 
@@ -64,6 +64,10 @@ class MetadataInjector:
         self.turn_count = 0
         self.kyoku_num = 0
         self.honba = 0
+
+        # Per-round WinResult storage
+        self.round_win_results: list[list[WinResult]] = []
+        self._current_round_results: list[WinResult] = []
 
     def _get_tid(self, tile_str: str) -> int:
         """Get a unique 136-ID for a tile string to maintain valid state."""
@@ -129,6 +133,7 @@ class MetadataInjector:
                 self.is_first_round_of_kyoku = True
                 self.any_melds_in_kyoku = False
                 self.turn_count = 0
+                self._current_round_results = []
 
                 for pid, tehai in enumerate(ev["tehais"]):
                     # tehai is list of strings
@@ -339,10 +344,13 @@ class MetadataInjector:
                     ev["meta"]["score"] = score_data
 
                     self.kyoku_results.append({"actor": actor, "target": target, "score": score_data})
+                    self._current_round_results.append(res)
 
             elif etype == "end_kyoku":
                 if self.kyoku_results:
                     ev["meta"]["results"] = self.kyoku_results
+                self.round_win_results.append(self._current_round_results)
+                self._current_round_results = []
 
         return self.events
 
@@ -372,44 +380,73 @@ class GameViewer:
         self.step = step
         self.perspective = perspective
         self.freeze = freeze
+        self._enriched_log: list[dict[str, Any]] | None = None
+        self._round_win_results: list[list[WinResult]] | None = None
+
+    def _ensure_processed(self) -> None:
+        if self._enriched_log is not None:
+            return
+        try:
+            injector = MetadataInjector(self.log)
+            self._enriched_log = injector.process()
+            self._round_win_results = injector.round_win_results
+        except Exception as e:
+            traceback.print_exc()
+            print(f"Warning: Metadata injection failed: {e}")
+            self._enriched_log = self.log
+            self._round_win_results = []
 
     @classmethod
     def from_env(
         cls, env: Any, step: int | None = None, perspective: int | None = None, freeze: bool = False
-    ) -> HTML:
-        return cls(env.mjai_log, step=step, perspective=perspective, freeze=freeze).show()
+    ) -> "GameViewer":
+        return cls(env.mjai_log, step=step, perspective=perspective, freeze=freeze)
 
     @classmethod
     def from_jsonl(
         cls, path: str, step: int | None = None, perspective: int | None = None, freeze: bool = False
-    ) -> HTML:
+    ) -> "GameViewer":
         with open(path, encoding="utf-8") as f:
             events = [json.loads(line) for line in f]
-        return cls(events, step=step, perspective=perspective, freeze=freeze).show()
+        return cls(events, step=step, perspective=perspective, freeze=freeze)
 
     @classmethod
     def from_list(
         cls, events: list[dict[str, Any]], step: int | None = None, perspective: int | None = None, freeze: bool = False
-    ) -> HTML:
-        return cls(events, step=step, perspective=perspective, freeze=freeze).show()
+    ) -> "GameViewer":
+        return cls(events, step=step, perspective=perspective, freeze=freeze)
+
+    def _repr_html_(self) -> str:
+        return self.show().data
+
+    def summary(self) -> list[dict[str, Any]]:
+        rounds = []
+        for ev in self.log:
+            if ev.get("type") == "start_kyoku":
+                rounds.append({
+                    "round_idx": len(rounds),
+                    "bakaze": ev.get("bakaze", "E"),
+                    "kyoku": ev.get("kyoku", 1),
+                    "honba": ev.get("honba", 0),
+                    "oya": ev.get("oya", 0),
+                    "scores": ev.get("scores", []),
+                })
+        return rounds
+
+    def get_results(self, round_idx: int) -> list[WinResult]:
+        self._ensure_processed()
+        assert self._round_win_results is not None
+        if round_idx < 0 or round_idx >= len(self._round_win_results):
+            raise IndexError(f"round_idx {round_idx} out of range (0-{len(self._round_win_results) - 1})")
+        return self._round_win_results[round_idx]
 
     def show(self) -> HTML:
-        """
-        Generates the HTML/JS viewer for the replay Log.
-        Injects metadata (waits, scores) before rendering.
-        """
-        # Inject Metadata (Waits, Scores)
-        try:
-            injector = MetadataInjector(self.log)
-            enriched_log = injector.process()
-        except Exception as e:
-            # Fallback if injection fails
-            traceback.print_exc()
-            print(f"Warning: Metadata injection failed: {e}")
-            enriched_log = self.log
+        """Generates the HTML/JS viewer for the replay log."""
+        self._ensure_processed()
+        assert self._enriched_log is not None
 
         unique_id = f"riichienv-viewer-{uuid.uuid4()}"
-        log_json = json.dumps(enriched_log)
+        log_json = json.dumps(self._enriched_log)
         viewer_js_b64, viewer_js_hash = _get_viewer_js_compressed_base64()
 
         if not viewer_js_b64:
@@ -481,7 +518,7 @@ def show_replay(log: list[dict[str, Any]]) -> HTML:
     Displays a replay viewer for the given MJAI log.
     Start using GameViewer.from_list(log) instead.
     """
-    return GameViewer.from_list(log)
+    return GameViewer.from_list(log).show()
 
 
 def main() -> None:
