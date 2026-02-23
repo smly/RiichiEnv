@@ -25,7 +25,7 @@
 * **Game Visualization**: Integrated replay viewer for Jupyter Notebooks.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/smly/RiichiEnv/main/docs/assets/visualizer1.png" width="35%"> <img src="https://raw.githubusercontent.com/smly/RiichiEnv/main/docs/assets/visualizer2.png" width="35%">
+<img src="https://raw.githubusercontent.com/smly/RiichiEnv/main/docs/assets/visualizer1.png" width="45%"> <img src="https://raw.githubusercontent.com/smly/RiichiEnv/main/docs/assets/visualizer2.png" width="35%">
 </div>
 
 ## 📦 Installation
@@ -206,6 +206,12 @@ See [DATA_REPRESENTATION.md](docs/DATA_REPRESENTATION.md) for more details.
 
 ### Hand Evaluation
 
+`HandEvaluator` evaluates a hand for tenpai status, waiting tiles, and winning results. Create an instance with `HandEvaluator(tiles, melds)` or `HandEvaluator.hand_from_text(text)`.
+
+*   `is_tenpai()` — returns whether the hand is in tenpai.
+*   `get_waits()` — returns the list of winning tile IDs (34-tile format, 0–33).
+*   `calc(win_tile, dora_indicators, ura_indicators, conditions)` — evaluates the hand with the given winning tile and returns a `WinResult`.
+
 ```python
 >>> from riichienv import HandEvaluator
 >>> import riichienv.convert as cvt
@@ -215,6 +221,18 @@ See [DATA_REPRESENTATION.md](docs/DATA_REPRESENTATION.md) for more details.
 True
 >>> he.calc(cvt.mpsz_to_tid("3s"), dora_indicators=[], ura_indicators=[])
 WinResult(is_win=True, yakuman=False, ron_agari=12000, tsumo_agari_oya=0, tsumo_agari_ko=0, yaku=[8, 11, 10, 22], han=5, fu=60)
+```
+
+The `yaku` field contains raw yaku IDs. Use `yaku_list()` to get detailed `Yaku` objects with Japanese/English names and platform-specific IDs.
+
+```python
+>>> result = he.calc(cvt.mpsz_to_tid("3s"), dora_indicators=[], ura_indicators=[])
+>>> for y in result.yaku_list():
+...     print(y)
+Yaku(id=8, name='役牌 發', name_en='Yakuhai (hatsu)', tenhou_id=19, mjsoul_id=8)
+Yaku(id=11, name='場風牌', name_en='Yakuhai (wind of round)', tenhou_id=14, mjsoul_id=11)
+Yaku(id=10, name='自風牌', name_en='Yakuhai (wind of place)', tenhou_id=10, mjsoul_id=10)
+Yaku(id=22, name='三暗刻', name_en='San Ankou', tenhou_id=29, mjsoul_id=22)
 ```
 
 ### Shanten Number Calculation
@@ -253,6 +271,35 @@ In 3-player mahjong (sanma), tiles 2m-8m do not exist. `calculate_shanten_3p` co
 >>> calculate_shanten(tiles), calculate_shanten_3p(tiles)
 (1, 2)  # 4P tenpai path requires drawing 2m/3m, which don't exist in 3P
 ```
+
+### Game Visualization
+
+`GameViewer` renders an interactive 3D replay viewer in Jupyter Notebooks. Create a viewer from a `RiichiEnv` instance, a JSONL file, or a list of MJAI events.
+
+```python
+from riichienv import RiichiEnv
+from riichienv.visualizer import GameViewer
+from riichienv.agents import RandomAgent
+
+agent = RandomAgent()
+env = RiichiEnv(game_mode="4p-red-half")
+obs_dict = env.reset()
+while not env.done():
+    actions = {pid: agent.act(obs) for pid, obs in obs_dict.items()}
+    obs_dict = env.step(actions)
+
+viewer = GameViewer.from_env(env, perspective=0)
+viewer  # displays the 3D viewer in Jupyter
+```
+
+The returned `GameViewer` object also provides methods for programmatic inspection:
+
+```python
+viewer.summary()        # list of round info dicts (bakaze, kyoku, honba, oya, scores)
+viewer.get_results(0)   # list[WinResult] for round 0
+```
+
+See [demos/README.md](demos/README.md) for full API details and notebook examples.
 
 ## 🛠 Development
 

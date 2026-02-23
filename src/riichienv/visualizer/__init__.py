@@ -1,3 +1,6 @@
-from .viewer import Replay, show_replay
+from .viewer import GameViewer, show_replay
 
-__all__ = ["show_replay", "Replay"]
+# Backwards compatibility alias
+Replay = GameViewer
+
+__all__ = ["show_replay", "GameViewer", "Replay"]

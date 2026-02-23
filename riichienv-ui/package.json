@@ -1,6 +1,6 @@
 {
   "name": "riichienv-ui",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Replay viewer and live game visualizer for RiichiEnv",
   "scripts": {
     "build:wasm": "bash scripts/build-wasm.sh",
