@@ -95,9 +95,9 @@ export class Renderer2D implements IRenderer {
                 height: '250px',
                 display: 'block',
                 transform: 'translateY(120px)',
-                transition: 'background-color 0.3s',
                 position: 'relative',
                 padding: '10px',
+                contain: 'layout style',
             });
 
             wrapper.appendChild(pDiv);
@@ -114,6 +114,12 @@ export class Renderer2D implements IRenderer {
         this.ensureBoardStructure(pc);
         const board = this.boardElement!;
 
+        // Suppress style recalculation during DOM batch updates.
+        // content-visibility: hidden tells the browser to skip layout/paint/style
+        // for all descendants while we mutate the DOM. On restore, only a single
+        // style recalc pass is performed instead of incremental per-mutation recalcs.
+        board.style.contentVisibility = 'hidden';
+
         // Clear modals only if we had one previously
         if (this.hadModal) {
             const oldModals = this.container.querySelectorAll('.re-modal-overlay');
@@ -121,9 +127,11 @@ export class Renderer2D implements IRenderer {
             this.hadModal = false;
         }
 
-        // Update center slot content
+        // Update center slot content via DocumentFragment (avoids incremental reflows)
         const center = CenterRenderer.renderCenter(state, this.onCenterClick, this.viewpoint);
-        this.centerSlot!.replaceChildren(center);
+        const centerFrag = document.createDocumentFragment();
+        centerFrag.appendChild(center);
+        this.centerSlot!.replaceChildren(centerFrag);
 
         const angles = this.layout.playerAngles;
 
@@ -186,9 +194,16 @@ export class Renderer2D implements IRenderer {
                     borderRadius: '4px', fontSize: '14px', zIndex: '50',
                     display: 'flex', gap: '4px', alignItems: 'center', pointerEvents: 'none'
                 });
-                wDiv.innerHTML = '<span style="margin-right:4px;">Wait:</span>';
+                const waitLabel = document.createElement('span');
+                waitLabel.style.marginRight = '4px';
+                waitLabel.textContent = 'Wait:';
+                wDiv.appendChild(waitLabel);
                 p.waits.forEach((w: string) => {
-                    wDiv.innerHTML += `<div style="width:24px; height:34px;">${TileRenderer.getTileHtml(w)}</div>`;
+                    const d = document.createElement('div');
+                    d.style.width = '24px';
+                    d.style.height = '34px';
+                    d.appendChild(TileRenderer.getTileElement(w));
+                    wDiv.appendChild(d);
                 });
                 children.push(wDiv);
             }
@@ -242,9 +257,14 @@ export class Renderer2D implements IRenderer {
             const hand = HandRenderer.renderHand(playerState.hand, playerState.melds, i, activeWaits, hasDraw, dAnim, shouldAnimate, pc);
             children.push(hand);
 
-            // Replace player div content in a single operation
-            this.playerDivs[i].replaceChildren(...children);
+            // Replace player div content via DocumentFragment (single reflow)
+            const frag = document.createDocumentFragment();
+            for (const child of children) frag.appendChild(child);
+            this.playerDivs[i].replaceChildren(frag);
         });
+
+        // Restore rendering — triggers a single style recalc for the entire board
+        board.style.contentVisibility = '';
 
         // End Kyoku Modal
         if (state.lastEvent && state.lastEvent.type === 'end_kyoku' && state.lastEvent.meta) {

@@ -279,9 +279,13 @@ export class CenterRenderer {
             doraTiles.push('back');
         }
 
-        row3.innerHTML = doraTiles.map((t: string) =>
-            `<div style="width:20px; height:27px;">${TileRenderer.getTileHtml(t)}</div>`
-        ).join('');
+        doraTiles.forEach((t: string) => {
+            const d = document.createElement('div');
+            d.style.width = '20px';
+            d.style.height = '27px';
+            d.appendChild(TileRenderer.getTileElement(t));
+            row3.appendChild(d);
+        });
 
         contentContainer.appendChild(row3);
 

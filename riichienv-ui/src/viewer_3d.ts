@@ -42,11 +42,7 @@ export class Viewer3D {
         this.log = log;
 
         // Start WASM initialization in background (non-blocking)
-        initWasm().then(() => {
-            console.log('[Viewer3D] WASM module loaded successfully');
-        }).catch(() => {
-            console.warn('[Viewer3D] WASM unavailable, falling back to metadata');
-        });
+        initWasm().catch(() => {});
 
         // Setup container
         this.container.innerHTML = '';
@@ -167,11 +163,7 @@ export class Viewer3D {
             return btn;
         };
 
-        console.log("[Viewer3D] Initializing GameState with log length:", log.length);
         this.gameState = new GameState(log, gc);
-        console.log("[Viewer3D] GameState initialized. Current event index:", this.gameState.current.eventIndex);
-
-        console.log("[Viewer3D] Initializing Renderer3D");
         this.renderer = new Renderer3D(viewArea, lc);
 
         // Apply initial viewpoint
@@ -232,18 +224,16 @@ export class Viewer3D {
 
         if (typeof initialStep === 'number') {
             targetStep = initialStep;
-            console.log(`[Viewer3D] Initializing with explicit step: ${targetStep}`);
         } else if (eventStepParam) {
             const parsed = parseInt(eventStepParam, 10);
             if (!isNaN(parsed)) {
                 targetStep = parsed;
-                console.log(`[Viewer3D] Initializing with permalink step: ${targetStep}`);
             }
         }
 
         if (targetStep !== -1) {
             this.gameState.jumpTo(targetStep);
-            this.update();
+            this.updateImmediate();
         }
 
         // Resize Logic — scale to fit 16:9 content
@@ -298,8 +288,7 @@ export class Viewer3D {
             };
         }
 
-        console.log("[Viewer3D] Calling first update()");
-        this.update();
+        this.updateImmediate();
     }
 
     showRoundSelector() {
@@ -371,7 +360,18 @@ export class Viewer3D {
         this.viewArea.appendChild(overlay);
     }
 
+    private _rafId: number = 0;
+
     update() {
+        if (!this.gameState || !this.renderer) return;
+        if (this._rafId) cancelAnimationFrame(this._rafId);
+        this._rafId = requestAnimationFrame(() => {
+            this._rafId = 0;
+            this.updateImmediate();
+        });
+    }
+
+    updateImmediate() {
         if (!this.gameState || !this.renderer) return;
         const state = this.gameState.getState();
         this.renderer.render(state, this.debugPanel);

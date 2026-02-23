@@ -35,7 +35,7 @@ export class HandRenderer {
             const tDiv = document.createElement('div');
             tDiv.style.width = '40px'; tDiv.style.height = '56px';
             tDiv.style.position = 'relative'; // For absolute overlay
-            tDiv.innerHTML = TileRenderer.getTileHtml(t);
+            tDiv.appendChild(TileRenderer.getTileElement(t));
             // Only separate if isSeparated is true AND it's the very last tile of the hand
             if (isSeparated && idx === hand.length - 1) {
                 tDiv.style.marginLeft = '12px';
@@ -243,7 +243,7 @@ export class HandRenderer {
 
                 col.tiles.forEach((t, idx) => {
                     const inner = document.createElement('div');
-                    inner.innerHTML = TileRenderer.getTileHtml(t);
+                    inner.appendChild(TileRenderer.getTileElement(t));
                     Object.assign(inner.style, {
                         width: '30px',
                         height: '42px',
@@ -265,7 +265,7 @@ export class HandRenderer {
                     marginRight: '0px'
                 });
                 if (col.tiles.length > 0) {
-                    div.innerHTML = TileRenderer.getTileHtml(col.tiles[0]);
+                    div.appendChild(TileRenderer.getTileElement(col.tiles[0]));
                 }
             }
             mGroup.appendChild(div);

@@ -47,7 +47,7 @@ export class RiverRenderer {
                     tileContent.className = 'tile-rotated';
                 }
 
-                tileContent.innerHTML = TileRenderer.getTileHtml(d.tile);
+                tileContent.appendChild(TileRenderer.getTileElement(d.tile));
                 tileWrapper.appendChild(tileContent);
                 cell.appendChild(tileWrapper);
 

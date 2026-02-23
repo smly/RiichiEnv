@@ -17,6 +17,7 @@ export class Renderer3D implements IRenderer {
 
     private sceneEl: HTMLElement | null = null;
     private layout: LayoutConfig3D;
+    private _hadModal: boolean = false;
 
     constructor(container: HTMLElement, layout?: LayoutConfig3D) {
         this.container = container;
@@ -61,17 +62,42 @@ export class Renderer3D implements IRenderer {
         faces: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } = { front: true, right: true },
     ): HTMLElement {
         el.style.transformStyle = 'preserve-3d';
-        const face = TileRenderer.getTileHtml(tileId);
         // Side faces are 1px taller/wider than depth to overlap with the top face,
         // preventing sub-pixel rendering gaps at the seams.
         const d1 = depth + 1;
-        let html = `<div class="tile-3d-top" style="transform:translateZ(${depth}px)">${face}</div>`;
-        if (faces.front) html += `<div class="tile-3d-front" style="height:${d1}px"></div>`;
-        if (faces.back) html += `<div class="tile-3d-back" style="height:${d1}px"></div>`;
-        if (faces.right) html += `<div class="tile-3d-right" style="width:${d1}px"></div>`;
-        if (faces.left) html += `<div class="tile-3d-left" style="width:${d1}px"></div>`;
-        el.innerHTML = html;
-        return el.querySelector('.tile-3d-top') as HTMLElement;
+
+        // Build via DOM API + cloneNode (avoids innerHTML SVG parsing per tile)
+        const topFace = document.createElement('div');
+        topFace.className = 'tile-3d-top';
+        topFace.style.transform = `translateZ(${depth}px)`;
+        topFace.appendChild(TileRenderer.getTileElement(tileId));
+        el.appendChild(topFace);
+
+        if (faces.front) {
+            const f = document.createElement('div');
+            f.className = 'tile-3d-front';
+            f.style.height = `${d1}px`;
+            el.appendChild(f);
+        }
+        if (faces.back) {
+            const b = document.createElement('div');
+            b.className = 'tile-3d-back';
+            b.style.height = `${d1}px`;
+            el.appendChild(b);
+        }
+        if (faces.right) {
+            const r = document.createElement('div');
+            r.className = 'tile-3d-right';
+            r.style.width = `${d1}px`;
+            el.appendChild(r);
+        }
+        if (faces.left) {
+            const l = document.createElement('div');
+            l.className = 'tile-3d-left';
+            l.style.width = `${d1}px`;
+            el.appendChild(l);
+        }
+        return topFace;
     }
 
     render(state: BoardState, debugPanel?: HTMLElement): void {
@@ -83,11 +109,18 @@ export class Renderer3D implements IRenderer {
             this.sceneEl.className = 'scene-3d';
             this.container.appendChild(this.sceneEl);
         }
-        this.sceneEl.innerHTML = '';
+
+        // Build entire scene off-DOM into a DocumentFragment to avoid
+        // triggering style recalculation during construction.
+        // Only a single replaceChildren() at the end touches the live DOM.
+        const sceneFrag = document.createDocumentFragment();
 
         // 2. Clear old modals
-        const oldModals = this.container.querySelectorAll('.re-modal-overlay');
-        oldModals.forEach(el => el.remove());
+        if (this._hadModal) {
+            const oldModals = this.container.querySelectorAll('.re-modal-overlay');
+            oldModals.forEach(el => el.remove());
+            this._hadModal = false;
+        }
 
         // 3. Build Layer 1: 3D Table Scene
         const perspectiveEl = document.createElement('div');
@@ -150,7 +183,7 @@ export class Renderer3D implements IRenderer {
         });
 
         perspectiveEl.appendChild(tableSurface);
-        this.sceneEl.appendChild(perspectiveEl);
+        sceneFrag.appendChild(perspectiveEl);
 
         // 4. Build Layer 2: Hand Layer (flat, bottom)
         const handLayer = document.createElement('div');
@@ -164,7 +197,7 @@ export class Renderer3D implements IRenderer {
             const handEl = this.renderOwnHand(vpPlayer, this.viewpoint, state, pc, activeWaits);
             handLayer.appendChild(handEl);
         }
-        this.sceneEl.appendChild(handLayer);
+        sceneFrag.appendChild(handLayer);
 
         // 5. Build Layer 3: UI Overlay
         const uiOverlay = document.createElement('div');
@@ -207,7 +240,10 @@ export class Renderer3D implements IRenderer {
             }
         });
 
-        this.sceneEl.appendChild(uiOverlay);
+        sceneFrag.appendChild(uiOverlay);
+
+        // Single DOM swap — replaces all scene content in one operation
+        this.sceneEl.replaceChildren(sceneFrag);
 
         // 6. Result modals
         if (state.lastEvent && state.lastEvent.type === 'end_kyoku' && state.lastEvent.meta) {
@@ -222,6 +258,7 @@ export class Renderer3D implements IRenderer {
                     if (e.target === modal) modal!.remove();
                 };
                 this.container.appendChild(modal);
+                this._hadModal = true;
             }
         }
 
@@ -728,7 +765,7 @@ export class Renderer3D implements IRenderer {
         player.hand.forEach((t, idx) => {
             const tDiv = document.createElement('div');
             tDiv.className = 'own-tile-3d';
-            tDiv.innerHTML = TileRenderer.getTileHtml(t);
+            tDiv.appendChild(TileRenderer.getTileElement(t));
 
             // Tsumo tile separation
             if (hasDraw && idx === player.hand.length - 1) {
@@ -783,13 +820,13 @@ export class Renderer3D implements IRenderer {
         const addUpright = (t: string) => {
             const d = document.createElement('div');
             d.className = 'meld-tile-own';
-            d.innerHTML = TileRenderer.getTileHtml(t);
+            d.appendChild(TileRenderer.getTileElement(t));
             mGroup.appendChild(d);
         };
         const addRotated = (t: string) => {
             const d = document.createElement('div');
             d.className = 'meld-tile-own-rotated';
-            d.innerHTML = TileRenderer.getTileHtml(t);
+            d.appendChild(TileRenderer.getTileElement(t));
             mGroup.appendChild(d);
         };
 
@@ -1009,7 +1046,7 @@ export class Renderer3D implements IRenderer {
         waits.forEach(w => {
             const tile = document.createElement('div');
             tile.className = 'wait-tile-3d';
-            tile.innerHTML = TileRenderer.getTileHtml(w);
+            tile.appendChild(TileRenderer.getTileElement(w));
             el.appendChild(tile);
         });
 

@@ -9,6 +9,7 @@ export const VIEWER_3D_CSS = `
         top: 0; left: 0;
         width: 100%; height: 100%;
         overflow: hidden;
+        contain: layout style;
     }
 
     /* Layer 1: CSS 3D Perspective Container */

@@ -18,14 +18,16 @@ export const VIEWER_CSS = `
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
+        contain: strict;
     }
     .mahjong-board svg { width: 100%; height: 100%; display: block; }
     .mahjong-board .center-info svg { width: auto; height: 100%; }
     
     .tile-layer {
         position: relative;
-        width: 100%; 
+        width: 100%;
         height: 100%;
+        contain: layout style;
     }
     .tile-bg, .tile-fg {
         position: absolute;
@@ -75,6 +77,7 @@ export const VIEWER_CSS = `
         min-height: 142px; /* Fixed min-height: 3 * 46px + 2 * 2px = 142px */
         justify-content: start;
         align-content: start;
+        contain: layout style;
     }
     .river-row {
         display: flex;
@@ -154,6 +157,10 @@ export const VIEWER_CSS = `
         from { opacity: 0; }
         to { opacity: 1; }
     }
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
 
     .player-info-box {
         background: rgba(0,0,0,0.6);
@@ -173,6 +180,17 @@ export const VIEWER_CSS = `
     .active-viewpoint {
         border: 2px solid #aaa;
         background: rgba(0,0,0,0.8);
+    }
+
+    @keyframes popIn {
+        0% {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.5);
+        }
+        100% {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
     }
 
     .call-overlay {
@@ -205,7 +223,7 @@ export const VIEWER_CSS = `
         border-radius: 8px;
         cursor: pointer;
         user-select: none;
-        transition: all 0.2s;
+        transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s;
         font-size: 20px;
     }
     .icon-btn:hover {
