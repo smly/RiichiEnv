@@ -144,13 +144,8 @@ export class Renderer3D implements IRenderer {
 
             // Opponent hand + melds on table (skip viewpoint player)
             if (relIndex !== 0) {
-                const oppHand = this.renderOpponentHand(p, relIndex, pc);
+                const oppHand = this.renderOpponentHandArea(p, i, relIndex, pc);
                 tableInner.appendChild(oppHand);
-
-                if (p.melds.length > 0) {
-                    const oppMelds = this.renderOpponentMelds(p.melds, i, relIndex, pc);
-                    tableInner.appendChild(oppMelds);
-                }
             }
         });
 
@@ -549,55 +544,45 @@ export class Renderer3D implements IRenderer {
     }
 
     // =========================================================================
-    // Opponent hand on table edge
+    // Opponent hand + melds on table edge (combined on one line)
     // =========================================================================
-    private renderOpponentHand(player: PlayerState, relIndex: number, pc: number): HTMLElement {
+    private renderOpponentHandArea(
+        player: PlayerState, playerIdx: number, relIndex: number, pc: number
+    ): HTMLElement {
         const [tw, th] = this.layout.tileSizes.opponentTile;
-        const gap = 1;
-        const maxTiles = 14;
-        // Fixed wrapper size so position doesn't shift as tiles change
-        const handW = maxTiles * tw + (maxTiles - 1) * gap;
-        const handH = th;
 
         const wrapper = document.createElement('div');
         wrapper.className = 'opp-hand-3d';
-        Object.assign(wrapper.style, {
-            width: `${handW}px`,
-            height: `${handH}px`,
-        });
 
         // Compute position: place hand between river outer edge and table edge
         const ts = this.layout.tableSize;
         const [rtw, rth] = this.layout.tileSizes.riverTile;
         const riverH = 3 * rth + 2; // 3 rows + 2 gaps
         const riverScale = 1.35;
-        const halfRiverExtent = riverH * riverScale / 2; // visual half-extent perpendicular to edge
+        const halfRiverExtent = riverH * riverScale / 2;
 
-        // Hand center = midpoint between river outer edge and table edge
-        // Left/right rivers are shifted by rth toward center
-        // Shift hand to the left from each player's perspective
-        const handShift = Math.round(ts * 0.08);
+        // Perpendicular offset (distance from table edge)
         const positions: { [key: number]: { left: string; top: string; transform: string } } = {
             1: {
                 left: `${Math.round((ts * 0.745 - rth + halfRiverExtent + ts) / 2)}px`,
-                top: `${Math.round(ts / 2 + handShift)}px`,
+                top: '50%',
                 transform: 'translate(-50%, -50%) rotate(-90deg)',
             },
             2: {
-                left: `${Math.round(ts / 2 + handShift)}px`,
+                left: '50%',
                 top: `${Math.round((ts * 0.28 - halfRiverExtent) / 2)}px`,
                 transform: 'translate(-50%, -50%) rotate(180deg)',
             },
             3: {
                 left: `${Math.round((ts * 0.255 + rth - halfRiverExtent) / 2)}px`,
-                top: `${Math.round(ts / 2 - handShift)}px`,
+                top: '50%',
                 transform: 'translate(-50%, -50%) rotate(90deg)',
             },
         };
         const pos = positions[relIndex];
         if (pos) Object.assign(wrapper.style, pos);
 
-        // Determine visible side faces based on relIndex (same logic as river)
+        // Determine visible side faces based on relIndex
         const oppFaces: { [key: number]: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } } = {
             1: { back: true, left: true },
             2: { back: true },
@@ -605,111 +590,75 @@ export class Renderer3D implements IRenderer {
         };
         const faces = oppFaces[relIndex] || { front: true, right: true };
 
+        // Hand tiles (left side from player's perspective)
+        const handDiv = document.createElement('div');
+        handDiv.className = 'opp-tiles-inner';
         player.hand.forEach(t => {
             const tile = document.createElement('div');
             tile.className = 'opp-tile';
             this.setTile3D(tile, t, tw, faces);
-            wrapper.appendChild(tile);
+            handDiv.appendChild(tile);
         });
+        wrapper.appendChild(handDiv);
 
-        return wrapper;
-    }
+        // Melds (right side from player's perspective)
+        if (player.melds.length > 0) {
+            const meldsDiv = document.createElement('div');
+            meldsDiv.className = 'opp-melds-inner';
 
-    // =========================================================================
-    // Opponent melds on table
-    // =========================================================================
-    private renderOpponentMelds(
-        melds: { type: string; tiles: string[]; from: number }[],
-        playerIdx: number, relIndex: number, pc: number
-    ): HTMLElement {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'opp-meld-3d';
+            player.melds.forEach(m => {
+                const mGroup = document.createElement('div');
+                mGroup.className = 'opp-meld-group';
 
-        // Position in the same zone as the hand (between river outer edge and table edge)
-        const ts = this.layout.tableSize;
-        const [rtw, rth] = this.layout.tileSizes.riverTile;
-        const riverH = 3 * rth + 2;
-        const riverScale = 1.35;
-        const halfRiverExtent = riverH * riverScale / 2;
-        const meldCornerOffset = `${Math.round(ts * 0.1)}px`;
+                const rel = (m.from - playerIdx + pc) % pc;
+                const tiles = [...m.tiles];
 
-        // Edge offsets align with hand center zone
-        const edgeR = Math.round(ts - (ts * 0.745 - rth + halfRiverExtent + ts) / 2);
-        const edgeT = Math.round((ts * 0.28 - halfRiverExtent) / 2);
-        const edgeL = Math.round((ts * 0.255 + rth - halfRiverExtent) / 2);
-
-        const positions: { [key: number]: { [k: string]: string } } = {
-            1: { right: `${edgeR}px`, bottom: meldCornerOffset, transform: 'rotate(-90deg)' },
-            2: { right: meldCornerOffset, top: `${edgeT}px`, transform: 'rotate(180deg)' },
-            3: { left: `${edgeL}px`, top: meldCornerOffset, transform: 'rotate(90deg)' },
-        };
-        const pos = positions[relIndex];
-        if (pos) Object.assign(wrapper.style, pos);
-
-        // Determine visible side faces based on relIndex (same logic as river)
-        const meldFaces: { [key: number]: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } } = {
-            1: { back: true, left: true },
-            2: { back: true },
-            3: { right: true, back: true },
-        };
-        const faces = meldFaces[relIndex] || { front: true, right: true };
-
-        melds.forEach(m => {
-            const mGroup = document.createElement('div');
-            Object.assign(mGroup.style, {
-                display: 'flex', alignItems: 'flex-end', marginLeft: '3px',
-            });
-
-            const rel = (m.from - playerIdx + pc) % pc;
-            const tiles = [...m.tiles];
-
-            const meldDepth = this.layout.tileSizes.meldTileTable[0];
-
-            if (m.type === 'ankan') {
-                tiles.forEach((t, i) => {
-                    const tileId = (i === 0 || i === 3) ? 'back' : t;
-                    const d = document.createElement('div');
-                    d.className = 'meld-tile-table';
-                    this.setTile3D(d, tileId, meldDepth, faces);
-                    mGroup.appendChild(d);
-                });
-            } else {
-                // Pon/Chi/Kan: last tile is stolen → rotated
-                const stolen = tiles.pop()!;
-                const consumed = tiles;
-
-                const addUpright = (t: string) => {
-                    const d = document.createElement('div');
-                    d.className = 'meld-tile-table';
-                    this.setTile3D(d, t, meldDepth, faces);
-                    mGroup.appendChild(d);
-                };
-                const addRotated = (t: string) => {
-                    const d = document.createElement('div');
-                    d.className = 'meld-tile-table-rotated';
-                    this.setTile3D(d, t, meldDepth, faces);
-                    mGroup.appendChild(d);
-                };
-
-                if (rel === 1) {
-                    consumed.forEach(t => addUpright(t));
-                    addRotated(stolen);
-                } else if (rel === 3) {
-                    addRotated(stolen);
-                    consumed.forEach(t => addUpright(t));
+                if (m.type === 'ankan') {
+                    tiles.forEach((t, i) => {
+                        const tileId = (i === 0 || i === 3) ? 'back' : t;
+                        const d = document.createElement('div');
+                        d.className = 'opp-tile';
+                        this.setTile3D(d, tileId, tw, faces);
+                        mGroup.appendChild(d);
+                    });
                 } else {
-                    if (consumed.length >= 2) {
-                        addUpright(consumed[0]);
-                        addRotated(stolen);
-                        addUpright(consumed[1]);
-                    } else {
+                    const stolen = tiles.pop()!;
+                    const consumed = tiles;
+
+                    const addUpright = (t: string) => {
+                        const d = document.createElement('div');
+                        d.className = 'opp-tile';
+                        this.setTile3D(d, t, tw, faces);
+                        mGroup.appendChild(d);
+                    };
+                    const addRotated = (t: string) => {
+                        const d = document.createElement('div');
+                        d.className = 'opp-tile-rotated';
+                        this.setTile3D(d, t, tw, faces);
+                        mGroup.appendChild(d);
+                    };
+
+                    if (rel === 1) {
                         consumed.forEach(t => addUpright(t));
                         addRotated(stolen);
+                    } else if (rel === 3) {
+                        addRotated(stolen);
+                        consumed.forEach(t => addUpright(t));
+                    } else {
+                        if (consumed.length >= 2) {
+                            addUpright(consumed[0]);
+                            addRotated(stolen);
+                            addUpright(consumed[1]);
+                        } else {
+                            consumed.forEach(t => addUpright(t));
+                            addRotated(stolen);
+                        }
                     }
                 }
-            }
-            wrapper.appendChild(mGroup);
-        });
+                meldsDiv.appendChild(mGroup);
+            });
+            wrapper.appendChild(meldsDiv);
+        }
 
         return wrapper;
     }

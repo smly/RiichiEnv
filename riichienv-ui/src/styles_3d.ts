@@ -88,6 +88,7 @@ export const VIEWER_3D_CSS = `
         display: flex;
         gap: 1px;
         transform-style: preserve-3d;
+        align-items: flex-end;
     }
     .table-tile {
         width: 26px;
@@ -98,13 +99,21 @@ export const VIEWER_3D_CSS = `
     }
     .table-tile-rotated {
         width: 36px;
-        height: 36px;
+        height: 26px;
         flex-shrink: 0;
         position: relative;
         transform-style: preserve-3d;
     }
+    .table-tile-rotated .tile-3d-top {
+        overflow: visible;
+    }
     .table-tile-rotated .tile-layer {
-        transform: rotate(90deg) scale(0.88);
+        position: absolute;
+        width: 26px;
+        height: 36px;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%) rotate(90deg);
         transform-origin: center center;
     }
     /* tsumogiri darkening is applied via overlay in renderer */
@@ -165,11 +174,31 @@ export const VIEWER_3D_CSS = `
         border-radius: 2px 0 0 2px;
     }
 
-    /* Opponent hand on table edge */
+    /* Opponent hand + melds area on table edge */
     .opp-hand-3d {
         position: absolute;
         display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        width: 680px;
+        transform-style: preserve-3d;
+    }
+    .opp-tiles-inner {
+        display: flex;
         gap: 1px;
+        align-items: flex-end;
+        transform-style: preserve-3d;
+    }
+    .opp-melds-inner {
+        display: flex;
+        flex-direction: row-reverse;
+        gap: 3px;
+        align-items: flex-end;
+        transform-style: preserve-3d;
+    }
+    .opp-meld-group {
+        display: flex;
+        align-items: flex-end;
         transform-style: preserve-3d;
     }
     .opp-tile {
@@ -179,13 +208,24 @@ export const VIEWER_3D_CSS = `
         position: relative;
         transform-style: preserve-3d;
     }
-
-    /* Opponent melds on table */
-    .opp-meld-3d {
-        position: absolute;
-        display: flex;
-        gap: 1px;
+    .opp-tile-rotated {
+        width: 42px;
+        height: 30px;
+        flex-shrink: 0;
+        position: relative;
         transform-style: preserve-3d;
+    }
+    .opp-tile-rotated .tile-3d-top {
+        overflow: visible;
+    }
+    .opp-tile-rotated .tile-layer {
+        position: absolute;
+        width: 30px;
+        height: 42px;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%) rotate(90deg);
+        transform-origin: center center;
     }
     .meld-tile-table {
         width: 20px;
@@ -196,13 +236,21 @@ export const VIEWER_3D_CSS = `
     }
     .meld-tile-table-rotated {
         width: 28px;
-        height: 28px;
+        height: 20px;
         flex-shrink: 0;
         position: relative;
         transform-style: preserve-3d;
     }
+    .meld-tile-table-rotated .tile-3d-top {
+        overflow: visible;
+    }
     .meld-tile-table-rotated .tile-layer {
-        transform: rotate(90deg) scale(0.85);
+        position: absolute;
+        width: 20px;
+        height: 28px;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%) rotate(90deg);
         transform-origin: center center;
     }
 
@@ -324,10 +372,9 @@ export const VIEWER_3D_CSS = `
     }
     .meld-tile-own-rotated {
         width: 56px;
-        height: 56px;
+        height: 40px;
         position: relative;
         border-radius: 4px;
-        overflow: hidden;
         background: #f0ead6;
         box-shadow:
             0 2px 0 0 #c8c0a8,
@@ -335,7 +382,12 @@ export const VIEWER_3D_CSS = `
             1px 3px 5px rgba(0,0,0,0.25);
     }
     .meld-tile-own-rotated .tile-layer {
-        transform: rotate(90deg);
+        position: absolute;
+        width: 40px;
+        height: 56px;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%) rotate(90deg);
         transform-origin: center center;
     }
 
