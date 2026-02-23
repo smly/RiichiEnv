@@ -439,8 +439,11 @@ class GameViewer:
     def get_results(self, round_idx: int) -> list[WinResult]:
         self._ensure_processed()
         assert self._round_win_results is not None
-        if round_idx < 0 or round_idx >= len(self._round_win_results):
-            raise IndexError(f"round_idx {round_idx} out of range (0-{len(self._round_win_results) - 1})")
+        n_results = len(self._round_win_results)
+        if round_idx < 0 or round_idx >= n_results:
+            if n_results == 0:
+                raise IndexError(f"round_idx {round_idx} out of range (no rounds available)")
+            raise IndexError(f"round_idx {round_idx} out of range (0-{n_results - 1})")
         return self._round_win_results[round_idx]
 
     def show(self) -> HTML:

@@ -209,7 +209,7 @@ See [DATA_REPRESENTATION.md](docs/DATA_REPRESENTATION.md) for more details.
 `HandEvaluator` evaluates a hand for tenpai status, waiting tiles, and winning results. Create an instance with `HandEvaluator(tiles, melds)` or `HandEvaluator.hand_from_text(text)`.
 
 *   `is_tenpai()` — returns whether the hand is in tenpai.
-*   `get_waits()` — returns the list of winning tile IDs (136-tile format).
+*   `get_waits()` — returns the list of winning tile IDs (34-tile format, 0–33).
 *   `calc(win_tile, dora_indicators, ura_indicators, conditions)` — evaluates the hand with the given winning tile and returns a `WinResult`.
 
 ```python
