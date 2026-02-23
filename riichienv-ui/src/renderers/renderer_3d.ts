@@ -144,7 +144,7 @@ export class Renderer3D implements IRenderer {
 
             // Opponent hand + melds on table (skip viewpoint player)
             if (relIndex !== 0) {
-                const oppHand = this.renderOpponentHandArea(p, i, relIndex, pc);
+                const oppHand = this.renderOpponentHandArea(p, i, relIndex, pc, activeWaits);
                 tableInner.appendChild(oppHand);
             }
         });
@@ -550,7 +550,8 @@ export class Renderer3D implements IRenderer {
     // Opponent hand + melds on table edge (combined on one line)
     // =========================================================================
     private renderOpponentHandArea(
-        player: PlayerState, playerIdx: number, relIndex: number, pc: number
+        player: PlayerState, playerIdx: number, relIndex: number, pc: number,
+        activeWaits: Set<string>
     ): HTMLElement {
         const [tw, th] = this.layout.tileSizes.opponentTile;
 
@@ -592,6 +593,7 @@ export class Renderer3D implements IRenderer {
             3: { right: true, back: true },
         };
         const faces = oppFaces[relIndex] || { front: true, right: true };
+        const normalize = (t: string) => t.replace('0', '5').replace('r', '');
 
         // Hand tiles (left side from player's perspective)
         const handDiv = document.createElement('div');
@@ -599,7 +601,17 @@ export class Renderer3D implements IRenderer {
         player.hand.forEach(t => {
             const tile = document.createElement('div');
             tile.className = 'opp-tile';
-            this.setTile3D(tile, t, tw, faces);
+            const topFace = this.setTile3D(tile, t, tw, faces);
+            if (activeWaits.size > 0 && activeWaits.has(normalize(t))) {
+                const ov = document.createElement('div');
+                Object.assign(ov.style, {
+                    position: 'absolute', top: '0', left: '0',
+                    width: '100%', height: '100%',
+                    backgroundColor: 'rgba(255, 0, 0, 0.4)',
+                    zIndex: '10', pointerEvents: 'none', borderRadius: '3px',
+                });
+                topFace.appendChild(ov);
+            }
             handDiv.appendChild(tile);
         });
         wrapper.appendChild(handDiv);
@@ -616,12 +628,26 @@ export class Renderer3D implements IRenderer {
                 const rel = (m.from - playerIdx + pc) % pc;
                 const tiles = [...m.tiles];
 
+                const addWaitHighlight = (topFace: HTMLElement, t: string) => {
+                    if (activeWaits.size > 0 && activeWaits.has(normalize(t))) {
+                        const ov = document.createElement('div');
+                        Object.assign(ov.style, {
+                            position: 'absolute', top: '0', left: '0',
+                            width: '100%', height: '100%',
+                            backgroundColor: 'rgba(255, 0, 0, 0.4)',
+                            zIndex: '10', pointerEvents: 'none', borderRadius: '3px',
+                        });
+                        topFace.appendChild(ov);
+                    }
+                };
+
                 if (m.type === 'ankan') {
                     tiles.forEach((t, i) => {
                         const tileId = (i === 0 || i === 3) ? 'back' : t;
                         const d = document.createElement('div');
                         d.className = 'opp-tile';
-                        this.setTile3D(d, tileId, tw, faces);
+                        const topFace = this.setTile3D(d, tileId, tw, faces);
+                        addWaitHighlight(topFace, tileId);
                         mGroup.appendChild(d);
                     });
                 } else {
@@ -631,13 +657,15 @@ export class Renderer3D implements IRenderer {
                     const addUpright = (t: string) => {
                         const d = document.createElement('div');
                         d.className = 'opp-tile';
-                        this.setTile3D(d, t, tw, faces);
+                        const topFace = this.setTile3D(d, t, tw, faces);
+                        addWaitHighlight(topFace, t);
                         mGroup.appendChild(d);
                     };
                     const addRotated = (t: string) => {
                         const d = document.createElement('div');
                         d.className = 'opp-tile-rotated';
-                        this.setTile3D(d, t, tw, faces);
+                        const topFace = this.setTile3D(d, t, tw, faces);
+                        addWaitHighlight(topFace, t);
                         mGroup.appendChild(d);
                     };
 
