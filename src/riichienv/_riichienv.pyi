@@ -7,32 +7,34 @@ class KuikaeMode(IntEnum):
     StrictFlank = 2
     def __int__(self) -> int: ...
 
-class KanDoraTimingMode(IntEnum):
-    TenhouImmediate = 0
-    MajsoulImmediate = 1
-    AfterDiscard = 2
-    def __int__(self) -> int: ...
-
 class GameRule:
     allows_ron_on_ankan_for_kokushi_musou: bool
     is_kokushi_musou_13machi_double: bool
+    is_suuankou_tanki_double: bool
+    is_junsei_chuurenpoutou_double: bool
+    is_daisuushii_double: bool
     yakuman_pao_is_liability_only: bool
-    allow_double_ron: bool
+    sanchaho_is_draw: bool
     kuikae_mode: KuikaeMode
-    kan_dora_timing: KanDoraTimingMode
+    open_kan_dora_after_discard: bool
     def __init__(
         self,
         allows_ron_on_ankan_for_kokushi_musou: bool = False,
         is_kokushi_musou_13machi_double: bool = False,
+        is_suuankou_tanki_double: bool = False,
+        is_junsei_chuurenpoutou_double: bool = False,
+        is_daisuushii_double: bool = False,
         yakuman_pao_is_liability_only: bool = False,
-        allow_double_ron: bool = True,
+        sanchaho_is_draw: bool = False,
         kuikae_mode: KuikaeMode = KuikaeMode.None_,
-        kan_dora_timing: KanDoraTimingMode = KanDoraTimingMode.TenhouImmediate,
+        open_kan_dora_after_discard: bool = False,
     ) -> None: ...
     @staticmethod
     def default_tenhou() -> GameRule: ...
     @staticmethod
     def default_mjsoul() -> GameRule: ...
+    @staticmethod
+    def default_tenhou_sanma() -> GameRule: ...
 
 class Wind:
     East: Wind
@@ -367,7 +369,6 @@ __all__ = [
     "parse_hand",
     "parse_tile",
     "KuikaeMode",
-    "KanDoraTimingMode",
     "Yaku",
     "get_yaku_by_id",
     "get_all_yaku",

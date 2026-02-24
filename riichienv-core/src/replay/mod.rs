@@ -1311,11 +1311,7 @@ impl WinResultContextIterator {
                         let mut hand_136 = self.current_hands[seat].clone();
                         let melds_136 = self.melds[seat].clone();
 
-                        let num_players = if self.kyoku.rule.is_sanma {
-                            3usize
-                        } else {
-                            4usize
-                        };
+                        let num_players = self.kyoku.hands.len();
                         let conditions = Conditions {
                             tsumo: is_zimo,
                             riichi: self.liqi[seat],

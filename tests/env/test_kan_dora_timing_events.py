@@ -3,7 +3,6 @@
 from riichienv import (
     ActionType,
     GameRule,
-    KanDoraTimingMode,
     Meld,
     MeldType,
     Phase,
@@ -14,11 +13,11 @@ from riichienv import (
 class TestKanDoraTimingEvents:
     def test_tenhou_ankan_dora_before_rinshan(self):
         """
-        Tenhou: Ankan reveals dora before rinshan tsumo
+        Ankan reveals dora before rinshan tsumo (common to all modes).
         Expected order: ankan → dora → tsumo
         """
         rule = GameRule.default_tenhou()
-        assert rule.kan_dora_timing == KanDoraTimingMode.TenhouImmediate
+        assert rule.open_kan_dora_after_discard is False
 
         env = RiichiEnv(seed=42, game_mode=0, rule=rule)
         env.reset()
@@ -66,11 +65,11 @@ class TestKanDoraTimingEvents:
 
     def test_tenhou_kakan_dora_before_discard(self):
         """
-        Tenhou: Kakan reveals dora before discard (after rinshan tsumo)
+        Kakan reveals dora after discard (deferred).
         Expected order: kakan → tsumo → dahai → dora
         """
         rule = GameRule.default_tenhou()
-        assert rule.kan_dora_timing == KanDoraTimingMode.TenhouImmediate
+        assert rule.open_kan_dora_after_discard is False
 
         env = RiichiEnv(seed=42, game_mode=0, rule=rule)
         env.reset()
@@ -138,11 +137,11 @@ class TestKanDoraTimingEvents:
 
     def test_majsoul_ankan_dora_immediate(self):
         """
-        Majsoul: Ankan reveals dora immediately after kan declaration
-        Expected order: ankan → dora → tsumo
+        Majsoul: Ankan reveals dora immediately after kan declaration.
+        Expected order: ankan → dora → tsumo (same as all modes)
         """
         rule = GameRule.default_mjsoul()
-        assert rule.kan_dora_timing == KanDoraTimingMode.MajsoulImmediate
+        assert rule.open_kan_dora_after_discard is True
 
         env = RiichiEnv(seed=42, game_mode=0, rule=rule)
         env.reset()

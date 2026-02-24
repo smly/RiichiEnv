@@ -104,7 +104,7 @@ pub enum MjaiEvent {
         pai: String,
         consumed: Vec<String>,
     },
-    #[serde(rename = "kan")]
+    #[serde(rename = "kan", alias = "daiminkan")]
     Kan {
         actor: usize,
         target: usize,
@@ -126,6 +126,7 @@ pub enum MjaiEvent {
         actor: usize,
         target: usize,
         pai: Option<String>, // Winning tile (optional in some logs)
+        #[serde(alias = "ura_markers")]
         uradora_markers: Option<Vec<String>>,
         #[serde(default)]
         yaku: Option<Vec<(String, u32)>>, // List of [yaku_name, han_value]
@@ -172,8 +173,10 @@ struct KyokuBuilder {
     liqi_flags: Vec<bool>, // Who has declared reach (to set `is_liqi` on discard)
     wliqi_flags: Vec<bool>, // Who has effectively achieved Double Riichi
     reach_accepted: Vec<bool>,
+    reached: Vec<bool>, // Tracks if player declared reach (for riichi cost in end_scores)
     first_discard: Vec<bool>,
     has_calls: bool,
+    pending_hule: Vec<HuleData>, // Buffer for batching consecutive hora events (double/triple ron)
 }
 
 #[cfg(feature = "python")]
@@ -220,12 +223,22 @@ impl KyokuBuilder {
             liqi_flags: vec![false; 4],
             wliqi_flags: vec![false; 4],
             reach_accepted: vec![false; 4],
+            reached: vec![false; 4],
             first_discard: vec![true; 4],
             has_calls: false,
+            pending_hule: Vec::new(),
         }
     }
 
-    fn build(self) -> LogKyoku {
+    fn flush_pending_hule(&mut self) {
+        if !self.pending_hule.is_empty() {
+            let hules = std::mem::take(&mut self.pending_hule);
+            self.actions.push(Action::Hule { hules });
+        }
+    }
+
+    fn build(mut self) -> LogKyoku {
+        self.flush_pending_hule();
         LogKyoku {
             scores: self.scores,
             end_scores: self.end_scores,
@@ -337,6 +350,11 @@ impl MjaiReplay {
 #[cfg(feature = "python")]
 impl MjaiReplay {
     fn process_event(builder: &mut KyokuBuilder, event: MjaiEvent) {
+        // Flush pending hora batch before any non-Hora event
+        if !matches!(event, MjaiEvent::Hora { .. }) {
+            builder.flush_pending_hule();
+        }
+
         match event {
             MjaiEvent::Tsumo { actor, pai } => {
                 let tile = parse_mjai_tile(&pai);
@@ -380,6 +398,7 @@ impl MjaiReplay {
             }
             MjaiEvent::Reach { actor } => {
                 builder.liqi_flags[actor] = true;
+                builder.reached[actor] = true;
             }
             MjaiEvent::ReachAccepted { actor } => {
                 builder.reach_accepted[actor] = true;
@@ -519,21 +538,30 @@ impl MjaiReplay {
                     hule_data.li_doras = Some(ud);
                 }
 
-                // Update end_scores
+                // Update end_scores: accumulate deltas for double/triple ron
                 if let Some(s) = scores {
                     builder.end_scores = s;
                 } else if let Some(d) = delta {
+                    let is_first_hora = builder.pending_hule.is_empty();
                     for (i, val) in d.iter().enumerate() {
                         if i < builder.end_scores.len() {
-                            let riichi_cost = if builder.reach_accepted[i] { 1000 } else { 0 };
-                            builder.end_scores[i] = builder.scores[i] + val - riichi_cost;
+                            if is_first_hora {
+                                // First hora: initialize from starting scores.
+                                // Use reach_accepted (not reached) because riichi
+                                // that was ronned on the declaration tile is never
+                                // accepted and the 1000 deposit is not paid.
+                                let riichi_cost = if builder.reach_accepted[i] { 1000 } else { 0 };
+                                builder.end_scores[i] = builder.scores[i] + val - riichi_cost;
+                            } else {
+                                // Subsequent hora: add delta to existing end_scores
+                                builder.end_scores[i] += val;
+                            }
                         }
                     }
                 }
 
-                builder.actions.push(Action::Hule {
-                    hules: vec![hule_data],
-                });
+                // Buffer the hora for batching (double/triple ron)
+                builder.pending_hule.push(hule_data);
             }
             MjaiEvent::Kita { actor: _ } => {
                 // Kita is treated as a special action; no separate Action variant needed
@@ -545,7 +573,7 @@ impl MjaiReplay {
                 } else if let Some(d) = delta {
                     for (i, val) in d.iter().enumerate() {
                         if i < builder.end_scores.len() {
-                            let riichi_cost = if builder.reach_accepted[i] { 1000 } else { 0 };
+                            let riichi_cost = if builder.reached[i] { 1000 } else { 0 };
                             builder.end_scores[i] = builder.scores[i] + val - riichi_cost;
                         }
                     }

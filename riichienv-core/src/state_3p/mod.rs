@@ -636,12 +636,40 @@ impl GameState3P {
                         } else {
                             vec![]
                         };
-                        let res = calc.calc(
+                        let mut res = calc.calc(
                             win_tile,
                             self.wall.dora_indicators.clone(),
                             ura_indicators,
-                            Some(cond),
+                            Some(cond.clone()),
                         );
+
+                        // Cap double yakuman patterns when not enabled per rule flags
+                        if res.yakuman && res.han > 13 {
+                            let mut cap = 0u32;
+                            for &y in &res.yaku {
+                                match y {
+                                    47 if !self.rule.is_junsei_chuurenpoutou_double => cap += 13,
+                                    48 if !self.rule.is_suuankou_tanki_double => cap += 13,
+                                    49 if !self.rule.is_kokushi_musou_13machi_double => cap += 13,
+                                    50 if !self.rule.is_daisuushii_double => cap += 13,
+                                    _ => {}
+                                }
+                            }
+                            if cap > 0 {
+                                res.han = res.han.saturating_sub(cap).max(13);
+                                let capped = crate::score::calculate_score(
+                                    res.han as u8,
+                                    0,
+                                    pid == self.oya,
+                                    cond.tsumo,
+                                    cond.honba,
+                                    NP as u8,
+                                );
+                                res.ron_agari = capped.pay_ron;
+                                res.tsumo_agari_oya = capped.pay_tsumo_oya;
+                                res.tsumo_agari_ko = capped.pay_tsumo_ko;
+                            }
+                        }
 
                         if res.is_win {
                             let mut deltas = vec![0i32; NP];
@@ -653,10 +681,12 @@ impl GameState3P {
 
                             if res.yakuman {
                                 for &yid in &res.yaku {
-                                    let val = if [47, 48, 49, 50].contains(&yid) {
-                                        2
-                                    } else {
-                                        1
+                                    let val = match yid {
+                                        47 if self.rule.is_junsei_chuurenpoutou_double => 2,
+                                        48 if self.rule.is_suuankou_tanki_double => 2,
+                                        49 if self.rule.is_kokushi_musou_13machi_double => 2,
+                                        50 if self.rule.is_daisuushii_double => 2,
+                                        _ => 1,
                                     };
                                     total_yakuman_val += val;
                                     if let Some(liable) =
@@ -833,11 +863,7 @@ impl GameState3P {
                 let (target_pid, win_tile) = self.last_discard.unwrap_or((self.current_player, 0));
                 ron_claims.sort_by_key(|&pid| (pid + NP as u8 - target_pid) % NP as u8);
 
-                let winners = if self.rule.allow_double_ron {
-                    ron_claims
-                } else {
-                    vec![ron_claims[0]]
-                };
+                let winners = ron_claims;
 
                 let mut total_deltas = [0i32; NP];
                 let mut oya_won = false;
@@ -889,12 +915,40 @@ impl GameState3P {
                     } else {
                         vec![]
                     };
-                    let res = calc.calc(
+                    let mut res = calc.calc(
                         win_tile,
                         self.wall.dora_indicators.clone(),
                         ura_indicators,
                         Some(cond),
                     );
+
+                    // Cap double yakuman patterns when not enabled per rule flags
+                    if res.yakuman && res.han > 13 {
+                        let mut cap = 0u32;
+                        for &y in &res.yaku {
+                            match y {
+                                47 if !self.rule.is_junsei_chuurenpoutou_double => cap += 13,
+                                48 if !self.rule.is_suuankou_tanki_double => cap += 13,
+                                49 if !self.rule.is_kokushi_musou_13machi_double => cap += 13,
+                                50 if !self.rule.is_daisuushii_double => cap += 13,
+                                _ => {}
+                            }
+                        }
+                        if cap > 0 {
+                            res.han = res.han.saturating_sub(cap).max(13);
+                            let capped = crate::score::calculate_score(
+                                res.han as u8,
+                                0,
+                                w_pid == self.oya,
+                                false,
+                                ron_honba,
+                                NP as u8,
+                            );
+                            res.ron_agari = capped.pay_ron;
+                            res.tsumo_agari_oya = capped.pay_tsumo_oya;
+                            res.tsumo_agari_ko = capped.pay_tsumo_ko;
+                        }
+                    }
 
                     if res.is_win {
                         let score = res.ron_agari as i32;
@@ -1326,37 +1380,18 @@ impl GameState3P {
                 }
             }
 
-            let has_pending_doras = self.wall.pending_kan_dora_count > 0;
-            match self.rule.kan_dora_timing {
-                crate::rule::KanDoraTimingMode::MajsoulImmediate => {
-                    // MjSoul: reveal any pending doras from previous kans first
-                    if has_pending_doras {
-                        while self.wall.pending_kan_dora_count > 0 {
-                            self.wall.pending_kan_dora_count -= 1;
-                            self._reveal_kan_dora();
-                        }
-                    }
-                    // Ankan reveals immediately, Kakan/Daiminkan defer to after discard
-                    if action.action_type == ActionType::Ankan {
-                        self._reveal_kan_dora();
-                    } else {
-                        self.wall.pending_kan_dora_count += 1;
-                    }
-                }
-                crate::rule::KanDoraTimingMode::TenhouImmediate
-                | crate::rule::KanDoraTimingMode::AfterDiscard => {
-                    if has_pending_doras {
-                        while self.wall.pending_kan_dora_count > 0 {
-                            self.wall.pending_kan_dora_count -= 1;
-                            self._reveal_kan_dora();
-                        }
-                    }
-                    if action.action_type == ActionType::Ankan {
-                        self._reveal_kan_dora();
-                    } else {
-                        self.wall.pending_kan_dora_count += 1;
-                    }
-                }
+            // Reveal any pending doras from previous kans
+            while self.wall.pending_kan_dora_count > 0 {
+                self.wall.pending_kan_dora_count -= 1;
+                self._reveal_kan_dora();
+            }
+
+            // Ankan: always reveal dora immediately (before rinshan tsumo)
+            // Daiminkan/Kakan: defer dora reveal to after discard
+            if action.action_type == ActionType::Ankan {
+                self._reveal_kan_dora();
+            } else {
+                self.wall.pending_kan_dora_count += 1;
             }
 
             if !self.skip_mjai_logging {
