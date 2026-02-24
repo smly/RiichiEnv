@@ -1545,22 +1545,24 @@ mod unit_tests {
     fn test_mjsoul_4p_ron_pao_composite() {
         // 4P MjSoul rule (yakuman_pao_is_liability_only = true):
         // Double yakuman ron (1x PAO daisangen + 1x non-PAO tsuuiisou) by ko.
-        // Total: 2 * 32000 = 64000. Always total 50/50 in 4P Ron.
-        // PAO pays 32000 (= 64000/2), discarder pays 32000.
+        // Total: 2 * 32000 = 64000. PAO portion only split 50/50.
+        // split_base = pao_yakuman_val * unit = 1 * 32000 = 32000
+        // PAO pays 16000 (= 32000/2), discarder pays 48000 (= 64000 - 16000).
 
         let np: usize = 4;
         let w_pid = 0usize; // ko winner
         let pao_payer = 1usize;
         let discarder = 2usize;
         let total_yakuman_val: i32 = 2;
+        let pao_yakuman_val: i32 = 1;
         let unit: i32 = 32000; // ko
         let honba_ron: i32 = 0;
 
-        // 4P MjSoul: always total 50/50 for Ron
-        let split_base = total_yakuman_val * unit; // 64000
-        let pao_amt = split_base / 2 + honba_ron; // 32000
+        // 4P MjSoul: PAO portion only split 50/50 for Ron
+        let split_base = pao_yakuman_val * unit; // 32000
+        let pao_amt = split_base / 2 + honba_ron; // 16000
         let score = total_yakuman_val * unit + honba_ron; // 64000
-        let discarder_amt = score - pao_amt; // 32000
+        let discarder_amt = score - pao_amt; // 48000
 
         let mut deltas = vec![0i32; np];
         deltas[w_pid] += score;
@@ -1568,8 +1570,11 @@ mod unit_tests {
         deltas[discarder] -= discarder_amt;
 
         assert_eq!(deltas.iter().sum::<i32>(), 0, "Deltas must be zero-sum");
-        assert_eq!(pao_amt, 32000, "PAO pays half of total (32000)");
-        assert_eq!(discarder_amt, 32000, "Discarder pays half of total (32000)");
+        assert_eq!(pao_amt, 16000, "PAO pays half of PAO portion (16000)");
+        assert_eq!(
+            discarder_amt, 48000,
+            "Discarder pays remainder (48000)"
+        );
         assert_eq!(deltas[w_pid], 64000, "Winner receives 64000");
     }
 }

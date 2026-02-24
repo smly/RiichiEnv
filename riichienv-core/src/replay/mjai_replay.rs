@@ -264,16 +264,23 @@ impl KyokuBuilder {
 impl MjaiReplay {
     #[staticmethod]
     pub fn from_jsonl(path: String) -> PyResult<Self> {
-        let is_gzip = path.ends_with(".gz");
         let file = File::open(&path)
             .map_err(|e| PyValueError::new_err(format!("Failed to open file: {}", e)))?;
+        let mut buf_reader = BufReader::new(file);
 
-        // Setup reader
+        // Detect gzip by magic bytes (0x1f 0x8b) instead of extension
+        let is_gzip = {
+            let buf = buf_reader.fill_buf().map_err(|e| {
+                PyValueError::new_err(format!("Failed to peek file: {}", e))
+            })?;
+            buf.len() >= 2 && buf[0] == 0x1f && buf[1] == 0x8b
+        };
+
         let reader: Box<dyn BufRead> = if is_gzip {
-            let decoder = GzDecoder::new(file);
+            let decoder = GzDecoder::new(buf_reader);
             Box::new(BufReader::new(decoder))
         } else {
-            Box::new(BufReader::new(file))
+            Box::new(buf_reader)
         };
 
         let mut rounds = Vec::new();

@@ -159,12 +159,14 @@ class TestPaoCompositeYakuman:
 
         # Expected: Triple Yakuman (Daisuushi 2x + Tsuuiisou 1x) = 144000.
 
-        # 4P MjSoul Ron PAO: always total 50/50 split.
-        # Total 144000 split 50/50: Pao (P2) pays 72000, Deal-in (P1) pays 72000.
+        # 4P MjSoul Ron PAO: PAO portion only split 50/50.
+        # PAO portion = Daisuushi 2x * 48000 = 96000. Split 50/50 = 48000.
+        # Deal-in (P1) pays: 144000 - 48000 = 96000.
+        # Pao (P2) pays: 48000.
 
         assert env.score_deltas[0] == 144000
-        assert env.score_deltas[1] == -72000  # Deal-in (half of total)
-        assert env.score_deltas[2] == -72000  # Pao (half of total)
+        assert env.score_deltas[1] == -96000  # Deal-in (total - pao_half)
+        assert env.score_deltas[2] == -48000  # Pao (half of PAO portion)
         assert env.score_deltas[3] == 0
 
     def test_majsoul_pao_ron_single(self) -> None:
@@ -233,3 +235,130 @@ class TestPaoCompositeYakuman:
         assert env.score_deltas[1] == -24000
         assert env.score_deltas[2] == -24000
         assert env.score_deltas[3] == 0
+
+    def test_mjsoul_4p_ron_pao_real_record(self) -> None:
+        """Real MjSoul game 251122-9051f1e9, round 11.
+
+        P2 (ko) wins by ron on P0's discard of 2z (South).
+        Hand: [2z], Melds: [kezi(5z), kezi(3z), kezi(6z), kezi(7z)]
+        Yakuman: Daisangen (PAO→P3) + Tsuuiisou = double yakuman = 64000.
+        PAO-portion-only 50/50: P0 (deal-in) pays 48000, P3 (PAO) pays 16000.
+        """
+        rule = GameRule.default_mjsoul()
+        env = RiichiEnv(seed=1, rule=rule, game_mode="4p-red-single")
+        env.reset()
+
+        env.oya = 0
+        env.set_scores([25000, 25000, 25000, 25000])
+
+        # P2 hand: just the pair wait tile (2z = South)
+        # Tile IDs: South = 112-115
+        p2_hand = [112]
+
+        current_hands = env.hands
+        current_hands[2] = p2_hand
+        env.hands = current_hands
+
+        # P2 melds: 4 open Pon (all honor tiles)
+        melds_p2 = [
+            Meld(MeldType.Pon, [124, 125, 126], True, 3),  # 5z Haku - called from P3
+            Meld(MeldType.Pon, [116, 117, 118], True, 1),  # 3z West
+            Meld(MeldType.Pon, [128, 129, 130], True, 1),  # 6z Hatsu - called from P3
+            Meld(MeldType.Pon, [132, 133, 134], True, 3),  # 7z Chun - called from P3
+        ]
+
+        current_melds = env.melds
+        current_melds[2] = melds_p2
+        env.melds = current_melds
+
+        # PAO: P3 liable for Daisangen (yaku ID 37) on P2
+        id_daisangen = 37
+        current_pao = env.pao
+        current_pao[2] = {id_daisangen: 3}
+        env.pao = current_pao
+
+        # P0 discards 2z (South = 113)
+        env.current_player = 0
+
+        hands_p0 = [113, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        current_hands = env.hands
+        current_hands[0] = hands_p0
+        env.hands = current_hands
+
+        env.drawn_tile = 113
+        env.needs_tsumo = False
+        env.phase = Phase.WaitAct
+
+        action = Action(ActionType.Discard, 113, [])
+        env.step({0: action})
+
+        assert env.phase == Phase.WaitResponse
+
+        action_ron = Action(ActionType.Ron, 113, [])
+        env.step({2: action_ron})
+
+        # Double yakuman (Daisangen 1x + Tsuuiisou 1x) = 64000 (ko).
+        # MjSoul PAO-portion-only: split_base = 1 * 32000 = 32000.
+        # PAO pays 16000 (= 32000/2). Deal-in pays 48000 (= 64000 - 16000).
+
+        assert env.score_deltas[0] == -48000  # Deal-in
+        assert env.score_deltas[1] == 0
+        assert env.score_deltas[2] == 64000   # Winner
+        assert env.score_deltas[3] == -16000  # PAO
+
+    def test_mjsoul_4p_ron_pao_real_record_with_riichi(self) -> None:
+        """Same as above but with 1 riichi stick on the table.
+
+        Winner (P2) should also collect the riichi deposit: 64000 + 1000 = 65000.
+        """
+        rule = GameRule.default_mjsoul()
+        env = RiichiEnv(seed=1, rule=rule, game_mode="4p-red-single")
+        env.reset()
+
+        env.oya = 0
+        env.set_scores([25000, 25000, 25000, 25000])
+        env.riichi_sticks = 1
+
+        p2_hand = [112]
+        current_hands = env.hands
+        current_hands[2] = p2_hand
+        env.hands = current_hands
+
+        melds_p2 = [
+            Meld(MeldType.Pon, [124, 125, 126], True, 3),
+            Meld(MeldType.Pon, [116, 117, 118], True, 1),
+            Meld(MeldType.Pon, [128, 129, 130], True, 1),
+            Meld(MeldType.Pon, [132, 133, 134], True, 3),
+        ]
+        current_melds = env.melds
+        current_melds[2] = melds_p2
+        env.melds = current_melds
+
+        id_daisangen = 37
+        current_pao = env.pao
+        current_pao[2] = {id_daisangen: 3}
+        env.pao = current_pao
+
+        env.current_player = 0
+        hands_p0 = [113, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        current_hands = env.hands
+        current_hands[0] = hands_p0
+        env.hands = current_hands
+
+        env.drawn_tile = 113
+        env.needs_tsumo = False
+        env.phase = Phase.WaitAct
+
+        action = Action(ActionType.Discard, 113, [])
+        env.step({0: action})
+        assert env.phase == Phase.WaitResponse
+
+        action_ron = Action(ActionType.Ron, 113, [])
+        env.step({2: action_ron})
+
+        # 64000 + 1000 riichi deposit = 65000 for winner.
+        # PAO and deal-in amounts unchanged.
+        assert env.score_deltas[0] == -48000
+        assert env.score_deltas[1] == 0
+        assert env.score_deltas[2] == 65000
+        assert env.score_deltas[3] == -16000

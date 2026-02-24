@@ -708,38 +708,46 @@ impl GameState3P {
                                     16000 + (np - 2) * 8000 // ko tsumo: oya pays 16000 + (np-2) ko pay 8000
                                 };
                                 let honba_total = self.honba as i32 * (np - 1) * 100;
-                                let pao_amt = pao_yakuman_val * unit + honba_total;
-                                let non_pao_yakuman_val = total_yakuman_val - pao_yakuman_val;
-                                let non_pao_amt = non_pao_yakuman_val * unit;
 
                                 if let Some(pp) = pao_payer {
-                                    deltas[pp as usize] -= pao_amt;
-                                    total_win += pao_amt;
-                                }
+                                    if self.rule.yakuman_pao_is_liability_only {
+                                        // Majsoul: PAO pays PAO portion only, non-PAO split normally
+                                        let pao_amt = pao_yakuman_val * unit + honba_total;
+                                        let non_pao_yakuman_val = total_yakuman_val - pao_yakuman_val;
 
-                                if non_pao_amt > 0 {
-                                    if pid == self.oya {
-                                        let share = non_pao_yakuman_val * 16000;
-                                        for i in 0..NP as u8 {
-                                            if i != pid {
-                                                deltas[i as usize] -= share;
-                                                total_win += share;
-                                            }
-                                        }
-                                    } else {
-                                        let oya_pay = non_pao_yakuman_val * 16000;
-                                        let ko_pay = non_pao_yakuman_val * 8000;
-                                        for i in 0..NP as u8 {
-                                            if i != pid {
-                                                if i == self.oya {
-                                                    deltas[i as usize] -= oya_pay;
-                                                    total_win += oya_pay;
-                                                } else {
-                                                    deltas[i as usize] -= ko_pay;
-                                                    total_win += ko_pay;
+                                        deltas[pp as usize] -= pao_amt;
+                                        total_win += pao_amt;
+
+                                        if non_pao_yakuman_val > 0 {
+                                            if pid == self.oya {
+                                                let share = non_pao_yakuman_val * 16000;
+                                                for i in 0..NP as u8 {
+                                                    if i != pid {
+                                                        deltas[i as usize] -= share;
+                                                        total_win += share;
+                                                    }
+                                                }
+                                            } else {
+                                                let oya_pay = non_pao_yakuman_val * 16000;
+                                                let ko_pay = non_pao_yakuman_val * 8000;
+                                                for i in 0..NP as u8 {
+                                                    if i != pid {
+                                                        if i == self.oya {
+                                                            deltas[i as usize] -= oya_pay;
+                                                            total_win += oya_pay;
+                                                        } else {
+                                                            deltas[i as usize] -= ko_pay;
+                                                            total_win += ko_pay;
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
+                                    } else {
+                                        // Tenhou: PAO pays ALL yakuman (full amount)
+                                        let full_amt = total_yakuman_val * unit + honba_total;
+                                        deltas[pp as usize] -= full_amt;
+                                        total_win += full_amt;
                                     }
                                 }
                             } else if pid == self.oya {
