@@ -997,6 +997,7 @@ impl GameState {
                         if res.yakuman {
                             let mut has_pao = false;
                             let mut total_yakuman_val = 0i32;
+                            let mut pao_yakuman_val = 0i32;
 
                             for &yid in &res.yaku {
                                 let val: i32 = match yid {
@@ -1012,6 +1013,7 @@ impl GameState {
                                 {
                                     has_pao = true;
                                     pao_payer = *liable;
+                                    pao_yakuman_val += val;
                                 }
                             }
 
@@ -1020,10 +1022,16 @@ impl GameState {
                                 let unit: i32 = if is_oya { 48000 } else { 32000 };
                                 let honba_ron = ron_honba as i32 * (np as i32 - 1) * 100;
 
-                                // Ron with PAO: total score split 50/50 between PAO player and discarder
-                                // (yakuman_pao_is_liability_only only affects tsumo PAO, not ron)
-                                let total_base = total_yakuman_val * unit;
-                                pao_amt = total_base / 2 + honba_ron;
+                                // Ron with PAO: split between PAO player and deal-in player.
+                                // yakuman_pao_is_liability_only controls the split base:
+                                //   true  (MjSoul): only PAO-triggering yakuman portion split 50/50
+                                //   false (Tenhou): total yakuman split 50/50
+                                let split_base = if self.rule.yakuman_pao_is_liability_only {
+                                    pao_yakuman_val * unit
+                                } else {
+                                    total_yakuman_val * unit
+                                };
+                                pao_amt = split_base / 2 + honba_ron;
                             }
                         }
 

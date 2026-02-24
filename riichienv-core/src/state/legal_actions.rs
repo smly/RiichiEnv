@@ -304,7 +304,7 @@ impl GameStateLegalActions for GameState {
             if count >= 2 && hand.len() >= 3 {
                 let check_pon_kuikae = |consumes: &Vec<u8>| -> bool {
                     let mut forbidden_34 = Vec::new();
-                    if !matches!(self.rule.kuikae_mode, crate::rule::KuikaeMode::None) {
+                    if self.rule.kuikae_forbidden {
                         forbidden_34.push(tile / 4);
                     }
                     let mut used_consumes = vec![false; consumes.len()];
@@ -381,22 +381,20 @@ impl GameStateLegalActions for GameState {
             if t_val < 27 {
                 let check_chi_kuikae = |c1: u8, c2: u8| -> bool {
                     let mut forbidden_34 = Vec::new();
-                    if !matches!(self.rule.kuikae_mode, crate::rule::KuikaeMode::None) {
+                    if self.rule.kuikae_forbidden {
                         forbidden_34.push(t_val);
-                        if self.rule.kuikae_mode == crate::rule::KuikaeMode::StrictFlank {
-                            let mut cons_34 = [c1 / 4, c2 / 4];
-                            cons_34.sort();
-                            if cons_34[0] == t_val + 1 && cons_34[1] == t_val + 2 {
-                                if t_val % 9 <= 5 {
-                                    forbidden_34.push(t_val + 3);
-                                }
-                            } else if t_val >= 2
-                                && cons_34[1] == t_val - 1
-                                && cons_34[0] == t_val - 2
-                                && t_val % 9 >= 3
-                            {
-                                forbidden_34.push(t_val - 3);
+                        let mut cons_34 = [c1 / 4, c2 / 4];
+                        cons_34.sort();
+                        if cons_34[0] == t_val + 1 && cons_34[1] == t_val + 2 {
+                            if t_val % 9 <= 5 {
+                                forbidden_34.push(t_val + 3);
                             }
+                        } else if t_val >= 2
+                            && cons_34[1] == t_val - 1
+                            && cons_34[0] == t_val - 2
+                            && t_val % 9 >= 3
+                        {
+                            forbidden_34.push(t_val - 3);
                         }
                     }
                     let mut used_c1 = false;

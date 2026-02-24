@@ -61,7 +61,6 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<riichienv_core::replay::mjsoul_replay::KyokuIterator>()?;
     m.add_class::<riichienv_core::replay::WinResultContext>()?;
     m.add_class::<riichienv_core::replay::WinResultContextIterator>()?;
-    m.add_class::<riichienv_core::rule::KuikaeMode>()?;
     m.add_class::<riichienv_core::rule::GameRule>()?;
     m.add_class::<riichienv_core::yaku::Yaku>()?;
 

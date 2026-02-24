@@ -307,7 +307,7 @@ impl GameState3PLegalActions for GameState3P {
             if count >= 2 && hand.len() >= 3 {
                 let check_pon_kuikae = |consumes: &Vec<u8>| -> bool {
                     let mut forbidden_34 = Vec::new();
-                    if !matches!(self.rule.kuikae_mode, crate::rule::KuikaeMode::None) {
+                    if self.rule.kuikae_forbidden {
                         forbidden_34.push(tile / 4);
                     }
                     let mut used_consumes = vec![false; consumes.len()];
