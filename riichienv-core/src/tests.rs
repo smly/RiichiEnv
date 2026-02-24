@@ -1506,8 +1506,8 @@ mod unit_tests {
     }
 
     #[test]
-    fn test_mjsoul_ron_pao_composite() {
-        // MjSoul rule (yakuman_pao_is_liability_only = true):
+    fn test_mjsoul_3p_ron_pao_composite() {
+        // 3P MjSoul rule (yakuman_pao_is_liability_only = true):
         // Double yakuman ron (1x PAO daisangen + 1x non-PAO tsuuiisou) by oya.
         // Total: 2 * 48000 = 96000. Only PAO portion split 50/50.
         // PAO pays 24000 (= 48000/2), discarder pays 72000 (= 48000/2 + 48000).
@@ -1521,7 +1521,7 @@ mod unit_tests {
         let unit: i32 = 48000; // oya
         let honba_ron: i32 = 0;
 
-        // MjSoul: only PAO portion split 50/50
+        // 3P MjSoul: only PAO portion split 50/50
         let split_base = pao_yakuman_val * unit; // 48000
         let pao_amt = split_base / 2 + honba_ron; // 24000
         let score = total_yakuman_val * unit + honba_ron; // 96000
@@ -1539,5 +1539,37 @@ mod unit_tests {
             "Discarder pays half of PAO portion + full non-PAO (72000)"
         );
         assert_eq!(deltas[w_pid], 96000, "Winner receives 96000");
+    }
+
+    #[test]
+    fn test_mjsoul_4p_ron_pao_composite() {
+        // 4P MjSoul rule (yakuman_pao_is_liability_only = true):
+        // Double yakuman ron (1x PAO daisangen + 1x non-PAO tsuuiisou) by ko.
+        // Total: 2 * 32000 = 64000. Always total 50/50 in 4P Ron.
+        // PAO pays 32000 (= 64000/2), discarder pays 32000.
+
+        let np: usize = 4;
+        let w_pid = 0usize; // ko winner
+        let pao_payer = 1usize;
+        let discarder = 2usize;
+        let total_yakuman_val: i32 = 2;
+        let unit: i32 = 32000; // ko
+        let honba_ron: i32 = 0;
+
+        // 4P MjSoul: always total 50/50 for Ron
+        let split_base = total_yakuman_val * unit; // 64000
+        let pao_amt = split_base / 2 + honba_ron; // 32000
+        let score = total_yakuman_val * unit + honba_ron; // 64000
+        let discarder_amt = score - pao_amt; // 32000
+
+        let mut deltas = vec![0i32; np];
+        deltas[w_pid] += score;
+        deltas[pao_payer] -= pao_amt;
+        deltas[discarder] -= discarder_amt;
+
+        assert_eq!(deltas.iter().sum::<i32>(), 0, "Deltas must be zero-sum");
+        assert_eq!(pao_amt, 32000, "PAO pays half of total (32000)");
+        assert_eq!(discarder_amt, 32000, "Discarder pays half of total (32000)");
+        assert_eq!(deltas[w_pid], 64000, "Winner receives 64000");
     }
 }

@@ -16,7 +16,9 @@ For a **single Pao Yakuman** (e.g., Daisangen only), both platforms behave ident
 
 The `yakuman_pao_is_liability_only` flag only matters for **composite hands where Pao and non-Pao Yakumans coexist** (e.g., Daisangen + Tsuuiisou). In this case:
 
-**Ron**: The flag controls the split between the Pao player and the deal-in player:
+**Ron (4-player)**: The total Ron amount is **always** split 50/50 between the Pao player and the deal-in player, regardless of the flag. The flag does not affect 4P Ron settlement.
+
+**Ron (3-player)**: The flag controls the split between the Pao player and the deal-in player:
 
 - **Tenhou** (`false`): The **total** Ron amount is split 50/50 between the Pao player and the deal-in player.
 - **Mahjong Soul** (`true`): Only the **Pao-triggering Yakuman portion** is split 50/50. The non-Pao Yakuman portion is paid entirely by the deal-in player.
@@ -28,7 +30,7 @@ The `yakuman_pao_is_liability_only` flag only matters for **composite hands wher
 
 | Flag | Description |
 |------|-------------|
-| `.yakuman_pao_is_liability_only` | Whether to limit Pao liability to the Pao-triggering Yakuman portion only when combined with non-Pao Yakumans (Mahjong Soul style). Affects both Ron and Tsumo settlement. If false, Pao covers the full amount (Tenhou style). Does not affect single-Yakuman wins (both styles are identical). |
+| `.yakuman_pao_is_liability_only` | Whether to limit Pao liability to the Pao-triggering Yakuman portion only when combined with non-Pao Yakumans (Mahjong Soul style). Affects Tsumo settlement in both 4P and 3P, and Ron settlement in 3P only. In 4P, Ron is always split 50/50. If false, Pao covers the full amount (Tenhou style). Does not affect single-Yakuman wins (both styles are identical). |
 
 ## Kuikae (Swap Calling) Restriction
 
