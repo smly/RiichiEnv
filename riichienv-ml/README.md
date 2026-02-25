@@ -6,10 +6,6 @@ Mahjong RL training pipeline for RiichiEnv. This package implements a 3-stage tr
 2. **Offline RL (BC or CQL)** — Behavior Cloning or Conservative Q-Learning on human replay data with GRP-shaped rewards.
 3. **Online RL (PPO or DQN)** — Fine-tunes the offline model via self-play with epsilon-greedy exploration using Ray-distributed workers.
 
-* RiichiEnv と強化学習を用いて麻雀AIを作るためのライブラリ
-* configs に学習率やモデルの深さ、モデルファイルパスなどのハイパーパラメータを定義して実験管理できるようにする
-* wandb で学習の様子を可視化できるようにする
-
 ## Setup
 
 ```sh
