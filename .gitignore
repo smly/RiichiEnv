@@ -7,3 +7,5 @@ trunk
 **/wandb
 **/.env
 riichienv-ml-xt/
+debug-riichienv-with-mortal
+mjsoul-parser
