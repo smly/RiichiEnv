@@ -1,8 +1,8 @@
 grp:
   game:
     n_players: 4
-  data_glob: "/data/mjsoul/mjsoul-4p/**/*.jsonl.gz"
-  val_data_glob: "/data/mjsoul/mjsoul-4p/2024/01/*/*.jsonl.gz"
+  data_glob: /data/mjsoul/mjsoul-4p/**/*.jsonl.gz
+  val_data_glob: /data/mjsoul/mjsoul-4p/2024/01/*/*.jsonl.gz
   output: /data/workspace/riichienv-ml/4p/grp_model.pth
   device: cuda
   batch_size: 512

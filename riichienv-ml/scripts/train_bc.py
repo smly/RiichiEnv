@@ -95,6 +95,11 @@ def main():
         n_players=game.n_players,
         replay_rule=game.replay_rule,
         tile_dim=game.tile_dim,
+        mortal_model_path=cfg.mortal_model_path,
+        mortal_libriichi_path=cfg.mortal_libriichi_path,
+        mortal_eval_episodes=cfg.mortal_eval_episodes,
+        mortal_eval_interval=cfg.mortal_eval_interval,
+        mortal_device=cfg.mortal_device,
     )
     trainer.train(cfg.output)
 

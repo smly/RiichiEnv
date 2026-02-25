@@ -32,7 +32,7 @@ ppo:
   wandb_entity: smly
   wandb_project: riichienv-4p
   mortal_model_path: /data/gitws/riichienv-validation/RiichiEnv/riichienv-ml/mortal_v4.pth
-  mortal_libriichi_path: /data/gitws/riichienv-validation/RiichiEnv/riichienv-ml/3rdparty/Mortal/target/release
+  mortal_libriichi_path: /data/gitws/riichienv-validation/RiichiEnv/debug-riichienv-with-mortal/.venv/lib/python3.13/site-packages
   mortal_eval_episodes: 48
   mortal_device: cpu
   wandb_tags: [online, ppo, v2]

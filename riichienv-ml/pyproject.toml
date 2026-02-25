@@ -18,6 +18,7 @@ dependencies = [
     "torchrl>=0.3.0",
     "tensordict>=0.3.0",
     "loguru>=0.7.3",
+    "libriichi",
 ]
 
 [build-system]
@@ -29,3 +30,4 @@ where = ["src"]
 
 [tool.uv.sources]
 riichienv = { workspace = true }
+libriichi = { path = "./3rdparty/Mortal/libriichi/", editable = true }
