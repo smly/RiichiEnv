@@ -1,1 +1,16 @@
-#
+grp:
+  game:
+    n_players: 3
+  data_glob: "/data/mjsoul/mjsoul-3p/2024/**/*.jsonl.gz"
+  val_data_glob: "/data/mjsoul/mjsoul-3p/2024/01/**/*.jsonl.gz"
+  output: /data/workspace/riichienv/ppo_3p/grp_model.pth
+  device: cuda
+  batch_size: 128
+  num_workers: 12
+  num_epochs: 1
+  lr: 5e-4
+  lr_eta_min: 1e-7
+  samples_per_file: 30
+  wandb_entity: smly
+  wandb_project: riichienv-3p
+  wandb_tags: [grp]

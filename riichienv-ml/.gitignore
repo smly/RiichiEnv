@@ -4,3 +4,4 @@ wandb/
 __pycache__/
 .venv/
 **/*.egg-info
+debug_load_logs.py

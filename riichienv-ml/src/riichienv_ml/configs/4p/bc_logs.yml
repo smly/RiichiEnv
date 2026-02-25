@@ -1,0 +1,31 @@
+bc:
+  game:
+    n_players: 4
+  data_glob: "/data/mjsoul/mjsoul-4p/2024/**/*.jsonl.gz"
+  grp_model: /data/workspace/riichienv/ppo/grp_model.pth
+  output: /data/workspace/riichienv/ppo/cql_model.pth
+  device: cuda
+  batch_size: 128
+  lr: 5e-4
+  alpha: 5.0
+  gamma: 1.0
+  num_epochs: 10
+  num_workers: 12
+  limit: 2000000
+  pts_weight: [6.0, 4.0, 2.0, 0.0]
+  weight_decay: 0.1
+  aux_weight: 0.2
+  wandb_entity: smly
+  wandb_project: riichienv-4p
+  wandb_tags: [offline, bc]
+  model_class: riichienv_ml.models.q_network.QNetwork
+  dataset_class: riichienv_ml.datasets.mjai_logs.MCDataset
+  encoder_class: riichienv_ml.features.feat_v1.ObservationEncoder
+  model:
+    in_channels: 74
+    num_blocks: 16
+    conv_channels: 192
+    fc_dim: 512
+    num_actions: 82
+    tile_dim: 34
+    aux_dims: 4

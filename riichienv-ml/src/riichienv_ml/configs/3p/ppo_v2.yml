@@ -1,0 +1,42 @@
+ppo:
+  game:
+    n_players: 3
+  algorithm: ppo
+  load_model: /data/workspace/riichienv/ppo_3p_v2/cql_model.pth
+  device: cuda
+  model_class: riichienv_ml.models.actor_critic.ActorCriticNetwork
+  encoder_class: riichienv_ml.features.feat_v2.DiscardHistoryShantenEncoder
+  num_workers: 4
+  num_steps: 500
+  lr: 1e-5
+  gamma: 1.0
+  max_grad_norm: 0.5
+  ppo_clip: 0.02
+  ppo_epochs: 2
+  gae_lambda: 0.95
+  entropy_coef: 0.001
+  value_coef: 0.5
+  grp_model: /data/workspace/riichienv/ppo_3p_v2/grp_model.pth
+  pts_weight: [6.0, 4.0, 0.0]
+  weight_decay: 0.1
+  alpha_kl: 0.1
+  alpha_kl_warmup_steps: 50
+  aux_weight: 0.0
+  async_rollout: true
+  eval_interval: 50
+  eval_episodes: 192
+  worker_device: cuda
+  gpu_per_worker: 0.2
+  num_envs_per_worker: 48
+  checkpoint_dir: /data/workspace/riichienv/ppo_3p_v2/checkpoints
+  wandb_entity: smly
+  wandb_project: riichienv-3p
+  wandb_tags: [online, ppo, v2]
+  model:
+    in_channels: 94
+    num_blocks: 16
+    conv_channels: 192
+    fc_dim: 512
+    num_actions: 60
+    tile_dim: 27
+    aux_dims: 3

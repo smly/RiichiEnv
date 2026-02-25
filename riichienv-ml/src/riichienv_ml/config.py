@@ -79,19 +79,28 @@ class ModelConfig(BaseModel):
     aux_dims: int | None = None
 
 
-class GrpConfig(BaseModel):
+class WandbConfig(BaseModel):
+    wandb_entity: str = "smly"
+    wandb_project: str = "riichienv"
+    wandb_tags: list[str] = []
+    wandb_group: str | None = None
+
+
+class GrpConfig(WandbConfig):
     game: GameConfig = GameConfig()
-    train_data: list[str] = ["/data/train_grp.pq", "/data/train_grp_2024.pq"]
-    val_data: str = "/data/val_grp.pq"
+    data_glob: str = "/data/mjsoul/mjsoul-4p/2024/**/*.jsonl.gz"
+    val_data_glob: str = "/data/mjsoul/mjsoul-4p/2024/01/**/*.jsonl.gz"
     output: str = "grp_model.pth"
     device: str = "cuda"
     batch_size: int = 128
     num_workers: int = 12
     num_epochs: int = 10
     lr: float = 5e-4
+    lr_eta_min: float = 1e-7
+    samples_per_file: int = 32
 
 
-class BcConfig(BaseModel):
+class BcConfig(WandbConfig):
     game: GameConfig = GameConfig()
     data_glob: str = "/data/mjsoul/mjsoul-4p/2024/**/*.jsonl.gz"
     grp_model: str = "./grp_model.pth"
@@ -107,8 +116,6 @@ class BcConfig(BaseModel):
     pts_weight: list[float] = [10.0, 4.0, -4.0, -10.0]
     weight_decay: float = 0.0
     aux_weight: float = 0.0
-    wandb_entity: str = "smly"
-    wandb_project: str = "riichienv-offline"
     model: ModelConfig = ModelConfig()
     model_class: str = "riichienv_ml.models.q_network.QNetwork"
     dataset_class: str = "riichienv_ml.datasets.mjai_logs.MCDataset"
@@ -117,7 +124,7 @@ class BcConfig(BaseModel):
     mortal: bool = False
 
 
-class PpoConfig(BaseModel):
+class PpoConfig(WandbConfig):
     game: GameConfig = GameConfig()
     # Algorithm: "dqn" (DQN + CQL) or "ppo" (Actor-Critic + PPO)
     algorithm: Literal["dqn", "ppo"] = "ppo"
@@ -165,7 +172,6 @@ class PpoConfig(BaseModel):
     aux_weight: float = 0.0
     entropy_coef_online: float = 0.0
     checkpoint_dir: str = "checkpoints"
-    wandb_project: str = "riichienv-online"
     model: ModelConfig = ModelConfig()
     model_class: str = "riichienv_ml.models.actor_critic.ActorCriticNetwork"
     encoder_class: str = "riichienv_ml.features.feat_v1.ObservationEncoder"
