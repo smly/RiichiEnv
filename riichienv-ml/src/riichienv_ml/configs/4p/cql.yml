@@ -25,7 +25,7 @@ bc:
   mortal_libriichi_path: /data/gitws/riichienv-validation/RiichiEnv/riichienv-ml/3rdparty/Mortal/mortal
   mortal_eval_episodes: 48
   mortal_eval_interval: 100000
-  mortal_device: cpu
+  mortal_device: cuda
   model:
     in_channels: 74
     num_blocks: 16

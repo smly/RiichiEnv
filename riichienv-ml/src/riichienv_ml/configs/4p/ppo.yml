@@ -30,10 +30,10 @@ ppo:
   checkpoint_dir: /data/workspace/riichienv-ml/4p/ppo/checkpoints
   wandb_entity: smly
   wandb_project: riichienv-4p
-  mortal_model_path: /data/gitws/riichienv-validation/RiichiEnv/riichienv-ml/mortal_v4.pth
-  mortal_libriichi_path: /data/gitws/riichienv-validation/RiichiEnv/debug-riichienv-with-mortal/.venv/lib/python3.13/site-packages
+  mortal_model_path: /data/workspace/mortal/mortal_v4.pth
+  mortal_libriichi_path: /data/gitws/riichienv-validation/RiichiEnv/riichienv-ml/3rdparty/Mortal/mortal
   mortal_eval_episodes: 48
-  mortal_device: cpu
+  mortal_device: cuda
   wandb_tags: [online, ppo, v1]
   model:
     in_channels: 74
