@@ -9,3 +9,9 @@ debug_load_logs.py
 agents.py
 model.py
 mortal_agent_play.py
+src/riichienv_ml/configs/4p/hand_pred_cnn.yml
+src/riichienv_ml/configs/4p/hand_pred_seq.yml
+src/riichienv_ml/datasets/hand_pred.py
+src/riichienv_ml/models/hand_pred.py
+src/riichienv_ml/trainers/hand_pred.py
+build
