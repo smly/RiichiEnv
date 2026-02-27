@@ -218,11 +218,34 @@ class PpoConfig(WandbConfig):
     evaluator: EvaluatorConfig = EvaluatorConfig()
 
 
+class HandPredConfig(WandbConfig):
+    """Config for hand prediction (opponent hand estimation)."""
+    game: GameConfig = GameConfig()
+    data_glob: str = "/data/mjsoul/mjsoul-4p/2024/**/*.jsonl.gz"
+    val_data_glob: str = "/data/mjsoul/mjsoul-4p/2024/01/**/*.jsonl.gz"
+    output: str = "hand_pred_model.pth"
+    device: str = "cuda"
+    batch_size: int = 128
+    num_workers: int = 12
+    num_epochs: int = 10
+    lr: float = 5e-4
+    lr_eta_min: float = 1e-7
+    weight_decay: float = 0.01
+    max_grad_norm: float = 10.0
+    samples_per_file: int = 128
+    model: ModelConfig = ModelConfig()
+    model_class: str = "riichienv_ml.models.hand_pred.HandPredCNN"
+    encoder_class: str = "riichienv_ml.features.feat_v1.ObservationEncoder"
+    loss_type: str = "smooth_l1"  # or "mse"
+    sum_constraint_weight: float = 0.1  # auxiliary loss weight for total tile count
+
+
 class Config(BaseModel):
     grp: GrpConfig = GrpConfig()
     bc: BcConfig = BcConfig()
     cql: CqlConfig = CqlConfig()
     ppo: PpoConfig = PpoConfig()
+    hand_pred: HandPredConfig = HandPredConfig()
 
 
 def load_config(path: str) -> Config:

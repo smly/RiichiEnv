@@ -1,0 +1,32 @@
+hand_pred:
+  game:
+    n_players: 4
+  data_glob: /data/mjsoul/mjsoul-4p/2024/**/*.jsonl.gz
+  val_data_glob: /data/mjsoul/mjsoul-4p/2024/01/*/*.jsonl.gz
+  output: /data/workspace/riichienv-ml/4p/hand_pred_seq.pth
+  device: cuda
+  batch_size: 128
+  num_workers: 12
+  num_epochs: 10
+  lr: 5e-4
+  lr_eta_min: 1e-7
+  weight_decay: 0.01
+  max_grad_norm: 10.0
+  samples_per_file: 128
+  loss_type: smooth_l1
+  wandb_entity: smly
+  wandb_project: riichienv-4p
+  wandb_tags: [hand_pred, transformer]
+  model_class: riichienv_ml.models.hand_pred.HandPredTransformer
+  encoder_class: riichienv_ml.features.sequence_features.SequenceFeaturePackedEncoder
+  model:
+    d_model: 384
+    nhead: 8
+    num_layers: 6
+    dim_feedforward: 1536
+    dropout: 0.1
+    tile_dim: 34
+    d_type: 96
+    d_other: 32
+    max_prog_len: 256
+    max_cand_len: 32
