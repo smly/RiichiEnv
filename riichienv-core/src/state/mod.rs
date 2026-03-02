@@ -1346,12 +1346,10 @@ impl GameState {
             self.riichi_pending_acceptance = Some(pid);
         }
 
-        // Tenhou: reveal pending kan doras before dahai event
-        if !self.rule.open_kan_dora_after_discard {
-            while self.wall.pending_kan_dora_count > 0 {
-                self.wall.pending_kan_dora_count -= 1;
-                self._reveal_kan_dora();
-            }
+        // Reveal pending kan doras before dahai event
+        while self.wall.pending_kan_dora_count > 0 {
+            self.wall.pending_kan_dora_count -= 1;
+            self._reveal_kan_dora();
         }
 
         if !self.skip_mjai_logging {
@@ -1361,14 +1359,6 @@ impl GameState {
             ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
             ev.insert("tsumogiri".to_string(), Value::Bool(tsumogiri));
             self._push_mjai_event(Value::Object(ev));
-        }
-
-        // MjSoul: reveal pending kan doras after dahai event
-        if self.rule.open_kan_dora_after_discard {
-            while self.wall.pending_kan_dora_count > 0 {
-                self.wall.pending_kan_dora_count -= 1;
-                self._reveal_kan_dora();
-            }
         }
 
         self.players[pid as usize].missed_agari_doujun = false;

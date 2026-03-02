@@ -10,7 +10,6 @@ class GameRule:
     yakuman_pao_is_liability_only: bool
     sanchaho_is_draw: bool
     kuikae_forbidden: bool
-    open_kan_dora_after_discard: bool
     def __init__(
         self,
         allows_ron_on_ankan_for_kokushi_musou: bool = False,
@@ -21,7 +20,6 @@ class GameRule:
         yakuman_pao_is_liability_only: bool = False,
         sanchaho_is_draw: bool = False,
         kuikae_forbidden: bool = True,
-        open_kan_dora_after_discard: bool = False,
     ) -> None: ...
     @staticmethod
     def default_tenhou() -> GameRule: ...
