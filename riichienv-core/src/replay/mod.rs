@@ -12,6 +12,8 @@ use std::sync::Arc;
 #[cfg(feature = "python")]
 use crate::action::Action as EnvAction;
 #[cfg(feature = "python")]
+use crate::action::Action3P;
+#[cfg(feature = "python")]
 use crate::hand_evaluator::HandEvaluator;
 use crate::types::MeldType;
 #[cfg(feature = "python")]
@@ -412,6 +414,8 @@ impl KyokuStepIterator3P {
                 slf.state.apply_log_action(current_log_action);
                 slf.idx += 1;
 
+                let action_3p = Action3P::from_action(action);
+
                 if let Some(target) = slf.filter_seat {
                     if pid == target {
                         if slf.skip_single_action && obs._legal_actions.len() <= 1 {
@@ -419,12 +423,14 @@ impl KyokuStepIterator3P {
                         }
 
                         let py = slf.py();
-                        return Ok(Some((obs, action).into_pyobject(py)?.unbind().into()));
+                        return Ok(Some((obs, action_3p).into_pyobject(py)?.unbind().into()));
                     }
                     continue;
                 } else {
                     let py = slf.py();
-                    return Ok(Some((pid, obs, action).into_pyobject(py)?.unbind().into()));
+                    return Ok(Some(
+                        (pid, obs, action_3p).into_pyobject(py)?.unbind().into(),
+                    ));
                 }
             }
 
@@ -475,17 +481,21 @@ impl KyokuStepIterator3P {
 
                         slf.pending_action = Some((pid, env_action));
 
+                        let riichi_action_3p = Action3P::from_action(riichi_action);
                         if let Some(target) = slf.filter_seat {
                             if pid == target {
                                 let py = slf.py();
                                 return Ok(Some(
-                                    (obs, riichi_action).into_pyobject(py)?.unbind().into(),
+                                    (obs, riichi_action_3p).into_pyobject(py)?.unbind().into(),
                                 ));
                             }
                         } else {
                             let py = slf.py();
                             return Ok(Some(
-                                (pid, obs, riichi_action).into_pyobject(py)?.unbind().into(),
+                                (pid, obs, riichi_action_3p)
+                                    .into_pyobject(py)?
+                                    .unbind()
+                                    .into(),
                             ));
                         }
                     } else {
@@ -498,6 +508,7 @@ impl KyokuStepIterator3P {
                         slf.state.apply_log_action(action);
                         slf.idx += 1;
 
+                        let env_action_3p = Action3P::from_action(env_action);
                         if let Some(target) = slf.filter_seat {
                             if pid == target {
                                 if slf.skip_single_action && obs._legal_actions.len() <= 1 {
@@ -506,13 +517,13 @@ impl KyokuStepIterator3P {
 
                                 let py = slf.py();
                                 return Ok(Some(
-                                    (obs, env_action).into_pyobject(py)?.unbind().into(),
+                                    (obs, env_action_3p).into_pyobject(py)?.unbind().into(),
                                 ));
                             }
                         } else {
                             let py = slf.py();
                             return Ok(Some(
-                                (pid, obs, env_action).into_pyobject(py)?.unbind().into(),
+                                (pid, obs, env_action_3p).into_pyobject(py)?.unbind().into(),
                             ));
                         }
                     }
@@ -544,18 +555,21 @@ impl KyokuStepIterator3P {
                     slf.state.apply_log_action(action);
                     slf.idx += 1;
 
+                    let env_action_3p = Action3P::from_action(env_action);
                     if let Some(target) = slf.filter_seat {
                         if pid == target {
                             if slf.skip_single_action && obs._legal_actions.len() <= 1 {
                                 continue;
                             }
                             let py = slf.py();
-                            return Ok(Some((obs, env_action).into_pyobject(py)?.unbind().into()));
+                            return Ok(Some(
+                                (obs, env_action_3p).into_pyobject(py)?.unbind().into(),
+                            ));
                         }
                     } else {
                         let py = slf.py();
                         return Ok(Some(
-                            (pid, obs, env_action).into_pyobject(py)?.unbind().into(),
+                            (pid, obs, env_action_3p).into_pyobject(py)?.unbind().into(),
                         ));
                     }
                 }
@@ -605,18 +619,21 @@ impl KyokuStepIterator3P {
                     slf.state.apply_log_action(action);
                     slf.idx += 1;
 
+                    let env_action_3p = Action3P::from_action(env_action);
                     if let Some(target) = slf.filter_seat {
                         if pid == target {
                             if slf.skip_single_action && obs._legal_actions.len() <= 1 {
                                 continue;
                             }
                             let py = slf.py();
-                            return Ok(Some((obs, env_action).into_pyobject(py)?.unbind().into()));
+                            return Ok(Some(
+                                (obs, env_action_3p).into_pyobject(py)?.unbind().into(),
+                            ));
                         }
                     } else {
                         let py = slf.py();
                         return Ok(Some(
-                            (pid, obs, env_action).into_pyobject(py)?.unbind().into(),
+                            (pid, obs, env_action_3p).into_pyobject(py)?.unbind().into(),
                         ));
                     }
                 }
@@ -650,18 +667,21 @@ impl KyokuStepIterator3P {
                     slf.state.apply_log_action(action);
                     slf.idx += 1;
 
+                    let env_action_3p = Action3P::from_action(env_action);
                     if let Some(target) = slf.filter_seat {
                         if pid == target {
                             if slf.skip_single_action && obs._legal_actions.len() <= 1 {
                                 continue;
                             }
                             let py = slf.py();
-                            return Ok(Some((obs, env_action).into_pyobject(py)?.unbind().into()));
+                            return Ok(Some(
+                                (obs, env_action_3p).into_pyobject(py)?.unbind().into(),
+                            ));
                         }
                     } else {
                         let py = slf.py();
                         return Ok(Some(
-                            (pid, obs, env_action).into_pyobject(py)?.unbind().into(),
+                            (pid, obs, env_action_3p).into_pyobject(py)?.unbind().into(),
                         ));
                     }
                 }

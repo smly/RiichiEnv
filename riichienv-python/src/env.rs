@@ -2,7 +2,26 @@ use pyo3::prelude::*;
 use pyo3::IntoPyObject;
 use std::collections::HashMap;
 
-use riichienv_core::action::{Action, ActionEncoder, Phase};
+use riichienv_core::action::{Action, Action3P, ActionEncoder, Phase};
+
+/// Wrapper that accepts both `Action` and `Action3P` from Python.
+pub struct AnyAction(Action);
+
+impl<'a, 'py> FromPyObject<'a, 'py> for AnyAction {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(a) = obj.extract::<Action>() {
+            Ok(AnyAction(a))
+        } else if let Ok(a3p) = obj.extract::<Action3P>() {
+            Ok(AnyAction(Action::from(a3p)))
+        } else {
+            Err(pyo3::exceptions::PyTypeError::new_err(
+                "expected Action or Action3P",
+            ))
+        }
+    }
+}
 use riichienv_core::game_variant::GameStateVariant;
 use riichienv_core::replay::MjaiEvent;
 use riichienv_core::rule::GameRule;
@@ -792,8 +811,9 @@ impl RiichiEnv {
     pub fn step<'py>(
         &mut self,
         py: Python<'py>,
-        actions: HashMap<u8, Action>,
+        actions: HashMap<u8, AnyAction>,
     ) -> PyResult<Py<PyAny>> {
+        let actions: HashMap<u8, Action> = actions.into_iter().map(|(k, v)| (k, v.0)).collect();
         with_variant_mut!(self, |s| s.step(&actions));
         let has_error = with_variant!(self, |s| s.last_error.is_some());
         if has_error {

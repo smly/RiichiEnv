@@ -8,7 +8,7 @@ mod python;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 
-use crate::action::{Action, ActionEncoder};
+use crate::action::{Action, Action3P};
 use crate::errors::{RiichiError, RiichiResult};
 use crate::types::Meld;
 
@@ -26,7 +26,7 @@ pub struct Observation3P {
     pub scores: [i32; 3],
     pub riichi_declared: [bool; 3],
 
-    pub(crate) _legal_actions: Vec<Action>,
+    pub(crate) _legal_actions: Vec<Action3P>,
 
     pub(crate) events: Vec<String>,
 
@@ -79,7 +79,10 @@ impl Observation3P {
             dora_indicators: dora_u32,
             scores,
             riichi_declared,
-            _legal_actions: legal_actions,
+            _legal_actions: legal_actions
+                .into_iter()
+                .map(Action3P::from_action)
+                .collect(),
             events,
             honba,
             riichi_sticks,
@@ -95,16 +98,15 @@ impl Observation3P {
         }
     }
 
-    pub fn legal_actions_method(&self) -> Vec<Action> {
+    pub fn legal_actions_method(&self) -> Vec<Action3P> {
         self._legal_actions.clone()
     }
 
-    pub fn find_action(&self, action_id: usize) -> Option<Action> {
-        let encoder = ActionEncoder::ThreePlayer;
+    pub fn find_action(&self, action_id: usize) -> Option<Action3P> {
         self._legal_actions
             .iter()
             .find(|a| {
-                if let Ok(idx) = encoder.encode(a) {
+                if let Ok(idx) = a.encode() {
                     (idx as usize) == action_id
                 } else {
                     false

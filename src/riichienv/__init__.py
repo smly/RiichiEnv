@@ -24,7 +24,7 @@ from ._riichienv import (  # type: ignore
     parse_hand,
     parse_tile,
 )
-from .action import Action, ActionType
+from .action import Action, Action3P, ActionType
 from .game_mode import GameType
 from .hand import Conditions, HandEvaluator
 
@@ -53,6 +53,7 @@ __all__ = [
     "parse_hand",
     "parse_tile",
     "Action",
+    "Action3P",
     "ActionType",
     "RiichiEnv",
     "GameRule",

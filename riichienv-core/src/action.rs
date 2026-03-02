@@ -419,3 +419,122 @@ impl Action {
         self.encode().map_err(Into::into)
     }
 }
+
+#[cfg_attr(feature = "python", pyclass(module = "riichienv._riichienv"))]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct Action3P(pub Action);
+
+impl From<Action3P> for Action {
+    fn from(a: Action3P) -> Self {
+        a.0
+    }
+}
+
+impl std::ops::Deref for Action3P {
+    type Target = Action;
+    fn deref(&self) -> &Action {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Action3P {
+    fn deref_mut(&mut self) -> &mut Action {
+        &mut self.0
+    }
+}
+
+impl Action3P {
+    pub fn from_action(action: Action) -> Self {
+        Action3P(action)
+    }
+
+    pub fn encode(&self) -> RiichiResult<i32> {
+        ActionEncoder::ThreePlayer.encode(&self.0)
+    }
+
+    pub fn repr(&self) -> String {
+        format!(
+            "Action3P(action_type={:?}, tile={:?}, consume_tiles={:?}, actor={:?})",
+            self.0.action_type, self.0.tile, self.0.consume_tiles, self.0.actor
+        )
+    }
+}
+
+#[cfg(feature = "python")]
+#[pymethods]
+impl Action3P {
+    #[new]
+    #[pyo3(signature = (r#type=ActionType::Pass, tile=None, consume_tiles=vec![], actor=None))]
+    pub fn py_new(
+        r#type: ActionType,
+        tile: Option<u8>,
+        consume_tiles: Vec<u8>,
+        actor: Option<u8>,
+    ) -> Self {
+        Action3P(Action::new(r#type, tile, consume_tiles, actor))
+    }
+
+    #[pyo3(name = "encode")]
+    pub fn encode_py(&self) -> PyResult<i32> {
+        self.encode().map_err(Into::into)
+    }
+
+    #[pyo3(name = "to_dict")]
+    pub fn to_dict_py<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        self.0.to_dict_py(py)
+    }
+
+    #[pyo3(name = "to_mjai")]
+    pub fn to_mjai_py(&self) -> PyResult<String> {
+        Ok(self.0.to_mjai())
+    }
+
+    #[getter]
+    fn get_action_type(&self) -> ActionType {
+        self.0.action_type
+    }
+
+    #[setter]
+    fn set_action_type(&mut self, action_type: ActionType) {
+        self.0.action_type = action_type;
+    }
+
+    #[getter]
+    fn get_tile(&self) -> Option<u8> {
+        self.0.tile
+    }
+
+    #[setter]
+    fn set_tile(&mut self, tile: Option<u8>) {
+        self.0.tile = tile;
+    }
+
+    #[getter]
+    fn get_consume_tiles(&self) -> Vec<u32> {
+        self.0.consume_tiles.iter().map(|&x| x as u32).collect()
+    }
+
+    #[setter]
+    fn set_consume_tiles(&mut self, value: Vec<u8>) {
+        self.0.consume_tiles = value;
+    }
+
+    #[getter]
+    fn get_actor(&self) -> Option<u8> {
+        self.0.actor
+    }
+
+    #[setter]
+    fn set_actor(&mut self, actor: Option<u8>) {
+        self.0.actor = actor;
+    }
+
+    fn __repr__(&self) -> String {
+        self.repr()
+    }
+
+    fn __str__(&self) -> String {
+        self.repr()
+    }
+}

@@ -188,7 +188,11 @@ class Trainer:
                 if has_aux and ranks is not None:
                     q_values, aux_logits = model.forward_with_aux(features)
                 else:
-                    q_values = model(features)
+                    out = model(features)
+                    if isinstance(out, tuple):
+                        q_values = out[0]
+                    else:
+                        q_values = out
                     aux_logits = None
 
                 cql_term, q_data = cql_loss(q_values, actions, masks)
