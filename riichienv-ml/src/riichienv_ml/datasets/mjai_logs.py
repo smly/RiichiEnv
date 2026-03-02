@@ -73,7 +73,12 @@ class MCDataset(BaseDataset):
             files = files[worker_info.id::worker_info.num_workers]
 
         for file_path in files:
-            replay = MjaiReplay.from_jsonl(file_path, rule=self.replay_rule)
+            try:
+                replay = MjaiReplay.from_jsonl(file_path, rule=self.replay_rule)
+            except (RuntimeError, ValueError) as e:
+                print(f"Skipping unparseable replay: {file_path}: {e}")
+                continue
+
             buffer = []
 
             try:
@@ -92,10 +97,7 @@ class MCDataset(BaseDataset):
 
                         for obs, action in kyoku.steps(player_id):
                             features = self.encoder.encode(obs)
-                            if self.n_players == 3:
-                                action_id = obs.encode_action(action)
-                            else:
-                                action_id = action.encode()
+                            action_id = action.encode()
 
                             mask_bytes = obs.mask()
                             mask = np.frombuffer(mask_bytes, dtype=np.uint8).copy()
@@ -107,9 +109,9 @@ class MCDataset(BaseDataset):
                         for t, (feat, act, mask) in enumerate(trajectory):
                             decayed = final_reward * (self.gamma ** (T - t - 1))
                             buffer.append((feat, act, decayed, mask, rank))
-            except RuntimeError as e:
-                print(f"Error processing replay: {file_path}")
-                raise e
+            except (RuntimeError, ValueError) as e:
+                print(f"Skipping replay due to error: {file_path}: {e}")
+                continue
 
             if self.is_train:
                 random.shuffle(buffer)

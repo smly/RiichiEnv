@@ -82,6 +82,16 @@ class Action:
     def to_dict(self) -> dict[str, Any]: ...
     def to_mjai(self) -> str: ...
 
+class Action3P:
+    action_type: ActionType
+    tile: int
+    consume_tiles: list[int]
+
+    def __init__(self, action_type: ActionType, tile: int = 0, consume_tiles: list[int] = []): ...
+    def to_dict(self) -> dict[str, Any]: ...
+    def to_mjai(self) -> str: ...
+    def encode(self) -> int: ...
+
 class Meld:
     meld_type: MeldType
     tiles: list[int]
@@ -339,6 +349,7 @@ def get_all_yaku() -> list[Yaku]: ...
 
 __all__ = [
     "Action",
+    "Action3P",
     "ActionType",
     "GameRule",
     "WinResult",

@@ -2,7 +2,7 @@ use ndarray::prelude::*;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
-use crate::action::{Action, ActionEncoder, ActionType};
+use crate::action::{Action, Action3P, ActionEncoder, ActionType};
 use crate::shanten;
 use crate::types::{Meld, MeldType};
 use crate::yaku_checker;
@@ -92,17 +92,16 @@ impl Observation3P {
     }
 
     #[pyo3(name = "legal_actions")]
-    pub fn legal_actions_method_py(&self) -> Vec<Action> {
+    pub fn legal_actions_method_py(&self) -> Vec<Action3P> {
         self.legal_actions_method()
     }
 
     #[pyo3(name = "mask")]
     pub fn mask_method<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        let encoder = ActionEncoder::ThreePlayer;
-        let size = encoder.action_space_size();
+        let size = ActionEncoder::ThreePlayer.action_space_size();
         let mut mask = vec![0u8; size];
         for action in &self._legal_actions {
-            if let Ok(idx) = encoder.encode(action) {
+            if let Ok(idx) = action.encode() {
                 if (idx as usize) < mask.len() {
                     mask[idx as usize] = 1;
                 }
@@ -117,20 +116,12 @@ impl Observation3P {
     }
 
     #[pyo3(name = "find_action", signature = (action_id))]
-    pub fn find_action_py(&self, action_id: usize) -> Option<Action> {
+    pub fn find_action_py(&self, action_id: usize) -> Option<Action3P> {
         self.find_action(action_id)
     }
 
-    /// Encode an action into a 3P action_id (0..59).
-    #[pyo3(name = "encode_action", signature = (action))]
-    pub fn encode_action_py(&self, action: &Action) -> PyResult<i32> {
-        ActionEncoder::ThreePlayer
-            .encode(action)
-            .map_err(Into::into)
-    }
-
     #[pyo3(signature = (mjai_data))]
-    pub fn select_action_from_mjai(&self, mjai_data: &Bound<'_, PyAny>) -> Option<Action> {
+    pub fn select_action_from_mjai(&self, mjai_data: &Bound<'_, PyAny>) -> Option<Action3P> {
         let (atype, tile_str) = if let Ok(s) = mjai_data.extract::<String>() {
             let v: serde_json::Value = serde_json::from_str(&s).ok()?;
             (
@@ -254,7 +245,7 @@ impl Observation3P {
 
         let actions_py = pyo3::types::PyList::empty(py);
         for a in &self._legal_actions {
-            actions_py.append(a.to_dict_py(py)?)?;
+            actions_py.append(a.0.to_dict_py(py)?)?;
         }
         dict.set_item("legal_actions", actions_py)?;
 

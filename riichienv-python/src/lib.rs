@@ -68,6 +68,7 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<riichienv_core::action::ActionType>()?;
     m.add_class::<riichienv_core::action::Phase>()?;
     m.add_class::<riichienv_core::action::Action>()?;
+    m.add_class::<riichienv_core::action::Action3P>()?;
     m.add_class::<riichienv_core::observation::Observation>()?;
     m.add_class::<riichienv_core::observation_3p::Observation3P>()?;
     m.add_class::<env::RiichiEnv>()?;
