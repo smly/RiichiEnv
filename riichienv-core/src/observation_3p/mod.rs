@@ -115,6 +115,12 @@ impl Observation3P {
             .cloned()
     }
 
+    /// Return absolute player indices in relative order: [self, next, prev].
+    pub(crate) fn rel_order(&self) -> [usize; 3] {
+        let pid = self.player_id as usize;
+        [pid, (pid + 1) % 3, (pid + 2) % 3]
+    }
+
     pub fn new_events(&self) -> Vec<String> {
         self.events.clone()
     }

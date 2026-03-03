@@ -551,11 +551,11 @@ impl Observation3P {
             }
         }
 
-        // 7. Discard Counts (26-28 for 3 players)
-        for (player_idx, discs) in self.discards.iter().enumerate() {
-            let count_norm = (discs.len() as f32) / 24.0;
+        // 7. Discard Counts (26-28 for 3 players, relative order)
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let count_norm = (self.discards[abs_idx].len() as f32) / 24.0;
             for k in 0..TILE_DIM_3P {
-                arr[[26 + player_idx, k]] = count_norm;
+                arr[[26 + ch_idx, k]] = count_norm;
             }
         }
 
@@ -611,19 +611,19 @@ impl Observation3P {
             arr[[38, i]] = sticks_norm;
         }
 
-        // 12. Scores (39-41) normalized 0-100000
-        for i in 0..NP {
-            let score_norm = (self.scores[i].clamp(0, 100000) as f32) / 100000.0;
+        // 12. Scores (39-41) normalized 0-100000, relative order
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let score_norm = (self.scores[abs_idx].clamp(0, 100000) as f32) / 100000.0;
             for k in 0..TILE_DIM_3P {
-                arr[[39 + i, k]] = score_norm;
+                arr[[39 + ch_idx, k]] = score_norm;
             }
         }
 
-        // 13. Scores (43-45) normalized 0-30000
-        for i in 0..NP {
-            let score_norm = (self.scores[i].clamp(0, 30000) as f32) / 30000.0;
+        // 13. Scores (43-45) normalized 0-30000, relative order
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let score_norm = (self.scores[abs_idx].clamp(0, 30000) as f32) / 30000.0;
             for k in 0..TILE_DIM_3P {
-                arr[[43 + i, k]] = score_norm;
+                arr[[43 + ch_idx, k]] = score_norm;
             }
         }
 
@@ -697,18 +697,18 @@ impl Observation3P {
                 }
             }
         }
-        for i in 0..NP {
-            let dora_norm = (dora_counts[i] as f32) / 12.0;
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let dora_norm = (dora_counts[abs_idx] as f32) / 12.0;
             for k in 0..TILE_DIM_3P {
-                arr[[55 + i, k]] = dora_norm;
+                arr[[55 + ch_idx, k]] = dora_norm;
             }
         }
 
-        // 20. Melds Count (59-61 for 3 players)
-        for (player_idx, melds_list) in self.melds.iter().enumerate() {
-            let meld_count_norm = (melds_list.len() as f32) / 4.0;
+        // 20. Melds Count (59-61 for 3 players, relative order)
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let meld_count_norm = (self.melds[abs_idx].len() as f32) / 4.0;
             for k in 0..TILE_DIM_3P {
-                arr[[59 + player_idx, k]] = meld_count_norm;
+                arr[[59 + ch_idx, k]] = meld_count_norm;
             }
         }
 
@@ -763,13 +763,13 @@ impl Observation3P {
             }
         }
 
-        // 25. Tsumogiri flags (70-72 for 3 players)
-        for player_idx in 0..NP {
-            if !self.tsumogiri_flags[player_idx].is_empty() {
-                let last_tsumogiri = *self.tsumogiri_flags[player_idx].last().unwrap_or(&false);
+        // 25. Tsumogiri flags (70-72 for 3 players, relative order)
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            if !self.tsumogiri_flags[abs_idx].is_empty() {
+                let last_tsumogiri = *self.tsumogiri_flags[abs_idx].last().unwrap_or(&false);
                 let val = if last_tsumogiri { 1.0 } else { 0.0 };
                 for k in 0..TILE_DIM_3P {
-                    arr[[70 + player_idx, k]] = val;
+                    arr[[70 + ch_idx, k]] = val;
                 }
             }
         }

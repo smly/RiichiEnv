@@ -3,11 +3,11 @@ bc:
     n_players: 4
   data_glob: "/data/mjsoul/mjsoul-4p/**/*.jsonl.gz"
   grp_model: /data/workspace/riichienv-ml/4p/grp_model.pth
-  output: /data/workspace/riichienv-ml/4p/bc_model.pth
+  output: /data/workspace/riichienv-ml/4p/bc_logs.pth
   device: cuda
   batch_size: 128
   lr: 5e-4
-  alpha: 5.0
+  alpha: 1.0
   gamma: 1.0
   num_epochs: 10
   num_workers: 12

@@ -22,7 +22,7 @@ The encoding produces a **(C, 34)** tensor, where C is the number of channels an
 | :--- | :--- | :--- |
 | **10 - 13** | **Discards (Self, Recent 4)** | Last 4 discards of self. |
 | **14 - 25** | **Discards (Opponents, Recent 4)** | Last 4 discards of each opponent (Player +1, +2, +3). <br> (3 players * 4 channels = 12). |
-| **26 - 29** | **Discard Counts (All Players)** | Normalized discard count per player (/ 24.0). <br> Broadcast across all 34 tiles. |
+| **26 - 29** | **Discard Counts (All Players)** | Normalized discard count per player (/ 24.0), in **relative seat order** (ch 26=self, 27=shimocha, 28=toimen, 29=kamicha). <br> Broadcast across all 34 tiles. |
 | **64 - 67** | **Extended Discards (Self, 5-8)** | 5th to 8th most recent self discards. |
 | **68 - 69** | **Extended Discards (Opponent 1, 5-6)** | 5th to 6th most recent discards of first opponent. |
 
@@ -42,8 +42,8 @@ The encoding produces a **(C, 34)** tensor, where C is the number of channels an
 
 | Channel Index | Description | Details |
 | :--- | :--- | :--- |
-| **39 - 42** | **Scores (0-100000)** | Normalized scores for all 4 players (/ 100000.0). <br> Broadcast across all 34 tiles. |
-| **43 - 46** | **Scores (0-30000)** | Normalized scores for all 4 players (/ 30000.0). <br> Broadcast across all 34 tiles. Provides finer granularity for closer scores. |
+| **39 - 42** | **Scores (0-100000)** | Normalized scores for all 4 players (/ 100000.0), in **relative seat order** (ch 39=self, 40=shimocha, 41=toimen, 42=kamicha). <br> Broadcast across all 34 tiles. |
+| **43 - 46** | **Scores (0-30000)** | Normalized scores for all 4 players (/ 30000.0), in **relative seat order**. <br> Broadcast across all 34 tiles. Provides finer granularity for closer scores. |
 | **49 - 52** | **Rank** | One-hot encoding of current player rank (0-3, based on scores). |
 
 ### Tenpai and Wait Features
@@ -64,8 +64,8 @@ The encoding produces a **(C, 34)** tensor, where C is the number of channels an
 
 | Channel Index | Description | Details |
 | :--- | :--- | :--- |
-| **55 - 58** | **Dora Count (Per Player)** | Normalized dora count visible for each player (/ 12.0). <br> Counts dora in melds, discards, and self hand. <br> Broadcast across all 34 tiles. |
-| **59 - 62** | **Melds Count (Per Player)** | Normalized meld count for each player (/ 4.0). <br> Broadcast across all 34 tiles. |
+| **55 - 58** | **Dora Count (Per Player)** | Normalized dora count visible for each player (/ 12.0), in **relative seat order** (ch 55=self, 56=shimocha, 57=toimen, 58=kamicha). <br> Counts dora in melds, discards, and self hand. <br> Broadcast across all 34 tiles. |
+| **59 - 62** | **Melds Count (Per Player)** | Normalized meld count for each player (/ 4.0), in **relative seat order** (ch 59=self, 60=shimocha, 61=toimen, 62=kamicha). <br> Broadcast across all 34 tiles. |
 
 ### Tile Visibility Features
 
@@ -77,7 +77,7 @@ The encoding produces a **(C, 34)** tensor, where C is the number of channels an
 
 | Channel Index | Description | Details |
 | :--- | :--- | :--- |
-| **70 - 73** | **Tsumogiri Flags** | 1 if last discard was tsumogiri (draw-and-discard), 0 otherwise. <br> One channel per player. <br> Broadcast across all 34 tiles. |
+| **70 - 73** | **Tsumogiri Flags** | 1 if last discard was tsumogiri (draw-and-discard), 0 otherwise. <br> One channel per player, in **relative seat order** (ch 70=self, 71=shimocha, 72=toimen, 73=kamicha). <br> Broadcast across all 34 tiles. |
 
 **Total Channels: 74**
 

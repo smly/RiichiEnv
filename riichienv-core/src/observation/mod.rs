@@ -121,6 +121,12 @@ impl Observation {
             .cloned()
     }
 
+    /// Return absolute player indices in relative order: [self, shimocha, toimen, kamicha].
+    pub(crate) fn rel_order(&self) -> [usize; 4] {
+        let pid = self.player_id as usize;
+        [pid, (pid + 1) % 4, (pid + 2) % 4, (pid + 3) % 4]
+    }
+
     pub fn new_events(&self) -> Vec<String> {
         self.events.clone()
     }

@@ -6,7 +6,6 @@ __pycache__/
 **/*.egg-info
 debug_load_logs.py
 3rdparty
-agents.py
 model.py
 mortal_agent_play.py
 src/riichienv_ml/configs/4p/hand_pred_cnn.yml
