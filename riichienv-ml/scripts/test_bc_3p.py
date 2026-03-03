@@ -1,5 +1,4 @@
 from riichienv import RiichiEnv
-from riichienv.visualizer import GameViewer
 from riichienv_ml.agents import Agent
 
 CONFIG_PATH = "src/riichienv_ml/configs/3p/bc_logs.yml"

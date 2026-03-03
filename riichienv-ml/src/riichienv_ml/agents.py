@@ -64,7 +64,8 @@ class Agent:
         self.model = ModelClass(**sub_cfg.model.model_dump()).to(self.device)
 
         # Load weights
-        state = torch.load(model_path, map_location=self.device)
+        state = torch.load(
+            model_path, map_location=self.device, weights_only=True)
         if isinstance(state, dict) and "state_dict" in state:
             state = state["state_dict"]
         self._load_weights(state)
@@ -82,6 +83,10 @@ class Agent:
     def _load_section(cls, config_path: str):
         with open(config_path) as f:
             raw = yaml.safe_load(f)
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"Config must be a YAML mapping with one of "
+                f"{'/'.join(cls._SECTIONS)}, got {type(raw).__name__}")
         for key in cls._SECTIONS:
             if key in raw:
                 cfg = load_config(config_path)
@@ -132,7 +137,9 @@ class Agent:
         """Select an action for the given observation.
 
         Returns:
-            ``riichienv.Action`` chosen by greedy argmax over masked logits.
+            A legal action object from the ``riichienv`` environment
+            (e.g. ``Action`` for 4P, ``Action3P`` for 3P), chosen by
+            greedy argmax over masked logits.
         """
         feat = self.encoder.encode(obs)
         mask = np.frombuffer(obs.mask(), dtype=np.uint8).copy()
