@@ -647,11 +647,11 @@ impl Observation {
             }
         }
 
-        // 7. Discard Counts (All players, normalized) (26-29)
-        for (player_idx, discs) in self.discards.iter().enumerate() {
-            let count_norm = (discs.len() as f32) / 24.0; // Max ~24 discards
+        // 7. Discard Counts (All players, normalized, relative order) (26-29)
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let count_norm = (self.discards[abs_idx].len() as f32) / 24.0;
             for k in 0..34 {
-                arr[[26 + player_idx, k]] = count_norm;
+                arr[[26 + ch_idx, k]] = count_norm;
             }
         }
 
@@ -708,19 +708,19 @@ impl Observation {
             arr[[38, i]] = sticks_norm;
         }
 
-        // 12. Scores (39-42) normalized 0-100000
-        for i in 0..4 {
-            let score_norm = (self.scores[i].clamp(0, 100000) as f32) / 100000.0;
+        // 12. Scores (39-42) normalized 0-100000, relative order
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let score_norm = (self.scores[abs_idx].clamp(0, 100000) as f32) / 100000.0;
             for k in 0..34 {
-                arr[[39 + i, k]] = score_norm;
+                arr[[39 + ch_idx, k]] = score_norm;
             }
         }
 
-        // 13. Scores (43-46) normalized 0-30000
-        for i in 0..4 {
-            let score_norm = (self.scores[i].clamp(0, 30000) as f32) / 30000.0;
+        // 13. Scores (43-46) normalized 0-30000, relative order
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let score_norm = (self.scores[abs_idx].clamp(0, 30000) as f32) / 30000.0;
             for k in 0..34 {
-                arr[[43 + i, k]] = score_norm;
+                arr[[43 + ch_idx, k]] = score_norm;
             }
         }
 
@@ -807,18 +807,18 @@ impl Observation {
                 }
             }
         }
-        for i in 0..4 {
-            let dora_norm = (dora_counts[i] as f32) / 12.0; // Cap at 12
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let dora_norm = (dora_counts[abs_idx] as f32) / 12.0;
             for k in 0..34 {
-                arr[[55 + i, k]] = dora_norm;
+                arr[[55 + ch_idx, k]] = dora_norm;
             }
         }
 
-        // 20. Melds Count (59-62) - per player, normalized
-        for (player_idx, melds_list) in self.melds.iter().enumerate() {
-            let meld_count_norm = (melds_list.len() as f32) / 4.0; // Max 4 melds
+        // 20. Melds Count (59-62) - per player, normalized, relative order
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let meld_count_norm = (self.melds[abs_idx].len() as f32) / 4.0;
             for k in 0..34 {
-                arr[[59 + player_idx, k]] = meld_count_norm;
+                arr[[59 + ch_idx, k]] = meld_count_norm;
             }
         }
 
@@ -874,14 +874,13 @@ impl Observation {
             }
         }
 
-        // 25. Tsumogiri flags (70-73) - broadcast per player
-        // 1.0 if last discard was tsumogiri (drawn and immediately discarded)
-        for player_idx in 0..4 {
-            if !self.tsumogiri_flags[player_idx].is_empty() {
-                let last_tsumogiri = *self.tsumogiri_flags[player_idx].last().unwrap_or(&false);
+        // 25. Tsumogiri flags (70-73) - broadcast per player, relative order
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            if !self.tsumogiri_flags[abs_idx].is_empty() {
+                let last_tsumogiri = *self.tsumogiri_flags[abs_idx].last().unwrap_or(&false);
                 let val = if last_tsumogiri { 1.0 } else { 0.0 };
                 for k in 0..34 {
-                    arr[[70 + player_idx, k]] = val;
+                    arr[[70 + ch_idx, k]] = val;
                 }
             }
         }

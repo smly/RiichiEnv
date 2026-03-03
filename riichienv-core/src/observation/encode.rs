@@ -85,10 +85,10 @@ impl Observation {
             }
         }
 
-        // Discard counts (ch 26-29)
-        for (player_idx, discs) in self.discards.iter().enumerate() {
-            let count_norm = (discs.len() as f32) / 24.0;
-            broadcast_scalar(buf, ch_offset, 26 + player_idx, count_norm);
+        // Discard counts (ch 26-29, relative order)
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let count_norm = (self.discards[abs_idx].len() as f32) / 24.0;
+            broadcast_scalar(buf, ch_offset, 26 + ch_idx, count_norm);
         }
 
         // Tiles left in wall (ch 30)
@@ -135,19 +135,19 @@ impl Observation {
         broadcast_scalar(buf, ch_offset, 37, (self.honba as f32) / 10.0);
         broadcast_scalar(buf, ch_offset, 38, (self.riichi_sticks as f32) / 5.0);
 
-        // Scores (ch 39-46)
-        for i in 0..4 {
+        // Scores (ch 39-46, relative order)
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
             broadcast_scalar(
                 buf,
                 ch_offset,
-                39 + i,
-                (self.scores[i].clamp(0, 100000) as f32) / 100000.0,
+                39 + ch_idx,
+                (self.scores[abs_idx].clamp(0, 100000) as f32) / 100000.0,
             );
             broadcast_scalar(
                 buf,
                 ch_offset,
-                43 + i,
-                (self.scores[i].clamp(0, 30000) as f32) / 30000.0,
+                43 + ch_idx,
+                (self.scores[abs_idx].clamp(0, 30000) as f32) / 30000.0,
             );
         }
 
@@ -210,17 +210,17 @@ impl Observation {
                 }
             }
         }
-        for (i, &dc) in dora_counts.iter().enumerate() {
-            broadcast_scalar(buf, ch_offset, 55 + i, (dc as f32) / 12.0);
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            broadcast_scalar(buf, ch_offset, 55 + ch_idx, (dora_counts[abs_idx] as f32) / 12.0);
         }
 
-        // Melds Count (ch 59-62)
-        for (player_idx, melds_list) in self.melds.iter().enumerate() {
+        // Melds Count (ch 59-62, relative order)
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
             broadcast_scalar(
                 buf,
                 ch_offset,
-                59 + player_idx,
-                (melds_list.len() as f32) / 4.0,
+                59 + ch_idx,
+                (self.melds[abs_idx].len() as f32) / 4.0,
             );
         }
 
@@ -271,14 +271,14 @@ impl Observation {
             }
         }
 
-        // Tsumogiri flags (ch 70-73)
-        for player_idx in 0..4 {
-            if !self.tsumogiri_flags[player_idx].is_empty() {
-                let last_tsumogiri = *self.tsumogiri_flags[player_idx].last().unwrap_or(&false);
+        // Tsumogiri flags (ch 70-73, relative order)
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            if !self.tsumogiri_flags[abs_idx].is_empty() {
+                let last_tsumogiri = *self.tsumogiri_flags[abs_idx].last().unwrap_or(&false);
                 broadcast_scalar(
                     buf,
                     ch_offset,
-                    70 + player_idx,
+                    70 + ch_idx,
                     if last_tsumogiri { 1.0 } else { 0.0 },
                 );
             }
