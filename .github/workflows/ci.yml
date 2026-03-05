@@ -60,8 +60,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.92.0
 
       - name: Rust Cargo Test (pure core)
         run: cargo test -p riichienv-core
@@ -85,7 +83,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.92.0
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
 
@@ -143,7 +140,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.92.0
           targets: wasm32-unknown-unknown
 
       - name: Install wasm-pack
