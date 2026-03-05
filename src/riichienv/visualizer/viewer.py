@@ -6,6 +6,7 @@ import json
 import os
 import traceback
 import uuid
+import warnings
 from typing import Any
 
 from IPython.display import HTML
@@ -292,7 +293,6 @@ class MetadataInjector:
                     self.hands[actor].remove(tid)
                     self.kita_count[actor] += 1
                 else:
-                    import warnings
                     warnings.warn(f"kita: N tile not found in player {actor} hand", stacklevel=2)
                 self.is_rinshan = True
                 self.ippatsu_eligible = [False] * self.player_count
