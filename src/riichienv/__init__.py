@@ -34,7 +34,8 @@ NORTH = Wind.North
 
 
 def _get_viewer(self):  # type: ignore[no-untyped-def]
-    from riichienv.visualizer import GameViewer
+    # Lazy import to avoid circular dependency: visualizer imports from riichienv
+    from riichienv.visualizer import GameViewer  # noqa: PLC0415
 
     return GameViewer(self.mjai_log)
 
