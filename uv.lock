@@ -1962,7 +1962,7 @@ requires-dist = [
 dev = [
     { name = "maturin", specifier = ">=1.8.7,<2.0" },
     { name = "pre-commit", specifier = ">=4.5.1" },
-    { name = "pytest" },
+    { name = "pytest", specifier = ">=9.0" },
     { name = "ruff", specifier = ">=0.8.0" },
     { name = "ty", specifier = ">=0.0.7" },
 ]

@@ -24,39 +24,34 @@ Homepage = "https://github.com/smly/RiichiEnv"
 Issues = "https://github.com/smly/RiichiEnv/issues"
 
 [build-system]
-requires = ["maturin>=1.8.7,<2.0"]
+requires = ["maturin>=1.9.4,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
 python-source = "src"
 manifest-path = "riichienv-python/Cargo.toml"
 module-name = "riichienv._riichienv"
-features = ["extension-module"]
 
 [dependency-groups]
 dev = [
-    "maturin>=1.8.7,<2.0",
+    "maturin>=1.9.4,<2.0",
     "pre-commit>=4.5.1",
-    "pytest",
+    "pytest>=9.0",
     "ruff>=0.8.0",
     "ty>=0.0.7",
 ]
 
 [tool.ruff]
-exclude = [
-    ".git",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".venv",
+line-length = 120
+target-version = "py310"
+extend-exclude = [
+    "trunk",
+    "scripts",
     "riichienv-ui/demos",
     "riichienv-ml",
     "riichienv-ml-xt",
     "riichienv-validation",
 ]
-
-line-length = 120
-target-version = "py310"
-extend-exclude = ["trunk", "scripts"]
 
 [tool.ruff.lint]
 fixable = ["ALL"]
@@ -86,10 +81,8 @@ ignore = [
 quote-style = "double"
 line-ending = "auto"
 
-[project.scripts]
-test = "pytest:console_main"
-
-[tool.pytest.ini_options]
+[tool.pytest]
+minversion = "9.0"
 testpaths = ["tests"]
 norecursedirs = ["trunk"]
 

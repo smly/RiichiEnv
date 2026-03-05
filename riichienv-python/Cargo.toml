@@ -12,7 +12,3 @@ crate-type = ["cdylib"]
 riichienv-core = { path = "../riichienv-core", features = ["python"] }
 pyo3 = { version = "0.28" }
 serde_json = "1.0"
-
-[features]
-default = []
-extension-module = ["pyo3/extension-module"]
