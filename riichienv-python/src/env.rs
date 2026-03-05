@@ -637,11 +637,11 @@ impl RiichiEnv {
             if let Some(r) = riichi_sticks {
                 s.riichi_sticks = r;
             }
-            if let Some(ref sc) = scores {
-                if sc.len() == np {
-                    for (i, &val) in sc.iter().enumerate() {
-                        s.players[i].score = val;
-                    }
+            if let Some(ref sc) = scores
+                && sc.len() == np
+            {
+                for (i, &val) in sc.iter().enumerate() {
+                    s.players[i].score = val;
                 }
             }
             if let Some(rw) = round_wind {

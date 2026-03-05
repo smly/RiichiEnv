@@ -101,10 +101,10 @@ impl Observation3P {
         let size = ActionEncoder::ThreePlayer.action_space_size();
         let mut mask = vec![0u8; size];
         for action in &self._legal_actions {
-            if let Ok(idx) = action.encode() {
-                if (idx as usize) < mask.len() {
-                    mask[idx as usize] = 1;
-                }
+            if let Ok(idx) = action.encode()
+                && (idx as usize) < mask.len()
+            {
+                mask[idx as usize] = 1;
             }
         }
         Ok(pyo3::types::PyBytes::new(py, &mask))
@@ -863,16 +863,16 @@ impl Observation3P {
 
             // aka_flags[0] = 5mr: tile34=4 (5m) → excluded in sanma, skip
             // aka_flags[1] = 5pr: tile34=13 → compact=6
-            if aka_flags[1] {
-                if let Some(idx) = tile34_to_compact(13) {
-                    arr[[player_idx, 5, idx]] = 1.0;
-                }
+            if aka_flags[1]
+                && let Some(idx) = tile34_to_compact(13)
+            {
+                arr[[player_idx, 5, idx]] = 1.0;
             }
             // aka_flags[2] = 5sr: tile34=22 → compact=15
-            if aka_flags[2] {
-                if let Some(idx) = tile34_to_compact(22) {
-                    arr[[player_idx, 6, idx]] = 1.0;
-                }
+            if aka_flags[2]
+                && let Some(idx) = tile34_to_compact(22)
+            {
+                arr[[player_idx, 6, idx]] = 1.0;
             }
         }
 
@@ -911,10 +911,8 @@ impl Observation3P {
                     }
 
                     let is_aka = matches!(tile, 16 | 52 | 88);
-                    if is_aka {
-                        if let Some(idx) = tile34_to_compact((tile / 4) as usize) {
-                            arr[[player_idx, meld_idx, 4, idx]] = 1.0;
-                        }
+                    if is_aka && let Some(idx) = tile34_to_compact((tile / 4) as usize) {
+                        arr[[player_idx, meld_idx, 4, idx]] = 1.0;
                     }
                 }
             }
@@ -940,12 +938,12 @@ impl Observation3P {
 
         for (player_idx, melds) in self.melds.iter().enumerate() {
             for meld in melds {
-                if matches!(meld.meld_type, MeldType::Ankan) {
-                    if let Some(&tile) = meld.tiles.first() {
-                        let tile34 = (tile / 4) as usize;
-                        if let Some(idx) = tile34_to_compact(tile34) {
-                            arr[[player_idx, idx]] = 1.0;
-                        }
+                if matches!(meld.meld_type, MeldType::Ankan)
+                    && let Some(&tile) = meld.tiles.first()
+                {
+                    let tile34 = (tile / 4) as usize;
+                    if let Some(idx) = tile34_to_compact(tile34) {
+                        arr[[player_idx, idx]] = 1.0;
                     }
                 }
             }

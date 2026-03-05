@@ -351,12 +351,12 @@ impl Observation {
     pub(crate) fn encode_ankan_into(&self, buf: &mut [f32], ch_offset: usize) {
         for (player_idx, melds) in self.melds.iter().enumerate() {
             for meld in melds {
-                if matches!(meld.meld_type, MeldType::Ankan) {
-                    if let Some(&tile) = meld.tiles.first() {
-                        let tile_type = (tile / 4) as usize;
-                        if tile_type < 34 {
-                            set_val(buf, ch_offset, player_idx, tile_type, 1.0);
-                        }
+                if matches!(meld.meld_type, MeldType::Ankan)
+                    && let Some(&tile) = meld.tiles.first()
+                {
+                    let tile_type = (tile / 4) as usize;
+                    if tile_type < 34 {
+                        set_val(buf, ch_offset, player_idx, tile_type, 1.0);
                     }
                 }
             }

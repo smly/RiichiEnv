@@ -2087,15 +2087,14 @@ impl GameState {
         // Incrementally update pre-computed progression cache.
         // Uses the original (unmasked) event Value directly — no JSON parsing.
         #[cfg(feature = "python")]
-        if self.enable_seq_caching {
-            if let Some(entry) =
+        if self.enable_seq_caching
+            && let Some(entry) =
                 crate::observation::sequence_features::process_single_event_progression(
                     &event,
                     &mut self.round_seq_prog_pending_reach,
                 )
-            {
-                Arc::make_mut(&mut self.round_seq_progression).push(entry);
-            }
+        {
+            Arc::make_mut(&mut self.round_seq_progression).push(entry);
         }
     }
 }

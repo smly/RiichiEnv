@@ -799,10 +799,10 @@ impl LogKyoku {
         } as u8;
 
         let mut wall = None;
-        if let Some(p_hex) = &self.paishan {
-            if let Ok(w) = hex::decode(p_hex) {
-                wall = Some(w);
-            }
+        if let Some(p_hex) = &self.paishan
+            && let Ok(w) = hex::decode(p_hex)
+        {
+            wall = Some(w);
         }
 
         let doras = self.doras.clone();
@@ -1680,12 +1680,12 @@ impl WinResultContextIterator {
                         let is_zimo = hule_data.zimo;
 
                         let mut is_chankan = false;
-                        if !is_zimo && self.last_action_was_kakan {
-                            if let Some(k) = self.kakan_tile {
-                                if k / 4 == win_tile / 4 {
-                                    is_chankan = true;
-                                }
-                            }
+                        if !is_zimo
+                            && self.last_action_was_kakan
+                            && let Some(k) = self.kakan_tile
+                            && k / 4 == win_tile / 4
+                        {
+                            is_chankan = true;
                         }
 
                         // For ron on BaBei (kita), use ippatsu state from before BaBei cleared it

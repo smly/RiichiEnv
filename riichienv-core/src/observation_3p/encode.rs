@@ -371,12 +371,12 @@ impl Observation3P {
     pub(crate) fn encode_ankan_into(&self, buf: &mut [f32], ch_offset: usize) {
         for (player_idx, melds) in self.melds.iter().enumerate() {
             for meld in melds {
-                if matches!(meld.meld_type, MeldType::Ankan) {
-                    if let Some(&tile) = meld.tiles.first() {
-                        let tile34 = (tile / 4) as usize;
-                        if let Some(idx) = tile34_to_compact(tile34) {
-                            set_val(buf, ch_offset, player_idx, idx, 1.0);
-                        }
+                if matches!(meld.meld_type, MeldType::Ankan)
+                    && let Some(&tile) = meld.tiles.first()
+                {
+                    let tile34 = (tile / 4) as usize;
+                    if let Some(idx) = tile34_to_compact(tile34) {
+                        set_val(buf, ch_offset, player_idx, idx, 1.0);
                     }
                 }
             }

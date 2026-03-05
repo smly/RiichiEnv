@@ -201,10 +201,10 @@ fn parse_consumed_tids_from_value(v: &serde_json::Value) -> Vec<u8> {
     let mut tids = Vec::new();
     if let Some(arr) = v["consumed"].as_array() {
         for item in arr {
-            if let Some(s) = item.as_str() {
-                if let Some(tid) = mjai_to_tid(s) {
-                    tids.push(tid);
-                }
+            if let Some(s) = item.as_str()
+                && let Some(tid) = mjai_to_tid(s)
+            {
+                tids.push(tid);
             }
         }
     }
@@ -421,12 +421,11 @@ impl Observation {
                 let event_type = v["type"].as_str().unwrap_or("");
                 if event_type == "tsumo" {
                     let actor = v["actor"].as_u64();
-                    if actor == Some(self.player_id as u64) {
-                        if let Some(pai) = v["pai"].as_str() {
-                            if pai != "?" {
-                                return mjai_to_tid(pai);
-                            }
-                        }
+                    if actor == Some(self.player_id as u64)
+                        && let Some(pai) = v["pai"].as_str()
+                        && pai != "?"
+                    {
+                        return mjai_to_tid(pai);
                     }
                 }
                 // Stop at decision-relevant events
@@ -481,18 +480,18 @@ impl Observation {
     /// Parse start_kyoku event for initial round state.
     fn parse_start_kyoku_info(&self) -> (u32, u32, [i32; 4]) {
         for event_str in &self.events {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(event_str) {
-                if v["type"].as_str() == Some("start_kyoku") {
-                    let honba = v["honba"].as_u64().unwrap_or(0) as u32;
-                    let kyotaku = v["kyotaku"].as_u64().unwrap_or(0) as u32;
-                    let mut scores = [0i32; 4];
-                    if let Some(arr) = v["scores"].as_array() {
-                        for (i, val) in arr.iter().enumerate().take(4) {
-                            scores[i] = val.as_i64().unwrap_or(0) as i32;
-                        }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(event_str)
+                && v["type"].as_str() == Some("start_kyoku")
+            {
+                let honba = v["honba"].as_u64().unwrap_or(0) as u32;
+                let kyotaku = v["kyotaku"].as_u64().unwrap_or(0) as u32;
+                let mut scores = [0i32; 4];
+                if let Some(arr) = v["scores"].as_array() {
+                    for (i, val) in arr.iter().enumerate().take(4) {
+                        scores[i] = val.as_i64().unwrap_or(0) as i32;
                     }
-                    return (honba, kyotaku, scores);
                 }
+                return (honba, kyotaku, scores);
             }
         }
         (self.honba as u32, self.riichi_sticks, self.scores)
@@ -683,10 +682,10 @@ impl Observation {
         let mut tids = Vec::new();
         if let Some(arr) = v["consumed"].as_array() {
             for item in arr {
-                if let Some(s) = item.as_str() {
-                    if let Some(tid) = mjai_to_tid(s) {
-                        tids.push(tid);
-                    }
+                if let Some(s) = item.as_str()
+                    && let Some(tid) = mjai_to_tid(s)
+                {
+                    tids.push(tid);
                 }
             }
         }
