@@ -3,7 +3,7 @@ bc:
     n_players: 3
   data_glob: "/data/mjsoul/mjsoul-3p/**/*.jsonl.gz"
   val_data_glob: "/data/mjsoul/mjsoul-3p/2024/01/**/*.jsonl.gz"
-  output: /data/workspace/riichienv-ml/3p/bc_logs_2M.pth
+  output: /data/workspace/riichienv-ml/3p/bc_logs_2Mr2.pth
   device: cuda
   batch_size: 128
   lr: 5e-4

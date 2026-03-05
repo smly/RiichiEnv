@@ -159,7 +159,6 @@ impl KyokuStepIterator {
             match action {
                 Action::DealTile { .. }
                 | Action::Dora { .. }
-                | Action::BaBei { .. }
                 | Action::NoTile
                 | Action::LiuJu { .. } => {
                     slf.state.apply_log_action(action);
@@ -167,6 +166,41 @@ impl KyokuStepIterator {
                 }
                 Action::Other(_) => {
                     slf.idx += 1;
+                }
+                Action::BaBei { seat, .. } => {
+                    let pid = *seat as u8;
+                    let env_action = EnvAction::new(
+                        crate::action::ActionType::Kita,
+                        None,
+                        Vec::new(),
+                        None,
+                    );
+
+                    let obs = slf.state.get_observation_for_replay(
+                        pid,
+                        &env_action,
+                        &format!("{:?}", action),
+                    )?;
+
+                    slf.state.apply_log_action(action);
+                    slf.idx += 1;
+
+                    if let Some(target) = slf.filter_seat {
+                        if pid == target {
+                            if slf.skip_single_action && obs._legal_actions.len() <= 1 {
+                                continue;
+                            }
+                            let py = slf.py();
+                            return Ok(Some(
+                                (obs, env_action).into_pyobject(py)?.unbind().into(),
+                            ));
+                        }
+                    } else {
+                        let py = slf.py();
+                        return Ok(Some(
+                            (pid, obs, env_action).into_pyobject(py)?.unbind().into(),
+                        ));
+                    }
                 }
                 Action::DiscardTile {
                     seat,
@@ -442,7 +476,6 @@ impl KyokuStepIterator3P {
             match action {
                 Action::DealTile { .. }
                 | Action::Dora { .. }
-                | Action::BaBei { .. }
                 | Action::NoTile
                 | Action::LiuJu { .. } => {
                     slf.state.apply_log_action(action);
@@ -450,6 +483,42 @@ impl KyokuStepIterator3P {
                 }
                 Action::Other(_) => {
                     slf.idx += 1;
+                }
+                Action::BaBei { seat, .. } => {
+                    let pid = *seat as u8;
+                    let env_action = EnvAction::new(
+                        crate::action::ActionType::Kita,
+                        None,
+                        Vec::new(),
+                        None,
+                    );
+
+                    let obs = slf.state.get_observation_for_replay(
+                        pid,
+                        &env_action,
+                        &format!("{:?}", action),
+                    )?;
+
+                    slf.state.apply_log_action(action);
+                    slf.idx += 1;
+
+                    let env_action_3p = Action3P::from_action(env_action);
+                    if let Some(target) = slf.filter_seat {
+                        if pid == target {
+                            if slf.skip_single_action && obs._legal_actions.len() <= 1 {
+                                continue;
+                            }
+                            let py = slf.py();
+                            return Ok(Some(
+                                (obs, env_action_3p).into_pyobject(py)?.unbind().into(),
+                            ));
+                        }
+                    } else {
+                        let py = slf.py();
+                        return Ok(Some(
+                            (pid, obs, env_action_3p).into_pyobject(py)?.unbind().into(),
+                        ));
+                    }
                 }
                 Action::DiscardTile {
                     seat,

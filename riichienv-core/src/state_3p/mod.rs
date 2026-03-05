@@ -245,10 +245,14 @@ impl GameState3P {
 
         let mut obs = self.get_observation(pid);
 
-        let mut exists = obs
-            ._legal_actions
-            .iter()
-            .any(|a| a.action_type == env_action.action_type && a.tile == env_action.tile);
+        let mut exists = obs._legal_actions.iter().any(|a| {
+            if env_action.action_type == ActionType::Kita {
+                // Kita: any North tile is equivalent; match on action_type only
+                a.action_type == ActionType::Kita
+            } else {
+                a.action_type == env_action.action_type && a.tile == env_action.tile
+            }
+        });
 
         if !exists
             && env_action.action_type == ActionType::Discard
