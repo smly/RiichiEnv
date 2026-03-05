@@ -47,7 +47,7 @@ impl WallState3P {
             StdRng::seed_from_u64(hand_seed)
         } else {
             self.hand_index = self.hand_index.wrapping_add(1);
-            StdRng::from_entropy()
+            StdRng::from_rng(&mut rand::rng())
         };
 
         w.shuffle(&mut rng);

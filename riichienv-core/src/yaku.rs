@@ -9,7 +9,7 @@ use crate::types::{Hand, Meld};
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "python", pyclass(get_all))]
+#[cfg_attr(feature = "python", pyclass(get_all, from_py_object))]
 pub struct Yaku {
     pub id: u32,
     pub name: String,
@@ -665,21 +665,21 @@ fn check_pinfu(
     }
 
     // Waiting must be ryanmen
-    if let Some(idx) = wg_idx {
-        if let Mentsu::Shuntsu(t) = div.body[idx] {
-            // Ryanmen: win_tile is t or t+2, and it's not a penchan wait
-            if win_tile == t {
-                if t % 9 == 6 {
-                    return false;
-                } // 78(9) is penchan
-                return true;
-            }
-            if win_tile == t + 2 {
-                if t % 9 == 0 {
-                    return false;
-                } // (1)23 is penchan
-                return true;
-            }
+    if let Some(idx) = wg_idx
+        && let Mentsu::Shuntsu(t) = div.body[idx]
+    {
+        // Ryanmen: win_tile is t or t+2, and it's not a penchan wait
+        if win_tile == t {
+            if t % 9 == 6 {
+                return false;
+            } // 78(9) is penchan
+            return true;
+        }
+        if win_tile == t + 2 {
+            if t % 9 == 0 {
+                return false;
+            } // (1)23 is penchan
+            return true;
         }
     }
     false

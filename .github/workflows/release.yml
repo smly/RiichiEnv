@@ -115,8 +115,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.87.0
       - name: Publish riichienv-core
         run: cargo publish -p riichienv-core
         env:

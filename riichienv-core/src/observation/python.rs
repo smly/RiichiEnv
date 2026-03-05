@@ -7,8 +7,8 @@ use crate::shanten;
 use crate::types::{Meld, MeldType};
 use crate::yaku_checker;
 
-use super::helpers::get_next_tile;
 use super::Observation;
+use super::helpers::get_next_tile;
 
 #[pymethods]
 impl Observation {
@@ -99,10 +99,10 @@ impl Observation {
         let size = encoder.action_space_size();
         let mut mask = vec![0u8; size];
         for action in &self._legal_actions {
-            if let Ok(idx) = encoder.encode(action) {
-                if (idx as usize) < mask.len() {
-                    mask[idx as usize] = 1;
-                }
+            if let Ok(idx) = encoder.encode(action)
+                && (idx as usize) < mask.len()
+            {
+                mask[idx as usize] = 1;
             }
         }
         Ok(pyo3::types::PyBytes::new(py, &mask))

@@ -23,7 +23,7 @@ const TILE34_TO_COMPACT: [u8; 34] = [
 
 #[cfg_attr(
     feature = "python",
-    pyclass(module = "riichienv._riichienv", eq, eq_int)
+    pyclass(module = "riichienv._riichienv", eq, eq_int, from_py_object)
 )]
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -42,7 +42,7 @@ impl Phase {
 
 #[cfg_attr(
     feature = "python",
-    pyclass(module = "riichienv._riichienv", eq, eq_int)
+    pyclass(module = "riichienv._riichienv", eq, eq_int, from_py_object)
 )]
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -69,7 +69,10 @@ impl ActionType {
     }
 }
 
-#[cfg_attr(feature = "python", pyclass(module = "riichienv._riichienv"))]
+#[cfg_attr(
+    feature = "python",
+    pyclass(module = "riichienv._riichienv", from_py_object)
+)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Action {
     pub action_type: ActionType,
@@ -120,13 +123,12 @@ impl Action {
             );
         }
 
-        if let Some(t) = self.tile {
-            if self.action_type != ActionType::Tsumo
-                && self.action_type != ActionType::Ron
-                && self.action_type != ActionType::Riichi
-            {
-                data.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
-            }
+        if let Some(t) = self.tile
+            && self.action_type != ActionType::Tsumo
+            && self.action_type != ActionType::Ron
+            && self.action_type != ActionType::Riichi
+        {
+            data.insert("pai".to_string(), Value::String(tid_to_mjai(t)));
         }
 
         if !self.consume_tiles.is_empty() {
@@ -420,7 +422,10 @@ impl Action {
     }
 }
 
-#[cfg_attr(feature = "python", pyclass(module = "riichienv._riichienv"))]
+#[cfg_attr(
+    feature = "python",
+    pyclass(module = "riichienv._riichienv", from_py_object)
+)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct Action3P(pub Action);

@@ -91,7 +91,7 @@ mod unit_tests {
 
     #[test]
     fn test_tsuu_iisou() {
-        use crate::yaku::{calculate_yaku, YakuContext};
+        use crate::yaku::{YakuContext, calculate_yaku};
         let mut hand = Hand::new(None);
         // 111z, 222z, 333z, 444z, 55z
         for &t in &[27, 28, 29, 30] {
@@ -109,7 +109,7 @@ mod unit_tests {
 
     #[test]
     fn test_ryuu_iisou() {
-        use crate::yaku::{calculate_yaku, YakuContext};
+        use crate::yaku::{YakuContext, calculate_yaku};
         let mut hand = Hand::new(None);
         // 234s, 666s, 888s, 6s6s6s (Wait, 6s6s6s is already there)
         // Correct 234s, 666s, 888s, Hatsuz, 6s6s (pair)
@@ -131,7 +131,7 @@ mod unit_tests {
 
     #[test]
     fn test_daisushii() {
-        use crate::yaku::{calculate_yaku, YakuContext};
+        use crate::yaku::{YakuContext, calculate_yaku};
         let mut hand = Hand::new(None);
         // EEEz, SSSz, WWWz, NNNz, 11m
         for &t in &[27, 28, 29, 30] {
@@ -873,9 +873,11 @@ mod unit_tests {
             81
         );
         // Kita is not valid in 4P mode
-        assert!(Action::new(ActionType::Kita, None, vec![], None)
-            .encode()
-            .is_err());
+        assert!(
+            Action::new(ActionType::Kita, None, vec![], None)
+                .encode()
+                .is_err()
+        );
     }
 
     #[test]

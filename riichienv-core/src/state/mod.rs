@@ -26,7 +26,7 @@ use wall::WallState;
 
 const NP: usize = 4;
 
-#[cfg_attr(feature = "python", pyo3::pyclass)]
+#[cfg_attr(feature = "python", pyo3::pyclass(from_py_object))]
 #[derive(Debug, Clone)]
 pub struct GameState {
     pub wall: WallState,
@@ -315,10 +315,7 @@ impl GameState {
             return Err(RiichiError::InvalidState {
                 message: format!(
                     "Replay desync:\n  Env action: {:?}\n  Log action: {}\n  Self state:\n    phase: {:?}\n    drawn: {:?}",
-                    env_action,
-                    log_action_str,
-                    self.phase,
-                    self.drawn_tile
+                    env_action, log_action_str, self.phase, self.drawn_tile
                 ),
             });
         }
@@ -409,11 +406,11 @@ impl GameState {
                         if let Some(tile) = act.tile {
                             let mut tsumogiri = false;
                             let mut valid = false;
-                            if let Some(dt) = self.drawn_tile {
-                                if dt == tile {
-                                    tsumogiri = true;
-                                    valid = true;
-                                }
+                            if let Some(dt) = self.drawn_tile
+                                && dt == tile
+                            {
+                                tsumogiri = true;
+                                valid = true;
                             }
                             if let Some(idx) = self.players[pid as usize]
                                 .hand
@@ -423,10 +420,10 @@ impl GameState {
                                 self.players[pid as usize].hand.remove(idx);
                                 self.players[pid as usize].hand.sort();
                                 valid = true;
-                                if let Some(dt) = self.drawn_tile {
-                                    if dt == tile {
-                                        tsumogiri = true;
-                                    }
+                                if let Some(dt) = self.drawn_tile
+                                    && dt == tile
+                                {
+                                    tsumogiri = true;
                                 }
                             }
                             if valid {
@@ -452,10 +449,10 @@ impl GameState {
                             }
                             if let Some(t) = act.tile {
                                 let mut tsumogiri = false;
-                                if let Some(dt) = self.drawn_tile {
-                                    if dt == t {
-                                        tsumogiri = true;
-                                    }
+                                if let Some(dt) = self.drawn_tile
+                                    && dt == t
+                                {
+                                    tsumogiri = true;
                                 }
                                 // Record riichi sutehai (riichi discard tile)
                                 self.riichi_sutehais[pid as usize] = Some(t);
@@ -894,10 +891,10 @@ impl GameState {
             for (&pid, legals) in &self.current_claims {
                 if legals.iter().any(|a| a.action_type == ActionType::Ron) {
                     let mut roned = false;
-                    if let Some(act) = actions.get(&pid) {
-                        if act.action_type == ActionType::Ron {
-                            roned = true;
-                        }
+                    if let Some(act) = actions.get(&pid)
+                        && act.action_type == ActionType::Ron
+                    {
+                        roned = true;
                     }
                     if !roned {
                         self.players[pid as usize].missed_agari_doujun = true;
@@ -1491,11 +1488,11 @@ impl GameState {
                     if action.action_type == ActionType::Ankan {
                         let tile = action.tile.unwrap_or_else(|| action.consume_tiles[0]);
                         ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
-                    } else if action.action_type == ActionType::Daiminkan {
-                        if let Some((target, tile)) = self.last_discard {
-                            ev.insert("target".to_string(), Value::Number(target.into()));
-                            ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
-                        }
+                    } else if action.action_type == ActionType::Daiminkan
+                        && let Some((target, tile)) = self.last_discard
+                    {
+                        ev.insert("target".to_string(), Value::Number(target.into()));
+                        ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
                     }
                     let cons_strs: Vec<String> = action
                         .consume_tiles
@@ -1872,36 +1869,35 @@ impl GameState {
                     }
                 }
             }
-        } else if let Some(stripped) = reason.strip_prefix("Error: Illegal Action by Player ") {
-            if let Ok(pid) = stripped.parse::<usize>() {
-                if pid < np {
-                    let is_offender_oya = (pid as u8) == self.oya;
-                    if is_offender_oya {
-                        let penalty = 4000 * (np as i32 - 1);
-                        let each_get = penalty / (np as i32 - 1);
-                        for i in 0..np {
-                            if i == pid {
-                                self.players[i].score -= penalty;
-                                self.players[i].score_delta = -penalty;
-                            } else {
-                                self.players[i].score += each_get;
-                                self.players[i].score_delta = each_get;
-                            }
-                        }
+        } else if let Some(stripped) = reason.strip_prefix("Error: Illegal Action by Player ")
+            && let Ok(pid) = stripped.parse::<usize>()
+            && pid < np
+        {
+            let is_offender_oya = (pid as u8) == self.oya;
+            if is_offender_oya {
+                let penalty = 4000 * (np as i32 - 1);
+                let each_get = penalty / (np as i32 - 1);
+                for i in 0..np {
+                    if i == pid {
+                        self.players[i].score -= penalty;
+                        self.players[i].score_delta = -penalty;
                     } else {
-                        let total_penalty = 4000 + 2000 * (np as i32 - 2);
-                        for i in 0..np {
-                            if i == pid {
-                                self.players[i].score -= total_penalty;
-                                self.players[i].score_delta = -total_penalty;
-                            } else if (i as u8) == self.oya {
-                                self.players[i].score += 4000;
-                                self.players[i].score_delta = 4000;
-                            } else {
-                                self.players[i].score += 2000;
-                                self.players[i].score_delta = 2000;
-                            }
-                        }
+                        self.players[i].score += each_get;
+                        self.players[i].score_delta = each_get;
+                    }
+                }
+            } else {
+                let total_penalty = 4000 + 2000 * (np as i32 - 2);
+                for i in 0..np {
+                    if i == pid {
+                        self.players[i].score -= total_penalty;
+                        self.players[i].score_delta = -total_penalty;
+                    } else if (i as u8) == self.oya {
+                        self.players[i].score += 4000;
+                        self.players[i].score_delta = 4000;
+                    } else {
+                        self.players[i].score += 2000;
+                        self.players[i].score_delta = 2000;
                     }
                 }
             }
@@ -1932,18 +1928,19 @@ impl GameState {
         let turns_ok = self.players.iter().all(|p| p.discards.len() == 1);
         let melds_empty = self.players.iter().all(|p| p.melds.is_empty());
 
-        if turns_ok && melds_empty {
-            if let Some(first_tile) = self.players[0].discards.first() {
-                let first = first_tile / 4;
-                if (27..=30).contains(&first)
-                    && self
-                        .players
-                        .iter()
-                        .all(|p| p.discards.first().map(|&t| t / 4) == Some(first))
-                {
-                    self._trigger_ryukyoku("sufuurenta");
-                    return true;
-                }
+        if turns_ok
+            && melds_empty
+            && let Some(first_tile) = self.players[0].discards.first()
+        {
+            let first = first_tile / 4;
+            if (27..=30).contains(&first)
+                && self
+                    .players
+                    .iter()
+                    .all(|p| p.discards.first().map(|&t| t / 4) == Some(first))
+            {
+                self._trigger_ryukyoku("sufuurenta");
+                return true;
             }
         }
 
@@ -2015,7 +2012,7 @@ impl GameState {
         let mut markers = Vec::new();
         for i in 0..self.wall.dora_indicators.len() {
             let idx = (5 + 2 * i).saturating_sub(self.wall.rinshan_draw_count as usize); // Ura is next to front.
-                                                                                         // Original: `self.wall[5 + 2*i]`
+            // Original: `self.wall[5 + 2*i]`
             if idx < self.wall.tiles.len() {
                 markers.push(tid_to_mjai(self.wall.tiles[idx]));
             }
@@ -2073,14 +2070,13 @@ impl GameState {
                     masked_event.insert("tehais".to_string(), Value::Array(masked_tehais));
                     final_json = serde_json::to_string(&Value::Object(masked_event)).unwrap();
                 }
-            } else if type_str == "tsumo" {
-                if let Some(act_id) = actor {
-                    if act_id != pid {
-                        let mut masked_event = event.as_object().unwrap().clone();
-                        masked_event.insert("pai".to_string(), Value::String("?".to_string()));
-                        final_json = serde_json::to_string(&Value::Object(masked_event)).unwrap();
-                    }
-                }
+            } else if type_str == "tsumo"
+                && let Some(act_id) = actor
+                && act_id != pid
+            {
+                let mut masked_event = event.as_object().unwrap().clone();
+                masked_event.insert("pai".to_string(), Value::String("?".to_string()));
+                final_json = serde_json::to_string(&Value::Object(masked_event)).unwrap();
             }
 
             if should_push {
@@ -2091,15 +2087,14 @@ impl GameState {
         // Incrementally update pre-computed progression cache.
         // Uses the original (unmasked) event Value directly — no JSON parsing.
         #[cfg(feature = "python")]
-        if self.enable_seq_caching {
-            if let Some(entry) =
+        if self.enable_seq_caching
+            && let Some(entry) =
                 crate::observation::sequence_features::process_single_event_progression(
                     &event,
                     &mut self.round_seq_prog_pending_reach,
                 )
-            {
-                Arc::make_mut(&mut self.round_seq_progression).push(entry);
-            }
+        {
+            Arc::make_mut(&mut self.round_seq_progression).push(entry);
         }
     }
 }

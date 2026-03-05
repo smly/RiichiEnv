@@ -285,29 +285,13 @@ pub fn check_riichi_candidates(tiles_136: Vec<u8>) -> Vec<u32> {
 
 fn get_next_tile(tile: u8) -> u8 {
     if tile < 9 {
-        if tile == 8 {
-            0
-        } else {
-            tile + 1
-        }
+        if tile == 8 { 0 } else { tile + 1 }
     } else if tile < 18 {
-        if tile == 17 {
-            9
-        } else {
-            tile + 1
-        }
+        if tile == 17 { 9 } else { tile + 1 }
     } else if tile < 27 {
-        if tile == 26 {
-            18
-        } else {
-            tile + 1
-        }
+        if tile == 26 { 18 } else { tile + 1 }
     } else if tile < 31 {
-        if tile == 30 {
-            27
-        } else {
-            tile + 1
-        }
+        if tile == 30 { 27 } else { tile + 1 }
     } else if tile == 33 {
         31
     } else {

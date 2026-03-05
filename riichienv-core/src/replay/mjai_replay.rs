@@ -285,7 +285,7 @@ impl MjaiReplay {
                     "Unknown rule: '{}'. Expected 'tenhou', 'mjsoul', \
                      'tenhou_sanma', or 'mjsoul_sanma'",
                     other
-                )))
+                )));
             }
         };
 

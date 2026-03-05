@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
 use pyo3::IntoPyObject;
+use pyo3::prelude::*;
 use std::collections::HashMap;
 
 use riichienv_core::action::{Action, Action3P, ActionEncoder, Phase};
@@ -25,8 +25,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AnyAction {
 use riichienv_core::game_variant::GameStateVariant;
 use riichienv_core::replay::MjaiEvent;
 use riichienv_core::rule::GameRule;
-use riichienv_core::state::legal_actions::GameStateLegalActions;
 use riichienv_core::state::GameState;
+use riichienv_core::state::legal_actions::GameStateLegalActions;
 use riichienv_core::state_3p::legal_actions::GameState3PLegalActions;
 use riichienv_core::types::{Meld, WinResult};
 
@@ -51,7 +51,7 @@ macro_rules! with_variant_mut {
     };
 }
 
-#[pyclass(module = "riichienv._riichienv")]
+#[pyclass(module = "riichienv._riichienv", from_py_object)]
 #[derive(Debug, Clone)]
 pub struct RiichiEnv {
     pub variant: GameStateVariant,
@@ -637,11 +637,11 @@ impl RiichiEnv {
             if let Some(r) = riichi_sticks {
                 s.riichi_sticks = r;
             }
-            if let Some(ref sc) = scores {
-                if sc.len() == np {
-                    for (i, &val) in sc.iter().enumerate() {
-                        s.players[i].score = val;
-                    }
+            if let Some(ref sc) = scores
+                && sc.len() == np
+            {
+                for (i, &val) in sc.iter().enumerate() {
+                    s.players[i].score = val;
                 }
             }
             if let Some(rw) = round_wind {
@@ -677,7 +677,7 @@ impl RiichiEnv {
                     return Err(pyo3::exceptions::PyValueError::new_err(format!(
                         "Unknown preset rule for 3P: {}",
                         rule_name
-                    )))
+                    )));
                 }
             }
         } else {
@@ -689,7 +689,7 @@ impl RiichiEnv {
                     return Err(pyo3::exceptions::PyValueError::new_err(format!(
                         "Unknown preset rule: {}",
                         rule_name
-                    )))
+                    )));
                 }
             }
         };

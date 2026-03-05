@@ -2,8 +2,8 @@ use crate::action::ActionType;
 use crate::shanten;
 use crate::types::MeldType;
 
-use super::helpers::{add_val, broadcast_scalar, get_next_tile, set_val};
 use super::Observation;
+use super::helpers::{add_val, broadcast_scalar, get_next_tile, set_val};
 
 /// Internal (non-PyO3) methods that write features directly into a flat f32 buffer.
 /// Buffer layout: channel-major, buf[(ch_offset + ch) * 34 + tile] = value.
@@ -351,12 +351,12 @@ impl Observation {
     pub(crate) fn encode_ankan_into(&self, buf: &mut [f32], ch_offset: usize) {
         for (player_idx, melds) in self.melds.iter().enumerate() {
             for meld in melds {
-                if matches!(meld.meld_type, MeldType::Ankan) {
-                    if let Some(&tile) = meld.tiles.first() {
-                        let tile_type = (tile / 4) as usize;
-                        if tile_type < 34 {
-                            set_val(buf, ch_offset, player_idx, tile_type, 1.0);
-                        }
+                if matches!(meld.meld_type, MeldType::Ankan)
+                    && let Some(&tile) = meld.tiles.first()
+                {
+                    let tile_type = (tile / 4) as usize;
+                    if tile_type < 34 {
+                        set_val(buf, ch_offset, player_idx, tile_type, 1.0);
                     }
                 }
             }

@@ -48,7 +48,7 @@ impl Default for Hand {
     }
 }
 
-#[cfg_attr(feature = "python", pyclass(eq, eq_int))]
+#[cfg_attr(feature = "python", pyclass(eq, eq_int, from_py_object))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MeldType {
     Chi = 0,
@@ -59,7 +59,7 @@ pub enum MeldType {
 }
 
 /// Represents wind directions in mahjong, used for player seats and round wind.
-#[cfg_attr(feature = "python", pyclass(eq, eq_int))]
+#[cfg_attr(feature = "python", pyclass(eq, eq_int, from_py_object))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Wind {
     #[default]
@@ -89,7 +89,7 @@ impl Wind {
     }
 }
 
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Meld {
     pub meld_type: MeldType,
@@ -184,7 +184,7 @@ impl Meld {
     }
 }
 
-#[cfg_attr(feature = "python", pyclass(get_all, set_all))]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object))]
 #[derive(Debug, Clone)]
 pub struct Conditions {
     pub tsumo: bool,
@@ -273,7 +273,7 @@ impl Conditions {
     }
 }
 
-#[cfg_attr(feature = "python", pyclass(get_all, set_all))]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object))]
 #[derive(Debug, Clone)]
 pub struct WinResult {
     pub is_win: bool,

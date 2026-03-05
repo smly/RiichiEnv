@@ -518,10 +518,10 @@ impl MjSoulReplay {
 
         let mut wliqi = vec![false; 4];
         for action in &actions {
-            if let Action::DiscardTile { seat, is_wliqi, .. } = action {
-                if *is_wliqi {
-                    wliqi[*seat] = true;
-                }
+            if let Action::DiscardTile { seat, is_wliqi, .. } = action
+                && *is_wliqi
+            {
+                wliqi[*seat] = true;
             }
         }
 
@@ -585,10 +585,10 @@ impl MjSoulReplay {
                             .collect(),
                     )
                 };
-                if d_res.is_none() {
-                    if let Some(dm) = dora_marker {
-                        d_res = Some(vec![TileConverter::parse_tile_136(&dm)]);
-                    }
+                if d_res.is_none()
+                    && let Some(dm) = dora_marker
+                {
+                    d_res = Some(vec![TileConverter::parse_tile_136(&dm)]);
                 }
                 Action::DealTile {
                     seat,

@@ -216,28 +216,29 @@ fn decompose(hand: &mut Hand, start_idx: usize) -> bool {
     }
 
     // Try Shuntsu (Sequence) - Only for number tiles
-    if i < 27 {
-        if let Some(is_valid_seq_start) = match i {
+    if i < 27
+        && let Some(is_valid_seq_start) = match i {
             0..=6 => Some(true),   // 1m-7m
             9..=15 => Some(true),  // 1p-7p
             18..=24 => Some(true), // 1s-7s
             _ => None,
-        } {
-            if is_valid_seq_start && hand.counts[i + 1] > 0 && hand.counts[i + 2] > 0 {
-                hand.counts[i] -= 1;
-                hand.counts[i + 1] -= 1;
-                hand.counts[i + 2] -= 1;
-                if decompose(hand, i) {
-                    hand.counts[i] += 1;
-                    hand.counts[i + 1] += 1;
-                    hand.counts[i + 2] += 1;
-                    return true;
-                }
-                hand.counts[i] += 1;
-                hand.counts[i + 1] += 1;
-                hand.counts[i + 2] += 1;
-            }
         }
+        && is_valid_seq_start
+        && hand.counts[i + 1] > 0
+        && hand.counts[i + 2] > 0
+    {
+        hand.counts[i] -= 1;
+        hand.counts[i + 1] -= 1;
+        hand.counts[i + 2] -= 1;
+        if decompose(hand, i) {
+            hand.counts[i] += 1;
+            hand.counts[i + 1] += 1;
+            hand.counts[i + 2] += 1;
+            return true;
+        }
+        hand.counts[i] += 1;
+        hand.counts[i + 1] += 1;
+        hand.counts[i + 2] += 1;
     }
 
     false

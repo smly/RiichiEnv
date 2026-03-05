@@ -5,7 +5,7 @@ pub(crate) mod helpers;
 #[cfg(feature = "python")]
 mod python;
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 
 use crate::action::{Action, Action3P};
@@ -14,7 +14,7 @@ use crate::types::Meld;
 
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "riichienv._riichienv", get_all)
+    pyo3::pyclass(module = "riichienv._riichienv", get_all, from_py_object)
 )]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Observation3P {

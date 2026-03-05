@@ -200,9 +200,13 @@ class TestRiichiEnv:
 
         h = env.hands
         h[0] = [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48]
+        # P1 hand: no 1m/2m/3m tiles so P1 cannot pon or chi
+        h[1] = [13, 15, 17, 19, 21, 22, 23, 25, 26, 27, 29, 30, 31]
         # P2 hand: has 1m pair (1, 2)
-        h[2] = [1, 2, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45]
+        h[2] = [1, 2, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97]
         h[2].sort()
+        # P3 hand: no 1m tiles
+        h[3] = [101, 105, 109, 113, 117, 121, 125, 129, 133, 6, 10, 14, 18]
         env.hands = h
         env.active_players = [0]
         env.current_player = 0

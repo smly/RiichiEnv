@@ -7,7 +7,7 @@ mod python;
 #[cfg(feature = "python")]
 pub(crate) mod sequence_features;
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 
 use crate::action::{Action, ActionEncoder};
@@ -16,7 +16,7 @@ use crate::types::Meld;
 
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "riichienv._riichienv", get_all)
+    pyo3::pyclass(module = "riichienv._riichienv", get_all, from_py_object)
 )]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Observation {

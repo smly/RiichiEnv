@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use riichienv_core::agari;
 use riichienv_core::hand_evaluator::HandEvaluator;
 use riichienv_core::hand_evaluator_3p::HandEvaluator3P;

@@ -1,6 +1,6 @@
 use crate::action::{Action, ActionType, Phase};
 use crate::state_3p::GameState3P;
-use crate::types::{is_terminal_tile, Conditions, Meld, MeldType, Wind};
+use crate::types::{Conditions, Meld, MeldType, Wind, is_terminal_tile};
 
 pub trait GameState3PLegalActions {
     fn _get_legal_actions_internal(&self, pid: u8) -> Vec<Action>;
@@ -25,45 +25,44 @@ impl GameState3PLegalActions for GameState3P {
             }
 
             // 1. Tsumo
-            if let Some(tile) = self.drawn_tile {
-                if !self.players[pid_us].riichi_stage {
-                    let cond = Conditions {
-                        tsumo: true,
-                        riichi: self.players[pid_us].riichi_declared,
-                        double_riichi: self.players[pid_us].double_riichi_declared,
-                        ippatsu: self.players[pid_us].ippatsu_cycle,
-                        player_wind: Wind::from((pid + np - self.oya) % np),
-                        round_wind: Wind::from(self.round_wind),
-                        chankan: false,
-                        haitei: self.wall.tiles.len() <= 14 && !self.is_rinshan_flag,
-                        houtei: false,
-                        rinshan: self.is_rinshan_flag,
-                        tsumo_first_turn: self.is_first_turn
-                            && self.players[pid_us].discards.is_empty(),
-                        riichi_sticks: self.riichi_sticks,
-                        honba: self.honba as u32,
-                        is_sanma: true,
-                        num_players: np,
-                        ..Default::default()
-                    };
-                    let mut hand = self.players[pid_us].hand.clone();
-                    if let Some(idx) = hand.iter().rposition(|&t| t == tile) {
-                        hand.remove(idx);
-                    }
-                    let calc = crate::hand_evaluator_3p::HandEvaluator3P::new(
-                        hand,
-                        self.players[pid_us].melds.clone(),
-                    );
-                    let res =
-                        calc.calc(tile, self.wall.dora_indicators.clone(), vec![], Some(cond));
-                    if res.is_win && (res.yakuman || res.han >= 1) {
-                        legals.push(Action::new(
-                            ActionType::Tsumo,
-                            Some(tile),
-                            vec![],
-                            Some(pid),
-                        ));
-                    }
+            if let Some(tile) = self.drawn_tile
+                && !self.players[pid_us].riichi_stage
+            {
+                let cond = Conditions {
+                    tsumo: true,
+                    riichi: self.players[pid_us].riichi_declared,
+                    double_riichi: self.players[pid_us].double_riichi_declared,
+                    ippatsu: self.players[pid_us].ippatsu_cycle,
+                    player_wind: Wind::from((pid + np - self.oya) % np),
+                    round_wind: Wind::from(self.round_wind),
+                    chankan: false,
+                    haitei: self.wall.tiles.len() <= 14 && !self.is_rinshan_flag,
+                    houtei: false,
+                    rinshan: self.is_rinshan_flag,
+                    tsumo_first_turn: self.is_first_turn
+                        && self.players[pid_us].discards.is_empty(),
+                    riichi_sticks: self.riichi_sticks,
+                    honba: self.honba as u32,
+                    is_sanma: true,
+                    num_players: np,
+                    ..Default::default()
+                };
+                let mut hand = self.players[pid_us].hand.clone();
+                if let Some(idx) = hand.iter().rposition(|&t| t == tile) {
+                    hand.remove(idx);
+                }
+                let calc = crate::hand_evaluator_3p::HandEvaluator3P::new(
+                    hand,
+                    self.players[pid_us].melds.clone(),
+                );
+                let res = calc.calc(tile, self.wall.dora_indicators.clone(), vec![], Some(cond));
+                if res.is_win && (res.yakuman || res.han >= 1) {
+                    legals.push(Action::new(
+                        ActionType::Tsumo,
+                        Some(tile),
+                        vec![],
+                        Some(pid),
+                    ));
                 }
             }
 
@@ -162,47 +161,46 @@ impl GameState3PLegalActions for GameState3P {
                             }
                         }
                     }
-                } else if self.players[pid_us].riichi_declared {
-                    if let Some(t) = self.drawn_tile {
-                        let t34 = t / 4;
-                        if counts[t34 as usize] == 4 {
-                            let mut hand_pre = self.players[pid_us].hand.clone();
-                            if let Some(pos) = hand_pre.iter().position(|&x| x == t) {
-                                hand_pre.remove(pos);
-                            }
-                            let calc_pre = crate::hand_evaluator_3p::HandEvaluator3P::new(
-                                hand_pre,
-                                self.players[pid_us].melds.clone(),
-                            );
-                            let mut waits_pre = calc_pre.get_waits();
-                            waits_pre.sort();
+                } else if self.players[pid_us].riichi_declared
+                    && let Some(t) = self.drawn_tile
+                {
+                    let t34 = t / 4;
+                    if counts[t34 as usize] == 4 {
+                        let mut hand_pre = self.players[pid_us].hand.clone();
+                        if let Some(pos) = hand_pre.iter().position(|&x| x == t) {
+                            hand_pre.remove(pos);
+                        }
+                        let calc_pre = crate::hand_evaluator_3p::HandEvaluator3P::new(
+                            hand_pre,
+                            self.players[pid_us].melds.clone(),
+                        );
+                        let mut waits_pre = calc_pre.get_waits();
+                        waits_pre.sort();
 
-                            let mut hand_post = self.players[pid_us].hand.clone();
-                            hand_post.retain(|&x| x / 4 != t34);
-                            let mut melds_post = self.players[pid_us].melds.clone();
-                            let lowest = t34 * 4;
-                            melds_post.push(Meld::new(
-                                MeldType::Ankan,
-                                vec![lowest, lowest + 1, lowest + 2, lowest + 3],
-                                false,
-                                -1,
-                                None,
+                        let mut hand_post = self.players[pid_us].hand.clone();
+                        hand_post.retain(|&x| x / 4 != t34);
+                        let mut melds_post = self.players[pid_us].melds.clone();
+                        let lowest = t34 * 4;
+                        melds_post.push(Meld::new(
+                            MeldType::Ankan,
+                            vec![lowest, lowest + 1, lowest + 2, lowest + 3],
+                            false,
+                            -1,
+                            None,
+                        ));
+                        let calc_post =
+                            crate::hand_evaluator_3p::HandEvaluator3P::new(hand_post, melds_post);
+                        let mut waits_post = calc_post.get_waits();
+                        waits_post.sort();
+
+                        if waits_pre == waits_post && !waits_pre.is_empty() {
+                            let consume = vec![lowest, lowest + 1, lowest + 2, lowest + 3];
+                            legals.push(Action::new(
+                                ActionType::Ankan,
+                                Some(lowest),
+                                consume,
+                                Some(pid),
                             ));
-                            let calc_post = crate::hand_evaluator_3p::HandEvaluator3P::new(
-                                hand_post, melds_post,
-                            );
-                            let mut waits_post = calc_post.get_waits();
-                            waits_post.sort();
-
-                            if waits_pre == waits_post && !waits_pre.is_empty() {
-                                let consume = vec![lowest, lowest + 1, lowest + 2, lowest + 3];
-                                legals.push(Action::new(
-                                    ActionType::Ankan,
-                                    Some(lowest),
-                                    consume,
-                                    Some(pid),
-                                ));
-                            }
                         }
                     }
                 }

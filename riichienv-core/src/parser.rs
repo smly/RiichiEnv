@@ -202,7 +202,7 @@ fn parse_meld(chars: &mut Peekable<Chars>, tm: &mut TileManager) -> RiichiResult
             return Err(RiichiError::Parse {
                 input: content.clone(),
                 message: format!("Invalid suit in meld: {}", suit_char),
-            })
+            });
         }
     };
 
@@ -381,9 +381,5 @@ pub fn mjai_to_tid(mjai: &str) -> Option<u8> {
     };
 
     let base = suit_idx * 36 + (num - 1) * 4;
-    if num == 5 {
-        Some(base + 1)
-    } else {
-        Some(base)
-    }
+    if num == 5 { Some(base + 1) } else { Some(base) }
 }

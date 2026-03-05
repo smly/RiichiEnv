@@ -277,10 +277,7 @@ impl GameState3P {
             return Err(RiichiError::InvalidState {
                 message: format!(
                     "Replay desync:\n  Env action: {:?}\n  Log action: {}\n  Self state:\n    phase: {:?}\n    drawn: {:?}",
-                    env_action,
-                    log_action_str,
-                    self.phase,
-                    self.drawn_tile
+                    env_action, log_action_str, self.phase, self.drawn_tile
                 ),
             });
         }
@@ -367,11 +364,11 @@ impl GameState3P {
                         if let Some(tile) = act.tile {
                             let mut tsumogiri = false;
                             let mut valid = false;
-                            if let Some(dt) = self.drawn_tile {
-                                if dt == tile {
-                                    tsumogiri = true;
-                                    valid = true;
-                                }
+                            if let Some(dt) = self.drawn_tile
+                                && dt == tile
+                            {
+                                tsumogiri = true;
+                                valid = true;
                             }
                             if let Some(idx) = self.players[pid as usize]
                                 .hand
@@ -381,10 +378,10 @@ impl GameState3P {
                                 self.players[pid as usize].hand.remove(idx);
                                 self.players[pid as usize].hand.sort();
                                 valid = true;
-                                if let Some(dt) = self.drawn_tile {
-                                    if dt == tile {
-                                        tsumogiri = true;
-                                    }
+                                if let Some(dt) = self.drawn_tile
+                                    && dt == tile
+                                {
+                                    tsumogiri = true;
                                 }
                             }
                             if valid {
@@ -409,10 +406,10 @@ impl GameState3P {
                             }
                             if let Some(t) = act.tile {
                                 let mut tsumogiri = false;
-                                if let Some(dt) = self.drawn_tile {
-                                    if dt == t {
-                                        tsumogiri = true;
-                                    }
+                                if let Some(dt) = self.drawn_tile
+                                    && dt == t
+                                {
+                                    tsumogiri = true;
                                 }
                                 self.riichi_sutehais[pid as usize] = Some(t);
                                 if !tsumogiri {
@@ -829,10 +826,10 @@ impl GameState3P {
             for (&pid, legals) in &self.current_claims {
                 if legals.iter().any(|a| a.action_type == ActionType::Ron) {
                     let mut roned = false;
-                    if let Some(act) = actions.get(&pid) {
-                        if act.action_type == ActionType::Ron {
-                            roned = true;
-                        }
+                    if let Some(act) = actions.get(&pid)
+                        && act.action_type == ActionType::Ron
+                    {
+                        roned = true;
                     }
                     if !roned {
                         self.players[pid as usize].missed_agari_doujun = true;
@@ -1393,11 +1390,11 @@ impl GameState3P {
                     if action.action_type == ActionType::Ankan {
                         let tile = action.tile.unwrap_or_else(|| action.consume_tiles[0]);
                         ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
-                    } else if action.action_type == ActionType::Daiminkan {
-                        if let Some((target, tile)) = self.last_discard {
-                            ev.insert("target".to_string(), Value::Number(target.into()));
-                            ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
-                        }
+                    } else if action.action_type == ActionType::Daiminkan
+                        && let Some((target, tile)) = self.last_discard
+                    {
+                        ev.insert("target".to_string(), Value::Number(target.into()));
+                        ev.insert("pai".to_string(), Value::String(tid_to_mjai(tile)));
                     }
                     let cons_strs: Vec<String> = action
                         .consume_tiles
@@ -1757,36 +1754,35 @@ impl GameState3P {
                     }
                 }
             }
-        } else if let Some(stripped) = reason.strip_prefix("Error: Illegal Action by Player ") {
-            if let Ok(pid) = stripped.parse::<usize>() {
-                if pid < NP {
-                    let is_offender_oya = (pid as u8) == self.oya;
-                    if is_offender_oya {
-                        let penalty = 4000 * (NP as i32 - 1);
-                        let each_get = penalty / (NP as i32 - 1);
-                        for i in 0..NP {
-                            if i == pid {
-                                self.players[i].score -= penalty;
-                                self.players[i].score_delta = -penalty;
-                            } else {
-                                self.players[i].score += each_get;
-                                self.players[i].score_delta = each_get;
-                            }
-                        }
+        } else if let Some(stripped) = reason.strip_prefix("Error: Illegal Action by Player ")
+            && let Ok(pid) = stripped.parse::<usize>()
+            && pid < NP
+        {
+            let is_offender_oya = (pid as u8) == self.oya;
+            if is_offender_oya {
+                let penalty = 4000 * (NP as i32 - 1);
+                let each_get = penalty / (NP as i32 - 1);
+                for i in 0..NP {
+                    if i == pid {
+                        self.players[i].score -= penalty;
+                        self.players[i].score_delta = -penalty;
                     } else {
-                        let total_penalty = 4000 + 2000 * (NP as i32 - 2);
-                        for i in 0..NP {
-                            if i == pid {
-                                self.players[i].score -= total_penalty;
-                                self.players[i].score_delta = -total_penalty;
-                            } else if (i as u8) == self.oya {
-                                self.players[i].score += 4000;
-                                self.players[i].score_delta = 4000;
-                            } else {
-                                self.players[i].score += 2000;
-                                self.players[i].score_delta = 2000;
-                            }
-                        }
+                        self.players[i].score += each_get;
+                        self.players[i].score_delta = each_get;
+                    }
+                }
+            } else {
+                let total_penalty = 4000 + 2000 * (NP as i32 - 2);
+                for i in 0..NP {
+                    if i == pid {
+                        self.players[i].score -= total_penalty;
+                        self.players[i].score_delta = -total_penalty;
+                    } else if (i as u8) == self.oya {
+                        self.players[i].score += 4000;
+                        self.players[i].score_delta = 4000;
+                    } else {
+                        self.players[i].score += 2000;
+                        self.players[i].score_delta = 2000;
                     }
                 }
             }
@@ -1930,14 +1926,13 @@ impl GameState3P {
                     masked_event.insert("tehais".to_string(), Value::Array(masked_tehais));
                     final_json = serde_json::to_string(&Value::Object(masked_event)).unwrap();
                 }
-            } else if type_str == "tsumo" {
-                if let Some(act_id) = actor {
-                    if act_id != pid {
-                        let mut masked_event = event.as_object().unwrap().clone();
-                        masked_event.insert("pai".to_string(), Value::String("?".to_string()));
-                        final_json = serde_json::to_string(&Value::Object(masked_event)).unwrap();
-                    }
-                }
+            } else if type_str == "tsumo"
+                && let Some(act_id) = actor
+                && act_id != pid
+            {
+                let mut masked_event = event.as_object().unwrap().clone();
+                masked_event.insert("pai".to_string(), Value::String("?".to_string()));
+                final_json = serde_json::to_string(&Value::Object(masked_event)).unwrap();
             }
 
             if should_push {

@@ -1,7 +1,7 @@
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-#[cfg_attr(feature = "python", pyclass(get_all))]
+#[cfg_attr(feature = "python", pyclass(get_all, from_py_object))]
 #[derive(Debug, Clone)]
 pub struct Score {
     pub total: u32,

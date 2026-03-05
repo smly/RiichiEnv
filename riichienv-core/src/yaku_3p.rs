@@ -3,13 +3,13 @@ use crate::types::{Hand, Meld};
 
 // Re-export yaku IDs from the main yaku module
 pub use crate::yaku::{
-    YakuResult, ID_AKADORA, ID_BAKAZE, ID_CHANKAN, ID_CHANTA, ID_CHIHO, ID_CHINITSU, ID_CHINROUTO,
+    ID_AKADORA, ID_BAKAZE, ID_CHANKAN, ID_CHANTA, ID_CHIHO, ID_CHINITSU, ID_CHINROUTO,
     ID_CHITOITSU, ID_CHUN, ID_CHUUREN, ID_DAISANGEN, ID_DAISUUSHI, ID_DORA, ID_DOUBLE_RIICHI,
     ID_HAITEI, ID_HAKU, ID_HATSU, ID_HONITSU, ID_HONROUTO, ID_HOUTEI, ID_IPEIKO, ID_IPPATSU,
     ID_ITTSU, ID_JIKAZE, ID_JUNCHAN, ID_JUNSEI_CHUUREN, ID_KOKUSHI, ID_KOKUSHI_13, ID_NUKIDORA,
     ID_PINFU, ID_RIICHI, ID_RINSHAN, ID_RYANPEIKO, ID_RYUISOU, ID_SANANKOU, ID_SANKANTSU,
     ID_SANSHOKU, ID_SANSHOKU_DOKO, ID_SHOSANGEN, ID_SHOUSUUSHI, ID_SUANKO, ID_SUANKO_TANKI,
-    ID_SUKANTSU, ID_TANYAO, ID_TENHO, ID_TOITOI, ID_TSUISO, ID_TSUMO, ID_URADORA,
+    ID_SUKANTSU, ID_TANYAO, ID_TENHO, ID_TOITOI, ID_TSUISO, ID_TSUMO, ID_URADORA, YakuResult,
 };
 
 #[derive(Debug)]
@@ -481,20 +481,20 @@ fn check_pinfu(
         return false;
     }
 
-    if let Some(idx) = wg_idx {
-        if let Mentsu::Shuntsu(t) = div.body[idx] {
-            if win_tile == t {
-                if t % 9 == 6 {
-                    return false;
-                }
-                return true;
+    if let Some(idx) = wg_idx
+        && let Mentsu::Shuntsu(t) = div.body[idx]
+    {
+        if win_tile == t {
+            if t % 9 == 6 {
+                return false;
             }
-            if win_tile == t + 2 {
-                if t % 9 == 0 {
-                    return false;
-                }
-                return true;
+            return true;
+        }
+        if win_tile == t + 2 {
+            if t % 9 == 0 {
+                return false;
             }
+            return true;
         }
     }
     false

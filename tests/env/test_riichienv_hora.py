@@ -30,6 +30,9 @@ class TestRiichiEnv:
         h[0].sort()
         env.hands = h
 
+        # Set dora indicators to tiles that don't affect P1's hand
+        env.dora_indicators = [135]  # Chun indicator -> no dora in P1's hand
+
         # Setup state to simulate P0 drawing 63
         env.current_player = 0
         env.drawn_tile = 63

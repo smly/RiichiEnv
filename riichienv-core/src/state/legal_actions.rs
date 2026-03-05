@@ -1,6 +1,6 @@
 use crate::action::{Action, ActionType, Phase};
 use crate::state::GameState;
-use crate::types::{is_terminal_tile, Conditions, Meld, MeldType, Wind};
+use crate::types::{Conditions, Meld, MeldType, Wind, is_terminal_tile};
 
 pub trait GameStateLegalActions {
     fn _get_legal_actions_internal(&self, pid: u8) -> Vec<Action>;
@@ -24,43 +24,42 @@ impl GameStateLegalActions for GameState {
             }
 
             // 1. Tsumo
-            if let Some(tile) = self.drawn_tile {
-                if !self.players[pid_us].riichi_stage {
-                    let cond = Conditions {
-                        tsumo: true,
-                        riichi: self.players[pid_us].riichi_declared,
-                        double_riichi: self.players[pid_us].double_riichi_declared,
-                        ippatsu: self.players[pid_us].ippatsu_cycle,
-                        player_wind: Wind::from((pid + 4 - self.oya) % 4),
-                        round_wind: Wind::from(self.round_wind),
-                        chankan: false,
-                        haitei: self.wall.tiles.len() <= 14 && !self.is_rinshan_flag,
-                        houtei: false,
-                        rinshan: self.is_rinshan_flag,
-                        tsumo_first_turn: self.is_first_turn
-                            && self.players[pid_us].discards.is_empty(),
-                        riichi_sticks: self.riichi_sticks,
-                        honba: self.honba as u32,
-                        ..Default::default()
-                    };
-                    let mut hand = self.players[pid_us].hand.clone();
-                    if let Some(idx) = hand.iter().rposition(|&t| t == tile) {
-                        hand.remove(idx);
-                    }
-                    let calc = crate::hand_evaluator::HandEvaluator::new(
-                        hand,
-                        self.players[pid_us].melds.clone(),
-                    );
-                    let res =
-                        calc.calc(tile, self.wall.dora_indicators.clone(), vec![], Some(cond));
-                    if res.is_win && (res.yakuman || res.han >= 1) {
-                        legals.push(Action::new(
-                            ActionType::Tsumo,
-                            Some(tile),
-                            vec![],
-                            Some(pid),
-                        ));
-                    }
+            if let Some(tile) = self.drawn_tile
+                && !self.players[pid_us].riichi_stage
+            {
+                let cond = Conditions {
+                    tsumo: true,
+                    riichi: self.players[pid_us].riichi_declared,
+                    double_riichi: self.players[pid_us].double_riichi_declared,
+                    ippatsu: self.players[pid_us].ippatsu_cycle,
+                    player_wind: Wind::from((pid + 4 - self.oya) % 4),
+                    round_wind: Wind::from(self.round_wind),
+                    chankan: false,
+                    haitei: self.wall.tiles.len() <= 14 && !self.is_rinshan_flag,
+                    houtei: false,
+                    rinshan: self.is_rinshan_flag,
+                    tsumo_first_turn: self.is_first_turn
+                        && self.players[pid_us].discards.is_empty(),
+                    riichi_sticks: self.riichi_sticks,
+                    honba: self.honba as u32,
+                    ..Default::default()
+                };
+                let mut hand = self.players[pid_us].hand.clone();
+                if let Some(idx) = hand.iter().rposition(|&t| t == tile) {
+                    hand.remove(idx);
+                }
+                let calc = crate::hand_evaluator::HandEvaluator::new(
+                    hand,
+                    self.players[pid_us].melds.clone(),
+                );
+                let res = calc.calc(tile, self.wall.dora_indicators.clone(), vec![], Some(cond));
+                if res.is_win && (res.yakuman || res.han >= 1) {
+                    legals.push(Action::new(
+                        ActionType::Tsumo,
+                        Some(tile),
+                        vec![],
+                        Some(pid),
+                    ));
                 }
             }
 

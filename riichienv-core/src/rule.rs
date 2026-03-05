@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg_attr(
     feature = "python",
-    pyclass(module = "riichienv._riichienv", get_all, set_all)
+    pyclass(module = "riichienv._riichienv", get_all, set_all, from_py_object)
 )]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GameRule {
@@ -136,7 +136,14 @@ impl GameRule {
     fn __repr__(&self) -> String {
         format!(
             "GameRule(allows_ron_on_ankan_for_kokushi_musou={}, is_kokushi_musou_13machi_double={}, is_suuankou_tanki_double={}, is_junsei_chuurenpoutou_double={}, is_daisuushii_double={}, yakuman_pao_is_liability_only={}, sanchaho_is_draw={}, kuikae_forbidden={})",
-            self.allows_ron_on_ankan_for_kokushi_musou, self.is_kokushi_musou_13machi_double, self.is_suuankou_tanki_double, self.is_junsei_chuurenpoutou_double, self.is_daisuushii_double, self.yakuman_pao_is_liability_only, self.sanchaho_is_draw, self.kuikae_forbidden
+            self.allows_ron_on_ankan_for_kokushi_musou,
+            self.is_kokushi_musou_13machi_double,
+            self.is_suuankou_tanki_double,
+            self.is_junsei_chuurenpoutou_double,
+            self.is_daisuushii_double,
+            self.yakuman_pao_is_liability_only,
+            self.sanchaho_is_draw,
+            self.kuikae_forbidden
         )
     }
 }

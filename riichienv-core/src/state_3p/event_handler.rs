@@ -321,10 +321,11 @@ impl GameState3PEventHandler for GameState3P {
                     self.players[discarder_pid as usize].nagashi_eligible = false;
                 }
                 for (i, t) in tiles.iter().enumerate() {
-                    if i < froms.len() && froms[i] == *seat {
-                        if let Some(idx) = self.players[*seat].hand.iter().position(|&x| x == *t) {
-                            self.players[*seat].hand.remove(idx);
-                        }
+                    if i < froms.len()
+                        && froms[i] == *seat
+                        && let Some(idx) = self.players[*seat].hand.iter().position(|&x| x == *t)
+                    {
+                        self.players[*seat].hand.remove(idx);
                     }
                 }
                 self.players[*seat].hand.sort();
@@ -337,7 +338,7 @@ impl GameState3PEventHandler for GameState3P {
                 let ct = tiles
                     .iter()
                     .zip(froms.iter())
-                    .find(|(_, &f)| f != *seat)
+                    .find(|&(_, &f)| f != *seat)
                     .map(|(&t, _)| t);
                 let discarder = from_who.max(0) as u8;
                 self.players[*seat].melds.push(Meld {
@@ -349,33 +350,33 @@ impl GameState3PEventHandler for GameState3P {
                 });
 
                 // PAO detection: daisangen (3 dragon melds) or daisuushii (4 wind melds)
-                if *meld_type == MeldType::Pon || *meld_type == MeldType::Daiminkan {
-                    if let Some(&called) = ct.as_ref() {
-                        let tile_val = called / 4;
-                        if (31..=33).contains(&tile_val) {
-                            let dragon_melds = self.players[*seat]
-                                .melds
-                                .iter()
-                                .filter(|m| {
-                                    let t = m.tiles[0] / 4;
-                                    (31..=33).contains(&t) && m.meld_type != MeldType::Chi
-                                })
-                                .count();
-                            if dragon_melds == 3 {
-                                self.players[*seat].pao.insert(37, discarder);
-                            }
-                        } else if (27..=30).contains(&tile_val) {
-                            let wind_melds = self.players[*seat]
-                                .melds
-                                .iter()
-                                .filter(|m| {
-                                    let t = m.tiles[0] / 4;
-                                    (27..=30).contains(&t) && m.meld_type != MeldType::Chi
-                                })
-                                .count();
-                            if wind_melds == 4 {
-                                self.players[*seat].pao.insert(50, discarder);
-                            }
+                if (*meld_type == MeldType::Pon || *meld_type == MeldType::Daiminkan)
+                    && let Some(&called) = ct.as_ref()
+                {
+                    let tile_val = called / 4;
+                    if (31..=33).contains(&tile_val) {
+                        let dragon_melds = self.players[*seat]
+                            .melds
+                            .iter()
+                            .filter(|m| {
+                                let t = m.tiles[0] / 4;
+                                (31..=33).contains(&t) && m.meld_type != MeldType::Chi
+                            })
+                            .count();
+                        if dragon_melds == 3 {
+                            self.players[*seat].pao.insert(37, discarder);
+                        }
+                    } else if (27..=30).contains(&tile_val) {
+                        let wind_melds = self.players[*seat]
+                            .melds
+                            .iter()
+                            .filter(|m| {
+                                let t = m.tiles[0] / 4;
+                                (27..=30).contains(&t) && m.meld_type != MeldType::Chi
+                            })
+                            .count();
+                        if wind_melds == 4 {
+                            self.players[*seat].pao.insert(50, discarder);
                         }
                     }
                 }
