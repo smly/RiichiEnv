@@ -27,7 +27,7 @@ ppo:
   aux_weight: 0.0
   eval_interval: 100
   eval_episodes: 192
-  baseline_update_interval: 50
+  baseline_update_interval: 0
   worker_device: cuda
   gpu_per_worker: 0.2
   num_envs_per_worker: 48

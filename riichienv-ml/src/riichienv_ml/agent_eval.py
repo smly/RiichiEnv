@@ -120,7 +120,7 @@ class AgentEvaluator:
 
         eps_per_seat = self.episodes_per_seat
         if eps_per_seat is None:
-            eps_per_seat = max(1, num_episodes // self.n_players)
+            eps_per_seat = max(1, -(-num_episodes // self.n_players))  # ceil division
 
         all_ranks: list[int] = []
         all_scores: list[float] = []
@@ -183,7 +183,7 @@ class AgentEvaluator:
     def _play_one_game(self, RiichiEnv, hero_seat: int) -> tuple[int, float]:
         """Play a single game and return (hero_rank, hero_score)."""
         env = RiichiEnv(game_mode=self.game_mode)
-        obs_dict = env.reset()
+        obs_dict = env.reset(starting_scores=self.starting_scores)
 
         # Map seat -> agent (opponents fill non-hero seats)
         opp_idx = 0

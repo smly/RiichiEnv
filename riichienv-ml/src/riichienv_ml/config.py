@@ -138,7 +138,7 @@ class OfflineTrainConfig(WandbConfig):
     model_class: str = "riichienv_ml.models.q_network.QNetwork"
     dataset_class: str = "riichienv_ml.datasets.mjai_logs.MCDataset"
     encoder_class: str = "riichienv_ml.features.feat_v1.ObservationEncoder"
-    # Third-party evaluator (4P only)
+    # Third-party evaluator
     evaluator: EvaluatorConfig = EvaluatorConfig()
 
 
@@ -225,7 +225,7 @@ class PpoConfig(WandbConfig):
     baseline_update_interval: int = 0
     # Fixed opponent model path (if set, baseline is loaded from this path instead of hero weights)
     baseline_model: str | None = None
-    # Third-party evaluator (4P only)
+    # Third-party evaluator
     evaluator: EvaluatorConfig = EvaluatorConfig()
 
 

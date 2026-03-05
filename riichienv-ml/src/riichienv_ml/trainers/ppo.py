@@ -169,7 +169,20 @@ def run_ppo_training(cfg):
         # Auto-convert QNetwork keys to ActorCriticNetwork format
         _has_a = any(k.startswith("a_head.") for k in _bl_state)
         _has_v = any(k.startswith("v_head.") for k in _bl_state)
-        if _has_a and _has_v:
+        _has_head = any(k.startswith("head.") for k in _bl_state)
+        if _has_head and not _has_a:
+            # Single-head QNetwork → ActorCriticNetwork
+            _new = {}
+            for k, v in _bl_state.items():
+                if k.startswith("head."):
+                    _new[k.replace("head.", "actor_head.")] = v
+                elif k.startswith("aux_head."):
+                    continue
+                else:
+                    _new[k] = v
+            _bl_state = _new
+        elif _has_a and _has_v:
+            # Dueling QNetwork → ActorCriticNetwork
             _new = {}
             for k, v in _bl_state.items():
                 if k.startswith("a_head."):
@@ -338,7 +351,9 @@ def run_ppo_training(cfg):
                 w.update_weights.remote(weight_ref)
 
             # Periodic baseline update for self-play curriculum
-            if (cfg.baseline_update_interval > 0
+            # (skip when using a fixed external baseline_model)
+            if (cfg.baseline_model is None
+                    and cfg.baseline_update_interval > 0
                     and step > 0
                     and step % cfg.baseline_update_interval == 0):
                 baseline_weights = {k: v.clone() for k, v in weights.items()}

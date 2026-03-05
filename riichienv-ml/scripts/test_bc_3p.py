@@ -3,7 +3,7 @@ from riichienv_ml.agents import Agent
 
 CONFIG_PATH = "src/riichienv_ml/configs/3p/bc_logs.yml"
 CONFIG3_PATH = "src/riichienv_ml/configs/3p/bc_ppo.yml"
-MODEL_PATH = "/data/workspace/riichienv-ml/3p/bc_logs.pth"
+MODEL_PATH = "/data/workspace/riichienv-ml/3p/bc_logs_2M.pth"
 MODEL2_PATH = "/data/workspace/riichienv-ml/3p/bc_logs_2M.pth"
 MODEL3_PATH = "/data/workspace/riichienv-ml/3p/bc_ppo/checkpoints/model_500.pth"
 
