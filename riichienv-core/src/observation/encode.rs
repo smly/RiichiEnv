@@ -648,8 +648,14 @@ mod tests {
         let obs2 = make_obs(2, discards, empty_melds());
         let mut buf2 = vec![0.0f32; 4 * 34];
         obs2.encode_discard_decay_into(&mut buf2, 0);
-        assert!(read_val(&buf2, 0, 9) > 0.0, "ch0 should have player2's 1p (self)");
-        assert!(read_val(&buf2, 2, 0) > 0.0, "ch2 should have player0's 1m (toimen)");
+        assert!(
+            read_val(&buf2, 0, 9) > 0.0,
+            "ch0 should have player2's 1p (self)"
+        );
+        assert!(
+            read_val(&buf2, 2, 0) > 0.0,
+            "ch2 should have player0's 1m (toimen)"
+        );
 
         // Self channel (ch0) for obs0 should match self channel (ch0) for obs2
         // in that each has their own discards at channel 0
@@ -680,12 +686,28 @@ mod tests {
 
         // Self always at channel 0-3: obs0 self should NOT be 0.5 (has real shanten)
         // obs2 self (player 2) should NOT be 0.5 either
-        assert_ne!(read_val(&buf0, 0, 0), 0.5, "obs0 self shanten should be computed");
-        assert_ne!(read_val(&buf2, 0, 0), 0.5, "obs2 self shanten should be computed");
+        assert_ne!(
+            read_val(&buf0, 0, 0),
+            0.5,
+            "obs0 self shanten should be computed"
+        );
+        assert_ne!(
+            read_val(&buf2, 0, 0),
+            0.5,
+            "obs2 self shanten should be computed"
+        );
 
         // Opponent channels should be 0.5
-        assert_eq!(read_val(&buf0, 4, 0), 0.5, "obs0 shimocha shanten should be 0.5");
-        assert_eq!(read_val(&buf2, 4, 0), 0.5, "obs2 next player shanten should be 0.5");
+        assert_eq!(
+            read_val(&buf0, 4, 0),
+            0.5,
+            "obs0 shimocha shanten should be 0.5"
+        );
+        assert_eq!(
+            read_val(&buf2, 4, 0),
+            0.5,
+            "obs2 next player shanten should be 0.5"
+        );
     }
 
     #[test]
@@ -704,14 +726,22 @@ mod tests {
         let obs0 = make_obs(0, Default::default(), melds.clone());
         let mut buf0 = vec![0.0f32; 4 * 34];
         obs0.encode_ankan_into(&mut buf0, 0);
-        assert_eq!(read_val(&buf0, 1, 0), 1.0, "player1's ankan at ch1 for obs0");
+        assert_eq!(
+            read_val(&buf0, 1, 0),
+            1.0,
+            "player1's ankan at ch1 for obs0"
+        );
         assert_eq!(read_val(&buf0, 0, 0), 0.0, "ch0 (self) should be empty");
 
         // From player 3: rel_order=[3,0,1,2], player1 is at ch_idx=2
         let obs3 = make_obs(3, Default::default(), melds);
         let mut buf3 = vec![0.0f32; 4 * 34];
         obs3.encode_ankan_into(&mut buf3, 0);
-        assert_eq!(read_val(&buf3, 2, 0), 1.0, "player1's ankan at ch2 for obs3");
+        assert_eq!(
+            read_val(&buf3, 2, 0),
+            1.0,
+            "player1's ankan at ch2 for obs3"
+        );
         assert_eq!(read_val(&buf3, 1, 0), 0.0, "ch1 should be empty for obs3");
     }
 
@@ -732,16 +762,32 @@ mod tests {
         let mut buf0 = vec![0.0f32; 80 * 34];
         obs0.encode_fuuro_into(&mut buf0, 0);
         // ch = ch_idx*20 + meld_idx*5 + tile_slot_idx = 2*20+0*5+0=40
-        assert_eq!(read_val(&buf0, 40, 0), 1.0, "player2 meld tile0 at ch40 for obs0");
-        assert_eq!(read_val(&buf0, 41, 1), 1.0, "player2 meld tile1 at ch41 for obs0");
+        assert_eq!(
+            read_val(&buf0, 40, 0),
+            1.0,
+            "player2 meld tile0 at ch40 for obs0"
+        );
+        assert_eq!(
+            read_val(&buf0, 41, 1),
+            1.0,
+            "player2 meld tile1 at ch41 for obs0"
+        );
 
         // From player 1: rel_order=[1,2,3,0], player2 at ch_idx=1
         let obs1 = make_obs(1, Default::default(), melds);
         let mut buf1 = vec![0.0f32; 80 * 34];
         obs1.encode_fuuro_into(&mut buf1, 0);
         // ch = 1*20+0*5+0=20
-        assert_eq!(read_val(&buf1, 20, 0), 1.0, "player2 meld tile0 at ch20 for obs1");
-        assert_eq!(read_val(&buf1, 21, 1), 1.0, "player2 meld tile1 at ch21 for obs1");
+        assert_eq!(
+            read_val(&buf1, 20, 0),
+            1.0,
+            "player2 meld tile0 at ch20 for obs1"
+        );
+        assert_eq!(
+            read_val(&buf1, 21, 1),
+            1.0,
+            "player2 meld tile1 at ch21 for obs1"
+        );
     }
 
     #[test]
