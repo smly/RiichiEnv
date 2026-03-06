@@ -311,10 +311,11 @@ impl Observation3P {
     }
 
     /// Write 3 discard history decay channels into buf starting at ch_offset.
+    /// Channels are in relative seat order: [self, next, prev].
     pub(crate) fn encode_discard_decay_into(&self, buf: &mut [f32], ch_offset: usize) {
         let decay_rate = 0.2f32;
-        for player_idx in 0..NP {
-            let discs = &self.discards[player_idx];
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let discs = &self.discards[abs_idx];
             let max_len = discs.len();
             if max_len == 0 {
                 continue;
@@ -324,7 +325,7 @@ impl Observation3P {
                 if let Some(idx) = tile34_to_compact(tile34) {
                     let age = (max_len - 1 - turn) as f32;
                     let weight = (-decay_rate * age).exp();
-                    add_val(buf, ch_offset, player_idx, idx, weight);
+                    add_val(buf, ch_offset, ch_idx, idx, weight);
                 }
             }
         }
@@ -332,6 +333,7 @@ impl Observation3P {
 
     /// Write 12 shanten efficiency channels (broadcast) into buf starting at ch_offset.
     /// 3 players x 4 features = 12 channels, each broadcast to TILE_DIM_3P tiles.
+    /// Channels are in relative seat order: [self, next, prev].
     pub(crate) fn encode_shanten_into(&self, buf: &mut [f32], ch_offset: usize) {
         let mut all_visible: Vec<u32> = Vec::new();
         for discs in &self.discards {
@@ -344,11 +346,11 @@ impl Observation3P {
         }
         all_visible.extend(self.dora_indicators.iter().copied());
 
-        for player_idx in 0..NP {
-            let base_ch = player_idx * 4;
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let base_ch = ch_idx * 4;
 
-            if player_idx == self.player_id as usize {
-                let hand = &self.hands[player_idx];
+            if abs_idx == self.player_id as usize {
+                let hand = &self.hands[abs_idx];
                 let shanten_val = shanten::calculate_shanten_3p(hand);
                 let effective = shanten::calculate_effective_tiles_3p(hand);
                 let best_ukeire = shanten::calculate_best_ukeire_3p(hand, &all_visible);
@@ -362,21 +364,22 @@ impl Observation3P {
                 broadcast_scalar(buf, ch_offset, base_ch + 2, 0.5);
             }
 
-            let turn_count = self.discards[player_idx].len() as f32;
+            let turn_count = self.discards[abs_idx].len() as f32;
             broadcast_scalar(buf, ch_offset, base_ch + 3, (turn_count / 18.0).min(1.0));
         }
     }
 
     /// Write 3 ankan overview channels into buf starting at ch_offset.
+    /// Channels are in relative seat order: [self, next, prev].
     pub(crate) fn encode_ankan_into(&self, buf: &mut [f32], ch_offset: usize) {
-        for (player_idx, melds) in self.melds.iter().enumerate() {
-            for meld in melds {
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            for meld in &self.melds[abs_idx] {
                 if matches!(meld.meld_type, MeldType::Ankan)
                     && let Some(&tile) = meld.tiles.first()
                 {
                     let tile34 = (tile / 4) as usize;
                     if let Some(idx) = tile34_to_compact(tile34) {
-                        set_val(buf, ch_offset, player_idx, idx, 1.0);
+                        set_val(buf, ch_offset, ch_idx, idx, 1.0);
                     }
                 }
             }
@@ -385,9 +388,10 @@ impl Observation3P {
 
     /// Write 60 fuuro overview channels into buf starting at ch_offset.
     /// Layout: player(3) x meld(4) x tile_slot(5) flattened = 60 channels, each spatial (TILE_DIM_3P).
+    /// Players are in relative seat order: [self, next, prev].
     pub(crate) fn encode_fuuro_into(&self, buf: &mut [f32], ch_offset: usize) {
-        for (player_idx, melds) in self.melds.iter().enumerate() {
-            for (meld_idx, meld) in melds.iter().enumerate() {
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            for (meld_idx, meld) in self.melds[abs_idx].iter().enumerate() {
                 if meld_idx >= 4 {
                     break;
                 }
@@ -397,13 +401,13 @@ impl Observation3P {
                     }
                     let tile34 = (tile / 4) as usize;
                     if let Some(idx) = tile34_to_compact(tile34) {
-                        let ch = player_idx * 20 + meld_idx * 5 + tile_slot_idx;
+                        let ch = ch_idx * 20 + meld_idx * 5 + tile_slot_idx;
                         set_val(buf, ch_offset, ch, idx, 1.0);
                     }
                     if matches!(tile, 16 | 52 | 88) {
                         let tile34 = (tile / 4) as usize;
                         if let Some(idx) = tile34_to_compact(tile34) {
-                            let ch = player_idx * 20 + meld_idx * 5 + 4;
+                            let ch = ch_idx * 20 + meld_idx * 5 + 4;
                             set_val(buf, ch_offset, ch, idx, 1.0);
                         }
                     }

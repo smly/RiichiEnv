@@ -281,8 +281,8 @@ impl Observation3P {
         let decay_rate = decay_rate.unwrap_or(0.2);
         let mut arr = Array2::<f32>::zeros((NP, TILE_DIM_3P));
 
-        for player_idx in 0..NP {
-            let discs = &self.discards[player_idx];
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let discs = &self.discards[abs_idx];
             let max_len = discs.len();
 
             if max_len == 0 {
@@ -294,7 +294,7 @@ impl Observation3P {
                 if let Some(idx) = tile34_to_compact(tile34) {
                     let age = (max_len - 1 - turn) as f32;
                     let weight = (-decay_rate * age).exp();
-                    arr[[player_idx, idx]] += weight;
+                    arr[[ch_idx, idx]] += weight;
                 }
             }
         }
@@ -802,25 +802,25 @@ impl Observation3P {
         }
         all_visible.extend(self.dora_indicators.iter().copied());
 
-        for player_idx in 0..NP {
-            let hand = &self.hands[player_idx];
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let hand = &self.hands[abs_idx];
 
-            if player_idx == self.player_id as usize {
+            if abs_idx == self.player_id as usize {
                 let shanten = crate::shanten::calculate_shanten_3p(hand);
                 let effective = crate::shanten::calculate_effective_tiles_3p(hand);
                 let best_ukeire = crate::shanten::calculate_best_ukeire_3p(hand, &all_visible);
 
-                arr[[player_idx, 0]] = (shanten as f32).max(0.0) / 8.0;
-                arr[[player_idx, 1]] = (effective as f32) / 27.0;
-                arr[[player_idx, 2]] = (best_ukeire as f32) / 80.0;
+                arr[[ch_idx, 0]] = (shanten as f32).max(0.0) / 8.0;
+                arr[[ch_idx, 1]] = (effective as f32) / 27.0;
+                arr[[ch_idx, 2]] = (best_ukeire as f32) / 80.0;
             } else {
-                arr[[player_idx, 0]] = 0.5;
-                arr[[player_idx, 1]] = 0.5;
-                arr[[player_idx, 2]] = 0.5;
+                arr[[ch_idx, 0]] = 0.5;
+                arr[[ch_idx, 1]] = 0.5;
+                arr[[ch_idx, 2]] = 0.5;
             }
 
-            let turn_count = self.discards[player_idx].len() as f32;
-            arr[[player_idx, 3]] = turn_count / 18.0;
+            let turn_count = self.discards[abs_idx].len() as f32;
+            arr[[ch_idx, 3]] = turn_count / 18.0;
         }
 
         let slice = arr.as_slice().ok_or_else(|| {
@@ -894,8 +894,8 @@ impl Observation3P {
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
         let mut arr = Array4::<f32>::zeros((NP, 4, 5, TILE_DIM_3P));
 
-        for (player_idx, melds) in self.melds.iter().enumerate() {
-            for (meld_idx, meld) in melds.iter().enumerate() {
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            for (meld_idx, meld) in self.melds[abs_idx].iter().enumerate() {
                 if meld_idx >= 4 {
                     break;
                 }
@@ -907,12 +907,12 @@ impl Observation3P {
 
                     let tile34 = (tile / 4) as usize;
                     if let Some(idx) = tile34_to_compact(tile34) {
-                        arr[[player_idx, meld_idx, tile_slot_idx, idx]] = 1.0;
+                        arr[[ch_idx, meld_idx, tile_slot_idx, idx]] = 1.0;
                     }
 
                     let is_aka = matches!(tile, 16 | 52 | 88);
                     if is_aka && let Some(idx) = tile34_to_compact((tile / 4) as usize) {
-                        arr[[player_idx, meld_idx, 4, idx]] = 1.0;
+                        arr[[ch_idx, meld_idx, 4, idx]] = 1.0;
                     }
                 }
             }
@@ -936,14 +936,14 @@ impl Observation3P {
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
         let mut arr = Array2::<f32>::zeros((NP, TILE_DIM_3P));
 
-        for (player_idx, melds) in self.melds.iter().enumerate() {
-            for meld in melds {
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            for meld in &self.melds[abs_idx] {
                 if matches!(meld.meld_type, MeldType::Ankan)
                     && let Some(&tile) = meld.tiles.first()
                 {
                     let tile34 = (tile / 4) as usize;
                     if let Some(idx) = tile34_to_compact(tile34) {
-                        arr[[player_idx, idx]] = 1.0;
+                        arr[[ch_idx, idx]] = 1.0;
                     }
                 }
             }
