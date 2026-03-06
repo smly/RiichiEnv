@@ -10,19 +10,12 @@ from riichienv.visualizer import GameViewer
 
 ### Creating a viewer
 
-`GameViewer` provides three class methods for creating a viewer. All methods accept optional keyword arguments:
+`GameViewer` provides multiple ways to create a viewer instance.
 
-| Parameter | Type | Description |
-|---|---|---|
-| `step` | `int \| None` | Initial step to display |
-| `perspective` | `int \| None` | Player perspective (0–3) |
-| `freeze` | `bool` | Freeze the viewer at the given step |
-
-#### `from_env` — from a RiichiEnv instance
+#### `env.get_viewer()` — from a RiichiEnv instance
 
 ```python
 from riichienv import RiichiEnv
-from riichienv.visualizer import GameViewer
 from riichienv.agents import RandomAgent
 
 agent = RandomAgent()
@@ -32,31 +25,44 @@ while not env.done():
     actions = {pid: agent.act(obs) for pid, obs in obs_dict.items()}
     obs_dict = env.step(actions)
 
-GameViewer.from_env(env, perspective=0)
+env.get_viewer().show()
 ```
 
 #### `from_jsonl` — from a JSONL file
 
 ```python
-GameViewer.from_jsonl("path/to/game.jsonl", step=100, perspective=0)
+viewer = GameViewer.from_jsonl("path/to/game.jsonl")
+viewer.show(step=100, perspective=0)
 ```
 
 #### `from_list` — from a list of event dicts
 
 ```python
 events = [{"type": "start_game", ...}, ...]
-GameViewer.from_list(events, step=50, freeze=True)
+viewer = GameViewer.from_list(events)
+viewer.show(step=50, freeze=True)
+```
+
+### Displaying the viewer
+
+`show()` accepts optional keyword arguments to control the initial display:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `step` | `int \| None` | Initial step to display |
+| `perspective` | `int \| None` | Player perspective (0–3) |
+| `freeze` | `bool` | Freeze the viewer at the given step |
+
+In Jupyter, placing a `GameViewer` at the end of a cell automatically renders the 3D viewer via `_repr_html_`. You can also call `show()` explicitly to get the `HTML` object.
+
+```python
+viewer = env.get_viewer()
+viewer          # auto-renders in Jupyter via _repr_html_
+viewer.show()   # returns IPython.display.HTML
+viewer.show(step=100, perspective=0, freeze=True)
 ```
 
 ### Inspecting game data
-
-All `from_*` methods return a `GameViewer` instance. In Jupyter, placing it at the end of a cell automatically renders the 3D viewer. You can also call `show()` explicitly to get the `HTML` object.
-
-```python
-viewer = GameViewer.from_env(env, perspective=0)
-viewer          # auto-renders in Jupyter via _repr_html_
-viewer.show()   # returns IPython.display.HTML
-```
 
 #### `summary()` — round overview
 

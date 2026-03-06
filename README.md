@@ -274,11 +274,10 @@ In 3-player mahjong (sanma), tiles 2m-8m do not exist. `calculate_shanten_3p` co
 
 ### Game Visualization
 
-`GameViewer` renders an interactive 3D replay viewer in Jupyter Notebooks. Create a viewer from a `RiichiEnv` instance, a JSONL file, or a list of MJAI events.
+`GameViewer` renders an interactive 3D replay viewer in Jupyter Notebooks. Use `env.get_viewer()` to create a viewer from a `RiichiEnv` instance, or `GameViewer.from_jsonl()` / `GameViewer.from_list()` to load from files or event lists.
 
 ```python
 from riichienv import RiichiEnv
-from riichienv.visualizer import GameViewer
 from riichienv.agents import RandomAgent
 
 agent = RandomAgent()
@@ -288,13 +287,14 @@ while not env.done():
     actions = {pid: agent.act(obs) for pid, obs in obs_dict.items()}
     obs_dict = env.step(actions)
 
-viewer = GameViewer.from_env(env, perspective=0)
-viewer  # displays the 3D viewer in Jupyter
+env.get_viewer().show()  # displays the 3D viewer in Jupyter
 ```
 
 The returned `GameViewer` object also provides methods for programmatic inspection:
 
 ```python
+viewer = env.get_viewer()
+viewer.show(step=100, perspective=0)  # show() accepts optional display parameters
 viewer.summary()        # list of round info dicts (bakaze, kyoku, honba, oya, scores)
 viewer.get_results(0)   # list[WinResult] for round 0
 ```
