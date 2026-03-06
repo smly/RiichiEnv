@@ -382,6 +382,10 @@ export const VIEWER_3D_CSS = `
             1px 2px 0 0 #bfb7a3,
             1px 3px 5px rgba(0,0,0,0.25);
     }
+    .meld-tile-own-rotated .tile-bg,
+    .meld-tile-own-rotated-stacked .tile-bg {
+        box-shadow: none;
+    }
     .meld-tile-own-rotated .tile-layer {
         position: absolute;
         width: 40px;

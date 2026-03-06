@@ -846,33 +846,56 @@ export class Renderer3D implements IRenderer {
                     }
                 };
 
+                const addUpright = (t: string) => {
+                    const d = document.createElement('div');
+                    d.className = 'opp-tile';
+                    this.setTile3D(d, t, tw, faces);
+                    addWaitHighlight(d, t);
+                    mGroup.appendChild(d);
+                };
+                const addRotated = (t: string) => {
+                    const d = document.createElement('div');
+                    d.className = 'opp-tile-rotated';
+                    this.setTile3D(d, t, tw, faces);
+                    addWaitHighlight(d, t);
+                    mGroup.appendChild(d);
+                };
+
                 if (m.type === 'ankan') {
                     tiles.forEach((t, i) => {
                         const tileId = i === 0 || i === 3 ? 'back' : t;
-                        const d = document.createElement('div');
-                        d.className = 'opp-tile';
-                        this.setTile3D(d, tileId, tw, faces);
-                        addWaitHighlight(d, tileId);
-                        mGroup.appendChild(d);
+                        addUpright(tileId);
                     });
-                } else {
+                } else if (m.type === 'kakan') {
+                    // Kakan: tiles = [consumed0, consumed1, stolen, added]
+                    const added = tiles.pop()!;
                     const stolen = tiles.pop()!;
                     const consumed = tiles;
 
-                    const addUpright = (t: string) => {
-                        const d = document.createElement('div');
-                        d.className = 'opp-tile';
-                        this.setTile3D(d, t, tw, faces);
-                        addWaitHighlight(d, t);
-                        mGroup.appendChild(d);
-                    };
-                    const addRotated = (t: string) => {
-                        const d = document.createElement('div');
-                        d.className = 'opp-tile-rotated';
-                        this.setTile3D(d, t, tw, faces);
-                        addWaitHighlight(d, t);
-                        mGroup.appendChild(d);
-                    };
+                    if (rel === 1) {
+                        consumed.forEach((t) => addUpright(t));
+                        addRotated(stolen);
+                        addUpright(added);
+                    } else if (rel === 3) {
+                        addRotated(stolen);
+                        addUpright(added);
+                        consumed.forEach((t) => addUpright(t));
+                    } else {
+                        if (consumed.length >= 2) {
+                            addUpright(consumed[0]);
+                            addRotated(stolen);
+                            addUpright(added);
+                            addUpright(consumed[1]);
+                        } else {
+                            consumed.forEach((t) => addUpright(t));
+                            addRotated(stolen);
+                            addUpright(added);
+                        }
+                    }
+                } else {
+                    // Pon / Chi / Daiminkan
+                    const stolen = tiles.pop()!;
+                    const consumed = tiles;
 
                     if (rel === 1) {
                         consumed.forEach((t) => addUpright(t));
@@ -882,7 +905,7 @@ export class Renderer3D implements IRenderer {
                         consumed.forEach((t) => addUpright(t));
                     } else {
                         if (consumed.length >= 3) {
-                            // daiminkan / kakan from front: [c0, stolen_rot, c1, c2]
+                            // daiminkan from front: [c0, stolen_rot, c1, c2]
                             addUpright(consumed[0]);
                             addRotated(stolen);
                             addUpright(consumed[1]);
