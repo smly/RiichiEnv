@@ -43,15 +43,15 @@ const YAKU_TABLE: &[(u32, &str, &str, i32, i32)] = &[
     (7, "役牌 白", "Yakuhai (haku)", 18, 7),
     (8, "役牌 發", "Yakuhai (hatsu)", 19, 8),
     (9, "役牌 中", "Yakuhai (chun)", 20, 9),
-    (10, "自風牌", "Yakuhai (wind of place)", 10, 10), // tenhou_id=10 自風 東, tenhou_id=11 自風 南, tenhou_id=12 自風 西, tenhou_id=13 自風 北
-    (11, "場風牌", "Yakuhai (wind of round)", 14, 11), // tenhou_id=14 場風 東, tenhou_id=15 場風 南, tenhou_id=16 場風 西, tenhou_id=17 場風 北
+    (10, "自風牌", "Yakuhai (seat wind)", 10, 10), // tenhou_id=10 自風 東, tenhou_id=11 自風 南, tenhou_id=12 自風 西, tenhou_id=13 自風 北
+    (11, "場風牌", "Yakuhai (round wind)", 14, 11), // tenhou_id=14 場風 東, tenhou_id=15 場風 南, tenhou_id=16 場風 西, tenhou_id=17 場風 北
     (12, "断幺九", "Tanyao", 8, 12),
     (13, "一盃口", "Iipeiko", 9, 13),
     (14, "平和", "Pinfu", 7, 14),
+    // 2 Han
     (15, "混全帯幺九", "Chantai", 23, 15),
     (16, "一気通貫", "Ittsu", 24, 16),
     (17, "三色同順", "Sanshoku Doujun", 25, 17),
-    // 2 Han
     (18, "ダブル立直", "Double Riichi", 21, 18),
     (19, "三色同刻", "Sanshoku Doukou", 26, 19),
     (20, "三槓子", "San Kantsu", 27, 20),
@@ -60,9 +60,9 @@ const YAKU_TABLE: &[(u32, &str, &str, i32, i32)] = &[
     (23, "小三元", "Shou Sangen", 30, 23),
     (24, "混老頭", "Honroutou", 31, 24),
     (25, "七対子", "Chiitoitsu", 22, 25),
+    // 3 Han
     (26, "純全帯幺九", "Junchan", 33, 26),
     (27, "混一色", "Honitsu", 34, 27),
-    // 3 Han
     (28, "二盃口", "Ryanpeikou", 32, 28),
     // 6 Han
     (29, "清一色", "Chinitsu", 35, 29),
