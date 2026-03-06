@@ -230,8 +230,8 @@ The `yaku` field contains raw yaku IDs. Use `yaku_list()` to get detailed `Yaku`
 >>> for y in result.yaku_list():
 ...     print(y)
 Yaku(id=8, name='役牌 發', name_en='Yakuhai (hatsu)', tenhou_id=19, mjsoul_id=8)
-Yaku(id=11, name='場風牌', name_en='Yakuhai (wind of round)', tenhou_id=14, mjsoul_id=11)
-Yaku(id=10, name='自風牌', name_en='Yakuhai (wind of place)', tenhou_id=10, mjsoul_id=10)
+Yaku(id=11, name='場風牌', name_en='Yakuhai (round wind)', tenhou_id=14, mjsoul_id=11)
+Yaku(id=10, name='自風牌', name_en='Yakuhai (seat wind)', tenhou_id=10, mjsoul_id=10)
 Yaku(id=22, name='三暗刻', name_en='San Ankou', tenhou_id=29, mjsoul_id=22)
 ```
 
