@@ -49,8 +49,6 @@ export class Renderer3D implements IRenderer {
     /**
      * Set 3D tile content on a table-surface element.
      * Creates a CSS 3D box with top face and specified side faces.
-     * Returns the top-face element for appending overlays (e.g. highlights).
-     *
      * @param faces Which side faces to render (default: front + right).
      *   - relIndex 0 (self):     { front: true }
      *   - relIndex 1 (right):    { back: true, left: true }
@@ -62,7 +60,7 @@ export class Renderer3D implements IRenderer {
         tileId: string,
         depth: number,
         faces: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } = { front: true, right: true },
-    ): HTMLElement {
+    ): void {
         el.style.transformStyle = 'preserve-3d';
         // Side faces are 1px taller/wider than depth to overlap with the top face,
         // preventing sub-pixel rendering gaps at the seams.
@@ -99,13 +97,12 @@ export class Renderer3D implements IRenderer {
             l.style.width = `${d1}px`;
             el.appendChild(l);
         }
-        return topFace;
     }
 
     /**
      * Add a colored overlay to all visible faces of a 3D tile element.
      */
-    private addTile3DOverlay(el: HTMLElement, color: string): void {
+    private addTile3DOverlay(el: HTMLElement, color: string, zIndex: string = '5'): void {
         const topFace = el.querySelector('.tile-3d-top') as HTMLElement | null;
         if (topFace) {
             const ov = document.createElement('div');
@@ -118,7 +115,7 @@ export class Renderer3D implements IRenderer {
                 backgroundColor: color,
                 pointerEvents: 'none',
                 borderRadius: '3px',
-                zIndex: '5',
+                zIndex,
             });
             topFace.appendChild(ov);
         }
@@ -134,6 +131,7 @@ export class Renderer3D implements IRenderer {
                     height: '100%',
                     backgroundColor: color,
                     pointerEvents: 'none',
+                    borderRadius: 'inherit',
                 });
                 face.appendChild(ov);
             }
@@ -725,7 +723,7 @@ export class Renderer3D implements IRenderer {
                 if (activeWaits.size > 0) {
                     const normT = normalize(d.tile);
                     if (activeWaits.has(normT)) {
-                        this.addTile3DOverlay(cell, 'rgba(255, 0, 0, 0.4)');
+                        this.addTile3DOverlay(cell, 'rgba(255, 0, 0, 0.4)', '10');
                     }
                 }
 
@@ -815,7 +813,7 @@ export class Renderer3D implements IRenderer {
             tile.className = 'opp-tile';
             this.setTile3D(tile, t, tw, faces);
             if (activeWaits.size > 0 && activeWaits.has(normalize(t))) {
-                this.addTile3DOverlay(tile, 'rgba(255, 0, 0, 0.4)');
+                this.addTile3DOverlay(tile, 'rgba(255, 0, 0, 0.4)', '10');
             }
             handDiv.appendChild(tile);
         });
@@ -835,7 +833,7 @@ export class Renderer3D implements IRenderer {
 
                 const addWaitHighlight = (tileEl: HTMLElement, t: string) => {
                     if (activeWaits.size > 0 && activeWaits.has(normalize(t))) {
-                        this.addTile3DOverlay(tileEl, 'rgba(255, 0, 0, 0.4)');
+                        this.addTile3DOverlay(tileEl, 'rgba(255, 0, 0, 0.4)', '10');
                     }
                 };
 

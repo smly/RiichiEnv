@@ -71,7 +71,7 @@ const viewer = RiichiViewer.mount('container-id', {
     renderer: '3d',        // '2d' or '3d' (default: '3d')
     perspective: 0,        // player viewpoint (0-3)
     freeze: false,         // disable controls
-    initialPosition: { kyoku: 0, step: 0 },
+    initialPosition: { kyoku: 0 },
 });
 
 viewer.on('positionChange', ({ kyokuIndex, step }) => { ... });
