@@ -290,9 +290,9 @@ impl Observation {
         let decay_rate = decay_rate.unwrap_or(0.2);
         let mut arr = Array2::<f32>::zeros((4, 34));
 
-        // Encode discard history for all 4 players
-        for player_idx in 0..4 {
-            let discs = &self.discards[player_idx];
+        // Encode discard history for all 4 players in relative seat order
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let discs = &self.discards[abs_idx];
             let max_len = discs.len();
 
             if max_len == 0 {
@@ -309,7 +309,7 @@ impl Observation {
                     let weight = (-decay_rate * age).exp();
 
                     // Add weighted value (accumulates if same tile discarded multiple times)
-                    arr[[player_idx, tile_idx]] += weight;
+                    arr[[ch_idx, tile_idx]] += weight;
                 }
             }
         }
@@ -924,33 +924,33 @@ impl Observation {
         }
         all_visible.extend(self.dora_indicators.iter().copied());
 
-        // Calculate features for each player
-        for player_idx in 0..4 {
-            let hand = &self.hands[player_idx];
+        // Calculate features for each player in relative seat order
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let hand = &self.hands[abs_idx];
 
             // For self, we have full information
             // For opponents, we can only estimate based on visible info
-            if player_idx == self.player_id as usize {
+            if abs_idx == self.player_id as usize {
                 // Self: full calculation
                 let shanten = crate::shanten::calculate_shanten(hand);
                 let effective = crate::shanten::calculate_effective_tiles(hand);
                 let best_ukeire = crate::shanten::calculate_best_ukeire(hand, &all_visible);
 
                 // Normalize features
-                arr[[player_idx, 0]] = (shanten as f32).max(0.0) / 8.0;
-                arr[[player_idx, 1]] = (effective as f32) / 34.0;
-                arr[[player_idx, 2]] = (best_ukeire as f32) / 80.0;
+                arr[[ch_idx, 0]] = (shanten as f32).max(0.0) / 8.0;
+                arr[[ch_idx, 1]] = (effective as f32) / 34.0;
+                arr[[ch_idx, 2]] = (best_ukeire as f32) / 80.0;
             } else {
                 // Opponents: estimate or use conservative values
                 // We don't know their hand, so set to unknown (0.5)
-                arr[[player_idx, 0]] = 0.5; // Unknown shanten
-                arr[[player_idx, 1]] = 0.5; // Unknown effective tiles
-                arr[[player_idx, 2]] = 0.5; // Unknown ukeire
+                arr[[ch_idx, 0]] = 0.5; // Unknown shanten
+                arr[[ch_idx, 1]] = 0.5; // Unknown effective tiles
+                arr[[ch_idx, 2]] = 0.5; // Unknown ukeire
             }
 
-            // Turn count (same for all players)
-            let turn_count = self.discards[player_idx].len() as f32;
-            arr[[player_idx, 3]] = turn_count / 18.0; // Normalize by typical max turns
+            // Turn count
+            let turn_count = self.discards[abs_idx].len() as f32;
+            arr[[ch_idx, 3]] = (turn_count / 18.0).min(1.0);
         }
 
         // Convert to bytes
@@ -1023,8 +1023,8 @@ impl Observation {
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
         let mut arr = Array4::<f32>::zeros((4, 4, 5, 34));
 
-        for (player_idx, melds) in self.melds.iter().enumerate() {
-            for (meld_idx, meld) in melds.iter().enumerate() {
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            for (meld_idx, meld) in self.melds[abs_idx].iter().enumerate() {
                 if meld_idx >= 4 {
                     break;
                 }
@@ -1037,13 +1037,13 @@ impl Observation {
 
                     let tile_type = (tile / 4) as usize;
                     if tile_type < 34 {
-                        arr[[player_idx, meld_idx, tile_slot_idx, tile_type]] = 1.0;
+                        arr[[ch_idx, meld_idx, tile_slot_idx, tile_type]] = 1.0;
                     }
 
                     // Check for aka (red five: 5m=16, 5p=52, 5s=88)
                     let is_aka = matches!(tile, 16 | 52 | 88);
                     if is_aka {
-                        arr[[player_idx, meld_idx, 4, tile_type]] = 1.0;
+                        arr[[ch_idx, meld_idx, 4, tile_type]] = 1.0;
                     }
                 }
             }
@@ -1068,15 +1068,15 @@ impl Observation {
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
         let mut arr = Array2::<f32>::zeros((4, 34));
 
-        for (player_idx, melds) in self.melds.iter().enumerate() {
-            for meld in melds {
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            for meld in &self.melds[abs_idx] {
                 // Check if this is an ankan (concealed kan)
                 if matches!(meld.meld_type, MeldType::Ankan) {
                     // Use the first tile to determine type
                     if let Some(&tile) = meld.tiles.first() {
                         let tile_type = (tile / 4) as usize;
                         if tile_type < 34 {
-                            arr[[player_idx, tile_type]] = 1.0;
+                            arr[[ch_idx, tile_type]] = 1.0;
                         }
                     }
                 }

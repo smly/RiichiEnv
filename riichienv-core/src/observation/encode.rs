@@ -291,10 +291,11 @@ impl Observation {
     }
 
     /// Write 4 discard history decay channels into buf starting at ch_offset.
+    /// Channels are in relative seat order: [self, shimocha, toimen, kamicha].
     pub(crate) fn encode_discard_decay_into(&self, buf: &mut [f32], ch_offset: usize) {
         let decay_rate = 0.2f32;
-        for player_idx in 0..4 {
-            let discs = &self.discards[player_idx];
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let discs = &self.discards[abs_idx];
             let max_len = discs.len();
             if max_len == 0 {
                 continue;
@@ -304,7 +305,7 @@ impl Observation {
                 if tile_idx < 34 {
                     let age = (max_len - 1 - turn) as f32;
                     let weight = (-decay_rate * age).exp();
-                    add_val(buf, ch_offset, player_idx, tile_idx, weight);
+                    add_val(buf, ch_offset, ch_idx, tile_idx, weight);
                 }
             }
         }
@@ -312,6 +313,7 @@ impl Observation {
 
     /// Write 16 shanten efficiency channels (broadcast) into buf starting at ch_offset.
     /// 4 players × 4 features = 16 channels, each broadcast to 34 tiles.
+    /// Channels are in relative seat order: [self, shimocha, toimen, kamicha].
     pub(crate) fn encode_shanten_into(&self, buf: &mut [f32], ch_offset: usize) {
         let mut all_visible: Vec<u32> = Vec::new();
         for discs in &self.discards {
@@ -324,11 +326,11 @@ impl Observation {
         }
         all_visible.extend(self.dora_indicators.iter().copied());
 
-        for player_idx in 0..4 {
-            let base_ch = player_idx * 4;
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            let base_ch = ch_idx * 4;
 
-            if player_idx == self.player_id as usize {
-                let hand = &self.hands[player_idx];
+            if abs_idx == self.player_id as usize {
+                let hand = &self.hands[abs_idx];
                 let shanten_val = shanten::calculate_shanten(hand);
                 let effective = shanten::calculate_effective_tiles(hand);
                 let best_ukeire = shanten::calculate_best_ukeire(hand, &all_visible);
@@ -342,21 +344,22 @@ impl Observation {
                 broadcast_scalar(buf, ch_offset, base_ch + 2, 0.5);
             }
 
-            let turn_count = self.discards[player_idx].len() as f32;
+            let turn_count = self.discards[abs_idx].len() as f32;
             broadcast_scalar(buf, ch_offset, base_ch + 3, (turn_count / 18.0).min(1.0));
         }
     }
 
     /// Write 4 ankan overview channels into buf starting at ch_offset.
+    /// Channels are in relative seat order: [self, shimocha, toimen, kamicha].
     pub(crate) fn encode_ankan_into(&self, buf: &mut [f32], ch_offset: usize) {
-        for (player_idx, melds) in self.melds.iter().enumerate() {
-            for meld in melds {
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            for meld in &self.melds[abs_idx] {
                 if matches!(meld.meld_type, MeldType::Ankan)
                     && let Some(&tile) = meld.tiles.first()
                 {
                     let tile_type = (tile / 4) as usize;
                     if tile_type < 34 {
-                        set_val(buf, ch_offset, player_idx, tile_type, 1.0);
+                        set_val(buf, ch_offset, ch_idx, tile_type, 1.0);
                     }
                 }
             }
@@ -365,9 +368,10 @@ impl Observation {
 
     /// Write 80 fuuro overview channels into buf starting at ch_offset.
     /// Layout: player(4) × meld(4) × tile_slot(5) flattened = 80 channels, each spatial (34).
+    /// Players are in relative seat order: [self, shimocha, toimen, kamicha].
     pub(crate) fn encode_fuuro_into(&self, buf: &mut [f32], ch_offset: usize) {
-        for (player_idx, melds) in self.melds.iter().enumerate() {
-            for (meld_idx, meld) in melds.iter().enumerate() {
+        for (ch_idx, &abs_idx) in self.rel_order().iter().enumerate() {
+            for (meld_idx, meld) in self.melds[abs_idx].iter().enumerate() {
                 if meld_idx >= 4 {
                     break;
                 }
@@ -377,13 +381,13 @@ impl Observation {
                     }
                     let tile_type = (tile / 4) as usize;
                     if tile_type < 34 {
-                        // channel = player*20 + meld*5 + slot
-                        let ch = player_idx * 20 + meld_idx * 5 + tile_slot_idx;
+                        // channel = rel_player*20 + meld*5 + slot
+                        let ch = ch_idx * 20 + meld_idx * 5 + tile_slot_idx;
                         set_val(buf, ch_offset, ch, tile_type, 1.0);
                     }
                     // Check for aka (red five: 5m=16, 5p=52, 5s=88)
                     if matches!(tile, 16 | 52 | 88) {
-                        let ch = player_idx * 20 + meld_idx * 5 + 4;
+                        let ch = ch_idx * 20 + meld_idx * 5 + 4;
                         set_val(buf, ch_offset, ch, (tile / 4) as usize, 1.0);
                     }
                 }
@@ -576,6 +580,224 @@ impl Observation {
                 );
             }
             opp_idx += 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Meld;
+
+    /// Build a minimal Observation via the public constructor.
+    fn make_obs(player_id: u8, discards: [Vec<u8>; 4], melds: [Vec<Meld>; 4]) -> Observation {
+        Observation::new(
+            player_id,
+            [
+                vec![0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48],
+                vec![1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49],
+                vec![2, 6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46, 50],
+                vec![3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47, 51],
+            ],
+            melds,
+            discards,
+            vec![],     // dora_indicators
+            [25000; 4], // scores
+            [false; 4], // riichi_declared
+            vec![],     // legal_actions
+            vec![],     // events
+            0,          // honba
+            0,          // riichi_sticks
+            27,         // round_wind
+            0,          // oya
+            0,          // kyoku_index
+            vec![],     // waits
+            false,      // is_tenpai
+            [None; 4],  // riichi_sutehais
+            [None; 4],  // last_tedashis
+            None,       // last_discard
+        )
+    }
+
+    fn empty_melds() -> [Vec<Meld>; 4] {
+        [vec![], vec![], vec![], vec![]]
+    }
+
+    /// Helper: read a single value from the flat buffer at (ch, tile).
+    fn read_val(buf: &[f32], ch: usize, tile: usize) -> f32 {
+        buf[ch * 34 + tile]
+    }
+
+    #[test]
+    fn test_discard_decay_relative_order() {
+        // Player 0 discards tile 0 (1m), player 2 discards tile 36 (1p=tile_type 9)
+        let discards: [Vec<u8>; 4] = [vec![0], vec![], vec![36], vec![]];
+
+        // From player 0's perspective: rel_order = [0, 1, 2, 3]
+        // ch0=player0 (self), ch2=player2 (toimen)
+        let obs0 = make_obs(0, discards.clone(), empty_melds());
+        let mut buf0 = vec![0.0f32; 4 * 34];
+        obs0.encode_discard_decay_into(&mut buf0, 0);
+        assert!(read_val(&buf0, 0, 0) > 0.0, "ch0 should have player0's 1m");
+        assert!(read_val(&buf0, 2, 9) > 0.0, "ch2 should have player2's 1p");
+
+        // From player 2's perspective: rel_order = [2, 3, 0, 1]
+        // ch0=player2 (self), ch2=player0 (toimen)
+        let obs2 = make_obs(2, discards, empty_melds());
+        let mut buf2 = vec![0.0f32; 4 * 34];
+        obs2.encode_discard_decay_into(&mut buf2, 0);
+        assert!(
+            read_val(&buf2, 0, 9) > 0.0,
+            "ch0 should have player2's 1p (self)"
+        );
+        assert!(
+            read_val(&buf2, 2, 0) > 0.0,
+            "ch2 should have player0's 1m (toimen)"
+        );
+
+        // Self channel (ch0) for obs0 should match self channel (ch0) for obs2
+        // in that each has their own discards at channel 0
+        assert_eq!(read_val(&buf0, 0, 0), read_val(&buf2, 0, 9));
+    }
+
+    #[test]
+    fn test_shanten_relative_order() {
+        let discards: [Vec<u8>; 4] = [vec![0, 4], vec![8], vec![12, 16, 20], vec![]];
+
+        let obs0 = make_obs(0, discards.clone(), empty_melds());
+        let mut buf0 = vec![0.0f32; 16 * 34];
+        obs0.encode_shanten_into(&mut buf0, 0);
+
+        let obs2 = make_obs(2, discards, empty_melds());
+        let mut buf2 = vec![0.0f32; 16 * 34];
+        obs2.encode_shanten_into(&mut buf2, 0);
+
+        // For obs0: ch_idx=0 is self (player 0), turn_count channel at base_ch+3
+        // turn_count for player 0 = 2 discards
+        let obs0_self_turn = read_val(&buf0, 3, 0); // ch0*4+3=3, broadcast so tile=0
+        // For obs2: ch_idx=2 is toimen (player 0), turn_count channel at base_ch+3
+        let obs2_toimen_turn = read_val(&buf2, 2 * 4 + 3, 0); // ch8+3=11
+        assert!(
+            (obs0_self_turn - obs2_toimen_turn).abs() < 1e-6,
+            "Player 0's turn count should appear at ch0 for obs0 and ch2 for obs2"
+        );
+
+        // Self always at channel 0-3: self shanten should differ from opponent placeholder
+        let obs0_self_shanten = read_val(&buf0, 0, 0);
+        let obs0_shimocha_shanten = read_val(&buf0, 4, 0);
+        assert_eq!(obs0_shimocha_shanten, 0.5, "opponent shanten should be 0.5");
+        assert!(
+            (obs0_self_shanten - obs0_shimocha_shanten).abs() > 1e-6,
+            "obs0 self shanten should differ from opponent placeholder"
+        );
+
+        let obs2_self_shanten = read_val(&buf2, 0, 0);
+        let obs2_next_shanten = read_val(&buf2, 4, 0);
+        assert_eq!(obs2_next_shanten, 0.5, "opponent shanten should be 0.5");
+        assert!(
+            (obs2_self_shanten - obs2_next_shanten).abs() > 1e-6,
+            "obs2 self shanten should differ from opponent placeholder"
+        );
+    }
+
+    #[test]
+    fn test_ankan_relative_order() {
+        let mut melds = empty_melds();
+        // Player 1 has an ankan of 1m (tiles 0,1,2,3)
+        melds[1] = vec![Meld {
+            meld_type: MeldType::Ankan,
+            tiles: vec![0, 1, 2, 3],
+            opened: false,
+            from_who: 0,
+            called_tile: None,
+        }];
+
+        // From player 0: rel_order=[0,1,2,3], player1 is at ch_idx=1
+        let obs0 = make_obs(0, Default::default(), melds.clone());
+        let mut buf0 = vec![0.0f32; 4 * 34];
+        obs0.encode_ankan_into(&mut buf0, 0);
+        assert_eq!(
+            read_val(&buf0, 1, 0),
+            1.0,
+            "player1's ankan at ch1 for obs0"
+        );
+        assert_eq!(read_val(&buf0, 0, 0), 0.0, "ch0 (self) should be empty");
+
+        // From player 3: rel_order=[3,0,1,2], player1 is at ch_idx=2
+        let obs3 = make_obs(3, Default::default(), melds);
+        let mut buf3 = vec![0.0f32; 4 * 34];
+        obs3.encode_ankan_into(&mut buf3, 0);
+        assert_eq!(
+            read_val(&buf3, 2, 0),
+            1.0,
+            "player1's ankan at ch2 for obs3"
+        );
+        assert_eq!(read_val(&buf3, 1, 0), 0.0, "ch1 should be empty for obs3");
+    }
+
+    #[test]
+    fn test_fuuro_relative_order() {
+        let mut melds = empty_melds();
+        // Player 2 has a chi meld with tiles 0,4,8 (1m,2m,3m)
+        melds[2] = vec![Meld {
+            meld_type: MeldType::Chi,
+            tiles: vec![0, 4, 8],
+            opened: true,
+            from_who: 1,
+            called_tile: Some(0),
+        }];
+
+        // From player 0: rel_order=[0,1,2,3], player2 at ch_idx=2
+        let obs0 = make_obs(0, Default::default(), melds.clone());
+        let mut buf0 = vec![0.0f32; 80 * 34];
+        obs0.encode_fuuro_into(&mut buf0, 0);
+        // ch = ch_idx*20 + meld_idx*5 + tile_slot_idx = 2*20+0*5+0=40
+        assert_eq!(
+            read_val(&buf0, 40, 0),
+            1.0,
+            "player2 meld tile0 at ch40 for obs0"
+        );
+        assert_eq!(
+            read_val(&buf0, 41, 1),
+            1.0,
+            "player2 meld tile1 at ch41 for obs0"
+        );
+
+        // From player 1: rel_order=[1,2,3,0], player2 at ch_idx=1
+        let obs1 = make_obs(1, Default::default(), melds);
+        let mut buf1 = vec![0.0f32; 80 * 34];
+        obs1.encode_fuuro_into(&mut buf1, 0);
+        // ch = 1*20+0*5+0=20
+        assert_eq!(
+            read_val(&buf1, 20, 0),
+            1.0,
+            "player2 meld tile0 at ch20 for obs1"
+        );
+        assert_eq!(
+            read_val(&buf1, 21, 1),
+            1.0,
+            "player2 meld tile1 at ch21 for obs1"
+        );
+    }
+
+    #[test]
+    fn test_self_channel_always_first() {
+        // Verify that regardless of player_id, the self player's data is always at channel 0
+        let discards: [Vec<u8>; 4] = [vec![0], vec![4], vec![8], vec![12]];
+
+        for pid in 0..4u8 {
+            let obs = make_obs(pid, discards.clone(), empty_melds());
+            let mut buf = vec![0.0f32; 4 * 34];
+            obs.encode_discard_decay_into(&mut buf, 0);
+
+            // Channel 0 should contain the self player's discard
+            let self_tile_type = (discards[pid as usize][0] as usize) / 4;
+            assert!(
+                read_val(&buf, 0, self_tile_type) > 0.0,
+                "pid={}: ch0 should have self discard at tile_type {}",
+                pid,
+                self_tile_type
+            );
         }
     }
 }

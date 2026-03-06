@@ -110,7 +110,7 @@ In addition to the standard `encode()` method, RiichiEnv provides an alternative
 
 Returns a **(4, 34)** tensor where:
 - **Row 0**: Self discard history
-- **Rows 1-3**: Opponent discard history (in order)
+- **Rows 1-3**: Opponent discard history (in **relative seat order**: shimocha, toimen, kamicha)
 
 Each tile type accumulates weighted values from all discards of that type:
 
@@ -301,7 +301,7 @@ RiichiEnv provides shanten (deficiency number) calculation and tile efficiency f
 ### Method: `encode_shanten_efficiency()`
 
 Returns a **(4, 4)** tensor where:
-- **Dimension 0 (4)**: Player index (0=self, 1-3=opponents)
+- **Dimension 0 (4)**: Player index in **relative seat order** (0=self, 1=shimocha, 2=toimen, 3=kamicha)
 - **Dimension 1 (4)**: Feature type [shanten, effective_tiles, best_ukeire, turn_progress]
 
 Features:
@@ -310,7 +310,7 @@ Features:
 - **Best Ukeire (normalized /80)**: Maximum number of tiles that improve hand after optimal discard
 - **Turn Progress (normalized /18)**: Current turn number in the round
 
-Values for opponents (players 1-3) are set to 0.5 (unknown) since their hands are hidden.
+For opponents (relative seat indices 1-3), the hand-related features **shanten**, **effective_tiles**, and **best_ukeire** (dimension 1 indices 0-2) are set to 0.5 (unknown) since their hands are hidden. The **turn_progress** feature (dimension 1 index 3) remains observable and is filled with the actual normalized turn/discard count for all players.
 
 ### Usage
 
