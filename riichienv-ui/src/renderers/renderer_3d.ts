@@ -102,6 +102,44 @@ export class Renderer3D implements IRenderer {
         return topFace;
     }
 
+    /**
+     * Add a colored overlay to all visible faces of a 3D tile element.
+     */
+    private addTile3DOverlay(el: HTMLElement, color: string): void {
+        const topFace = el.querySelector('.tile-3d-top') as HTMLElement | null;
+        if (topFace) {
+            const ov = document.createElement('div');
+            Object.assign(ov.style, {
+                position: 'absolute',
+                top: '0',
+                left: '0',
+                width: '100%',
+                height: '100%',
+                backgroundColor: color,
+                pointerEvents: 'none',
+                borderRadius: '3px',
+                zIndex: '5',
+            });
+            topFace.appendChild(ov);
+        }
+        for (const cls of ['tile-3d-front', 'tile-3d-back', 'tile-3d-right', 'tile-3d-left']) {
+            const face = el.querySelector(`.${cls}`) as HTMLElement | null;
+            if (face) {
+                const ov = document.createElement('div');
+                Object.assign(ov.style, {
+                    position: 'absolute',
+                    top: '0',
+                    left: '0',
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: color,
+                    pointerEvents: 'none',
+                });
+                face.appendChild(ov);
+            }
+        }
+    }
+
     render(state: BoardState, debugPanel?: HTMLElement): void {
         const pc = state.playerCount;
 
@@ -676,42 +714,18 @@ export class Renderer3D implements IRenderer {
                 if (d.isTsumogiri) cell.classList.add('table-tile-tsumogiri');
 
                 const tileDepth = tw;
-                const topFace = this.setTile3D(cell, d.tile, tileDepth, faces);
+                this.setTile3D(cell, d.tile, tileDepth, faces);
 
-                // Tsumogiri: darken with black overlay on top face only
+                // Tsumogiri: darken with overlay on all faces
                 if (d.isTsumogiri) {
-                    const ov = document.createElement('div');
-                    Object.assign(ov.style, {
-                        position: 'absolute',
-                        top: '0',
-                        left: '0',
-                        width: '100%',
-                        height: '100%',
-                        backgroundColor: 'rgba(0, 0, 0, 0.35)',
-                        pointerEvents: 'none',
-                        borderRadius: '3px',
-                        zIndex: '5',
-                    });
-                    topFace.appendChild(ov);
+                    this.addTile3DOverlay(cell, 'rgba(0, 0, 0, 0.35)');
                 }
 
-                // Highlight (append to top face so it's at the correct Z level)
+                // Highlight dangerous tiles on all faces
                 if (activeWaits.size > 0) {
                     const normT = normalize(d.tile);
                     if (activeWaits.has(normT)) {
-                        const overlay = document.createElement('div');
-                        Object.assign(overlay.style, {
-                            position: 'absolute',
-                            top: '0',
-                            left: '0',
-                            width: '100%',
-                            height: '100%',
-                            backgroundColor: 'rgba(255, 0, 0, 0.4)',
-                            zIndex: '10',
-                            pointerEvents: 'none',
-                            borderRadius: '3px',
-                        });
-                        topFace.appendChild(overlay);
+                        this.addTile3DOverlay(cell, 'rgba(255, 0, 0, 0.4)');
                     }
                 }
 
@@ -799,21 +813,9 @@ export class Renderer3D implements IRenderer {
         player.hand.forEach((t) => {
             const tile = document.createElement('div');
             tile.className = 'opp-tile';
-            const topFace = this.setTile3D(tile, t, tw, faces);
+            this.setTile3D(tile, t, tw, faces);
             if (activeWaits.size > 0 && activeWaits.has(normalize(t))) {
-                const ov = document.createElement('div');
-                Object.assign(ov.style, {
-                    position: 'absolute',
-                    top: '0',
-                    left: '0',
-                    width: '100%',
-                    height: '100%',
-                    backgroundColor: 'rgba(255, 0, 0, 0.4)',
-                    zIndex: '10',
-                    pointerEvents: 'none',
-                    borderRadius: '3px',
-                });
-                topFace.appendChild(ov);
+                this.addTile3DOverlay(tile, 'rgba(255, 0, 0, 0.4)');
             }
             handDiv.appendChild(tile);
         });
@@ -831,21 +833,9 @@ export class Renderer3D implements IRenderer {
                 const rel = (m.from - playerIdx + pc) % pc;
                 const tiles = [...m.tiles];
 
-                const addWaitHighlight = (topFace: HTMLElement, t: string) => {
+                const addWaitHighlight = (tileEl: HTMLElement, t: string) => {
                     if (activeWaits.size > 0 && activeWaits.has(normalize(t))) {
-                        const ov = document.createElement('div');
-                        Object.assign(ov.style, {
-                            position: 'absolute',
-                            top: '0',
-                            left: '0',
-                            width: '100%',
-                            height: '100%',
-                            backgroundColor: 'rgba(255, 0, 0, 0.4)',
-                            zIndex: '10',
-                            pointerEvents: 'none',
-                            borderRadius: '3px',
-                        });
-                        topFace.appendChild(ov);
+                        this.addTile3DOverlay(tileEl, 'rgba(255, 0, 0, 0.4)');
                     }
                 };
 
@@ -854,8 +844,8 @@ export class Renderer3D implements IRenderer {
                         const tileId = i === 0 || i === 3 ? 'back' : t;
                         const d = document.createElement('div');
                         d.className = 'opp-tile';
-                        const topFace = this.setTile3D(d, tileId, tw, faces);
-                        addWaitHighlight(topFace, tileId);
+                        this.setTile3D(d, tileId, tw, faces);
+                        addWaitHighlight(d, tileId);
                         mGroup.appendChild(d);
                     });
                 } else {
@@ -865,15 +855,15 @@ export class Renderer3D implements IRenderer {
                     const addUpright = (t: string) => {
                         const d = document.createElement('div');
                         d.className = 'opp-tile';
-                        const topFace = this.setTile3D(d, t, tw, faces);
-                        addWaitHighlight(topFace, t);
+                        this.setTile3D(d, t, tw, faces);
+                        addWaitHighlight(d, t);
                         mGroup.appendChild(d);
                     };
                     const addRotated = (t: string) => {
                         const d = document.createElement('div');
                         d.className = 'opp-tile-rotated';
-                        const topFace = this.setTile3D(d, t, tw, faces);
-                        addWaitHighlight(topFace, t);
+                        this.setTile3D(d, t, tw, faces);
+                        addWaitHighlight(d, t);
                         mGroup.appendChild(d);
                     };
 
