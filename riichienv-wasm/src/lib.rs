@@ -173,4 +173,3 @@ pub fn mjai_to_tile_id(mjai: &str) -> Option<u8> {
 pub fn tile_id_to_mjai(tid: u8) -> String {
     tid_to_mjai(tid)
 }
-
