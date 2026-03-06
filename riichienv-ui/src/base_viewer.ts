@@ -23,15 +23,6 @@ export interface BaseViewerInit {
     config?: GameConfig;
 }
 
-export interface LayoutResult {
-    renderer: IRenderer;
-    contentWidth: number;
-    contentHeight: number;
-    viewAreaWidth: number;
-    viewAreaHeight: number;
-    sidebarStyle: 'column' | 'grid';
-}
-
 /**
  * Abstract base class shared by Viewer (2D) and Viewer3D.
  * Subclasses implement getLayoutInfo() and createRenderer() to configure the specific renderer.

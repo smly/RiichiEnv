@@ -34,7 +34,6 @@ export class Renderer2D implements IRenderer {
             `;
             document.head.appendChild(style);
         }
-        this.styleElement = style;
     }
 
     onViewpointChange: ((pIdx: number) => void) | null = null;
