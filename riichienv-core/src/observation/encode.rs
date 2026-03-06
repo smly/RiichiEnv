@@ -589,11 +589,11 @@ mod tests {
     use super::*;
     use crate::types::Meld;
 
-    /// Build a minimal Observation with given player_id, discards, and melds.
-    fn make_obs(player_id: u8, discards: [Vec<u32>; 4], melds: [Vec<Meld>; 4]) -> Observation {
-        Observation {
+    /// Build a minimal Observation via the public constructor.
+    fn make_obs(player_id: u8, discards: [Vec<u8>; 4], melds: [Vec<Meld>; 4]) -> Observation {
+        Observation::new(
             player_id,
-            hands: [
+            [
                 vec![0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48],
                 vec![1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49],
                 vec![2, 6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46, 50],
@@ -601,24 +601,22 @@ mod tests {
             ],
             melds,
             discards,
-            dora_indicators: vec![],
-            scores: [25000; 4],
-            riichi_declared: [false; 4],
-            _legal_actions: vec![],
-            events: vec![],
-            cached_progression: None,
-            honba: 0,
-            riichi_sticks: 0,
-            round_wind: 27,
-            oya: 0,
-            kyoku_index: 0,
-            waits: vec![],
-            is_tenpai: false,
-            tsumogiri_flags: Default::default(),
-            riichi_sutehais: [None; 4],
-            last_tedashis: [None; 4],
-            last_discard: None,
-        }
+            vec![],        // dora_indicators
+            [25000; 4],    // scores
+            [false; 4],    // riichi_declared
+            vec![],        // legal_actions
+            vec![],        // events
+            0,             // honba
+            0,             // riichi_sticks
+            27,            // round_wind
+            0,             // oya
+            0,             // kyoku_index
+            vec![],        // waits
+            false,         // is_tenpai
+            [None; 4],     // riichi_sutehais
+            [None; 4],     // last_tedashis
+            None,          // last_discard
+        )
     }
 
     fn empty_melds() -> [Vec<Meld>; 4] {
@@ -633,7 +631,7 @@ mod tests {
     #[test]
     fn test_discard_decay_relative_order() {
         // Player 0 discards tile 0 (1m), player 2 discards tile 36 (1p=tile_type 9)
-        let discards: [Vec<u32>; 4] = [vec![0], vec![], vec![36], vec![]];
+        let discards: [Vec<u8>; 4] = [vec![0], vec![], vec![36], vec![]];
 
         // From player 0's perspective: rel_order = [0, 1, 2, 3]
         // ch0=player0 (self), ch2=player2 (toimen)
@@ -664,7 +662,7 @@ mod tests {
 
     #[test]
     fn test_shanten_relative_order() {
-        let discards: [Vec<u32>; 4] = [vec![0, 4], vec![8], vec![12, 16, 20], vec![]];
+        let discards: [Vec<u8>; 4] = [vec![0, 4], vec![8], vec![12, 16, 20], vec![]];
 
         let obs0 = make_obs(0, discards.clone(), empty_melds());
         let mut buf0 = vec![0.0f32; 16 * 34];
@@ -785,7 +783,7 @@ mod tests {
     #[test]
     fn test_self_channel_always_first() {
         // Verify that regardless of player_id, the self player's data is always at channel 0
-        let discards: [Vec<u32>; 4] = [vec![0], vec![4], vec![8], vec![12]];
+        let discards: [Vec<u8>; 4] = [vec![0], vec![4], vec![8], vec![12]];
 
         for pid in 0..4u8 {
             let obs = make_obs(pid, discards.clone(), empty_melds());
@@ -793,7 +791,7 @@ mod tests {
             obs.encode_discard_decay_into(&mut buf, 0);
 
             // Channel 0 should contain the self player's discard
-            let self_tile_type = (discards[pid as usize][0] / 4) as usize;
+            let self_tile_type = (discards[pid as usize][0] as usize) / 4;
             assert!(
                 read_val(&buf, 0, self_tile_type) > 0.0,
                 "pid={}: ch0 should have self discard at tile_type {}",
