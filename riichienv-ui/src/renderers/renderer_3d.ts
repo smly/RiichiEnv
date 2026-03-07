@@ -1150,14 +1150,14 @@ export class Renderer3D implements IRenderer {
         const pc = state.playerCount;
         const panelPositions4P: { [key: number]: { [k: string]: string } } = {
             0: { bottom: '130px', left: '25%', transform: 'translateX(-50%)' },
-            1: { right: '50px', top: '45%', transform: 'translateY(-50%)' },
-            2: { top: '100px', right: '380px' },
-            3: { left: '100px', top: '120px' },
+            1: { right: '20px', top: 'calc(45% - 70px)', transform: 'translateY(-50%)' },
+            2: { top: '100px', right: '350px' },
+            3: { left: '40px', top: '120px' },
         };
         const panelPositions3P: { [key: number]: { [k: string]: string } } = {
             0: { bottom: '130px', left: '25%', transform: 'translateX(-50%)' },
-            1: { right: '50px', top: '45%', transform: 'translateY(-50%)' },
-            2: { top: '100px', right: '380px' },
+            1: { right: '20px', top: 'calc(45% - 70px)', transform: 'translateY(-50%)' },
+            2: { top: '100px', right: '350px' },
         };
         const panelPositions = pc === 3 ? panelPositions3P : panelPositions4P;
         const pos = panelPositions[relIndex] || panelPositions[0];
@@ -1294,13 +1294,13 @@ export class Renderer3D implements IRenderer {
         // Position near each player's panel on UI overlay
         const waitPositions4P: { [key: number]: { [k: string]: string } } = {
             0: { bottom: '110px', left: '40%' },
-            1: { right: '50px', top: '55%' },
+            1: { right: '50px', top: 'calc(55% - 60px)' },
             2: { top: '55px', right: '380px' },
             3: { left: '70px', top: '30%' },
         };
         const waitPositions3P: { [key: number]: { [k: string]: string } } = {
             0: { bottom: '110px', left: '40%' },
-            1: { right: '50px', top: '55%' },
+            1: { right: '50px', top: 'calc(55% - 60px)' },
             2: { top: '55px', right: '380px' },
         };
         const waitPositions = pc === 3 ? waitPositions3P : waitPositions4P;
