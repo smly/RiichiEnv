@@ -221,13 +221,10 @@ export class Renderer3D implements IRenderer {
             const river = this.renderRiver3D(p.discards, relIndex, state, i, activeWaits);
             tableInner.appendChild(river);
 
-            // Opponent hand + melds on table (skip viewpoint player's hand, but render melds)
+            // Opponent hand + melds on table (skip viewpoint player)
             if (relIndex !== 0) {
                 const oppHand = this.renderOpponentHandArea(p, i, relIndex, pc, activeWaits);
                 tableInner.appendChild(oppHand);
-            } else if (p.melds.length > 0) {
-                const ownMelds = this.renderOwnMeldsOnTable(p, i, pc);
-                tableInner.appendChild(ownMelds);
             }
         });
 
@@ -247,6 +244,53 @@ export class Renderer3D implements IRenderer {
             handLayer.appendChild(handEl);
         }
         sceneFrag.appendChild(handLayer);
+
+        // 4b. Own melds layer (above hand gradient, same 3D perspective as table)
+        if (vpPlayer && vpPlayer.melds.length > 0) {
+            const meldPerspective = document.createElement('div');
+            meldPerspective.className = 'table-perspective';
+            Object.assign(meldPerspective.style, {
+                perspective: `${this.layout.perspective}px`,
+                perspectiveOrigin: '50% 40%',
+                position: 'absolute',
+                top: '0',
+                left: '0',
+                width: '100%',
+                height: '100%',
+                zIndex: '25',
+                pointerEvents: 'none',
+            });
+
+            const meldSurface = document.createElement('div');
+            meldSurface.className = 'table-surface';
+            const meldSurfaceSize = this.layout.tableSize + 76 * 2;
+            Object.assign(meldSurface.style, {
+                width: `${meldSurfaceSize}px`,
+                height: `${meldSurfaceSize}px`,
+                top: tableTop,
+                transform: `translate(-50%, -50%) rotateX(${this.layout.tiltAngle}deg)`,
+                background: 'none',
+                border: 'none',
+                boxShadow: 'none',
+            });
+
+            const meldInner = document.createElement('div');
+            Object.assign(meldInner.style, {
+                position: 'absolute',
+                top: '76px',
+                left: '76px',
+                right: '76px',
+                bottom: '76px',
+                transformStyle: 'preserve-3d',
+            });
+
+            const ownMelds = this.renderOwnMeldsOnTable(vpPlayer, this.viewpoint, pc);
+            ownMelds.style.pointerEvents = 'auto';
+            meldInner.appendChild(ownMelds);
+            meldSurface.appendChild(meldInner);
+            meldPerspective.appendChild(meldSurface);
+            sceneFrag.appendChild(meldPerspective);
+        }
 
         // 5. Build Layer 3: UI Overlay
         const uiOverlay = document.createElement('div');
