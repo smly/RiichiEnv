@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 
 use riichienv_core::hand_evaluator::HandEvaluator;
+use riichienv_core::hand_evaluator_3p::HandEvaluator3P;
 use riichienv_core::parser::{mjai_to_tid, tid_to_mjai};
 use riichienv_core::types::{Conditions, Meld, MeldType, Wind};
 
@@ -138,14 +139,15 @@ pub fn calc_score(
         .map_err(|e| JsValue::from_str(&format!("Failed to parse conditions: {}", e)))?;
 
     let melds: Vec<Meld> = meld_inputs.iter().map(|m| m.to_meld()).collect();
-    let evaluator = HandEvaluator::new(tiles, melds);
+    let conditions = cond_input.to_conditions();
 
-    let result = evaluator.calc(
-        win_tile,
-        dora_indicators,
-        ura_indicators,
-        Some(cond_input.to_conditions()),
-    );
+    let result = if cond_input.is_sanma {
+        let evaluator = HandEvaluator3P::new(tiles, melds);
+        evaluator.calc(win_tile, dora_indicators, ura_indicators, Some(conditions))
+    } else {
+        let evaluator = HandEvaluator::new(tiles, melds);
+        evaluator.calc(win_tile, dora_indicators, ura_indicators, Some(conditions))
+    };
 
     let score = ScoreResult {
         is_win: result.is_win,
