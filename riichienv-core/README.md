@@ -18,11 +18,10 @@ This is the core engine behind [RiichiEnv](https://github.com/smly/RiichiEnv), a
 
 ## Usage
 
-Add to your `Cargo.toml`:
+Add the crate with Cargo:
 
-```toml
-[dependencies]
-riichienv-core = "0.3"
+```bash
+cargo add riichienv-core
 ```
 
 ### Hand evaluation

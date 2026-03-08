@@ -46,16 +46,16 @@ The `riichienv-core` crate uses feature flags to control optional dependencies a
 
 | Feature | Description |
 |---|---|
-| `default` | Enables `flate2` (gzip) and `ndarray` — standard desktop/server builds |
-| `python` | Enables PyO3 bindings (`#[pyclass]`, `#[pymethods]`, etc.) + `flate2`/`ndarray` |
+| `default` | Enables `flate2` (gzip) — standard desktop/server builds |
+| `python` | Enables PyO3 bindings (`#[pyclass]`, `#[pymethods]`, etc.) + `flate2` |
 | `wasm` | Marker feature for WASM builds (no additional deps) |
-| *(no default features)* | Minimal pure Rust library — no `flate2`/`ndarray`/PyO3 |
+| *(no default features)* | Minimal pure Rust library — no `flate2`/PyO3 |
 
-`default = ["dep:flate2", "dep:ndarray"]` — standard builds include gzip and ndarray support.
+`default = ["dep:flate2"]` — standard builds include gzip support.
 
 The `riichienv-python` crate depends on `riichienv-core` with the `python` feature enabled, and adds the `extension-module` feature for maturin builds (configured in `pyproject.toml` under `[tool.maturin]`).
 
-The `riichienv-wasm` crate depends on `riichienv-core` with `default-features = false, features = ["wasm"]` to exclude desktop-only dependencies (`flate2`, `ndarray`).
+The `riichienv-wasm` crate depends on `riichienv-core` with `default-features = false, features = ["wasm"]` to disable optional gzip/Python bindings.
 
 ## Rust Development
 
@@ -183,8 +183,8 @@ wasm-pack build riichienv-wasm --target web
 ### Notes
 
 - `.cargo/config.toml` contains `getrandom_backend = "wasm_js"` rustflag for `wasm32-unknown-unknown` target.
-- `riichienv-core` is used with `default-features = false, features = ["wasm"]` to exclude `flate2`/`ndarray`.
-- The `riichienv-wasm` crate exposes functions via `wasm-bindgen`: `calc_waits`, `calc_shanten`, `calc_score`, `mjai_to_tile_id`, `tile_id_to_mjai`, `is_tenpai`.
+- `riichienv-core` is used with `default-features = false, features = ["wasm"]` to disable optional `flate2`.
+- The `riichienv-wasm` crate exposes functions via `wasm-bindgen`: `calc_waits`, `calc_score`, `mjai_to_tile_id`, `tile_id_to_mjai`.
 
 ## UI Development
 
