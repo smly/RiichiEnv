@@ -100,8 +100,9 @@ impl Observation3P {
     pub fn mask_method<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
         let size = ActionEncoder::ThreePlayer.action_space_size();
         let mut mask = vec![0u8; size];
+        let encoder = ActionEncoder::ThreePlayer;
         for action in &self._legal_actions {
-            if let Ok(idx) = action.encode()
+            if let Ok(idx) = encoder.encode(action)
                 && (idx as usize) < mask.len()
             {
                 mask[idx as usize] = 1;
