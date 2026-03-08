@@ -506,6 +506,21 @@ describe('GameState', () => {
             expect(state.players[0].kitaCount).toBe(1);
         });
 
+        it('should increment kitaCount even when N is not in reconstructed hand', () => {
+            const tehais = Array(3)
+                .fill(null)
+                .map(() => ['1m', '9m', '1p', '9p', '1s', '9s', 'E', 'S', 'W', 'P', 'F', 'C', '1m']);
+            const config = createGameConfig3P();
+            const events: MjaiEvent[] = [
+                makeStartKyoku({ tehais, scores: [35000, 35000, 35000] }),
+                { type: 'kita', actor: 0 },
+            ];
+            const gs = new GameState(events, config);
+            gs.jumpTo(events.length);
+            const state = gs.getState();
+            expect(state.players[0].kitaCount).toBe(1);
+        });
+
         it('should set afterKan for rinshan draw', () => {
             const tehais = Array(3)
                 .fill(null)

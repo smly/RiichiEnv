@@ -287,11 +287,13 @@ class MetadataInjector:
 
             elif etype == "kita":
                 assert actor is not None
-                # Remove N tile from hand
+                # Always count kita for scoring context, even if hand reconstruction misses N.
+                self.kita_count[actor] += 1
+
+                # Remove N tile from hand when available (for fully-observed logs).
                 tid = self._get_matching_tid(self.hands[actor], "N")
                 if tid in self.hands[actor]:
                     self.hands[actor].remove(tid)
-                    self.kita_count[actor] += 1
                 else:
                     warnings.warn(f"kita: N tile not found in player {actor} hand", stacklevel=2)
                 self.is_rinshan = True
