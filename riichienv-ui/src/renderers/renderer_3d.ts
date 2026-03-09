@@ -217,9 +217,13 @@ export class Renderer3D implements IRenderer {
                 });
             }
         });
-        const dangerWaitsByPlayer = ownWaitsByPlayer.map((ownWaits) => {
-            const dangerWaits = new Set(activeWaits);
-            ownWaits.forEach((w) => dangerWaits.delete(w));
+        const dangerWaitsByPlayer = ownWaitsByPlayer.map((_, idx) => {
+            const dangerWaits = new Set<string>();
+            ownWaitsByPlayer.forEach((waits, otherIdx) => {
+                if (otherIdx !== idx) {
+                    waits.forEach((w) => dangerWaits.add(w));
+                }
+            });
             return dangerWaits;
         });
 
