@@ -231,6 +231,35 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_ryukyoku_deltas_are_reset_each_round_4p() {
+        use serde_json::Value;
+
+        let mut state = create_test_state(2);
+
+        state.players[0].score_delta = 2300;
+        state.players[1].score_delta = -2300;
+        state.players[2].score_delta = 0;
+        state.players[3].score_delta = 0;
+
+        state._initialize_round(0, 0, 0, 0, None, None);
+        state._trigger_ryukyoku("sufuurenta");
+
+        let v: Value = state
+            .mjai_log
+            .iter()
+            .rev()
+            .find_map(|s| {
+                let ev: Value = serde_json::from_str(s).ok()?;
+                (ev["type"] == "ryukyoku").then_some(ev)
+            })
+            .expect("ryukyoku event should be logged");
+        assert_eq!(v["reason"], "sufuurenta");
+
+        let deltas: Vec<i32> = serde_json::from_value(v["deltas"].clone()).expect("deltas");
+        assert_eq!(deltas, vec![0, 0, 0, 0]);
+    }
+
+    #[test]
     fn test_is_tenpai() {
         use crate::hand_evaluator::HandEvaluator;
         // 111,222,333m, 444p, 11s (Tenpai on 1s)
@@ -824,6 +853,34 @@ mod unit_tests {
             2000,
             "Sanma tenpai pool should be 2000"
         );
+    }
+
+    #[test]
+    fn test_ryukyoku_deltas_are_reset_each_round_3p() {
+        use serde_json::Value;
+
+        let mut state = create_sanma_test_state(5);
+
+        state.players[0].score_delta = 2300;
+        state.players[1].score_delta = -2300;
+        state.players[2].score_delta = 0;
+
+        state._initialize_round(0, 0, 0, 0, None, None);
+        state._trigger_ryukyoku("suukansansen");
+
+        let v: Value = state
+            .mjai_log
+            .iter()
+            .rev()
+            .find_map(|s| {
+                let ev: Value = serde_json::from_str(s).ok()?;
+                (ev["type"] == "ryukyoku").then_some(ev)
+            })
+            .expect("ryukyoku event should be logged");
+        assert_eq!(v["reason"], "suukansansen");
+
+        let deltas: Vec<i32> = serde_json::from_value(v["deltas"].clone()).expect("deltas");
+        assert_eq!(deltas, vec![0, 0, 0]);
     }
 
     // ========== Action Encode Tests (4P/3P) ==========

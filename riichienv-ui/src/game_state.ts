@@ -684,11 +684,13 @@ export class GameState {
             case 'kita':
                 if (e.actor !== undefined) {
                     const p = this.current.players[e.actor];
-                    // Remove 'N' tile from hand
+                    // Always count kita for scoring context, even if hand reconstruction misses N.
+                    p.kitaCount++;
+
+                    // Remove 'N' tile from hand when available (fully-observed logs).
                     const idx = p.hand.indexOf('N');
                     if (idx >= 0) {
                         p.hand.splice(idx, 1);
-                        p.kitaCount++;
                     } else {
                         console.warn('[GameState] Kita: Could not find N tile in hand for player', e.actor);
                     }

@@ -67,6 +67,7 @@ impl PlayerState3P {
         self.forbidden_discards.clear();
         self.mjai_log.clear();
         self.kita_tiles.clear();
+        self.score_delta = 0;
         self.pao.clear();
     }
 }

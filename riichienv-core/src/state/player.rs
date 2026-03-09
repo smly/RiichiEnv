@@ -67,6 +67,7 @@ impl PlayerState {
         self.forbidden_discards.clear();
         self.mjai_log.clear();
         self.kita_tiles.clear();
+        self.score_delta = 0;
         // pao is usually cleared? Original code: self.pao = [HashMap::new(); 4]; in _initialize_round
         self.pao.clear();
     }
