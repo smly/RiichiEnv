@@ -849,8 +849,7 @@ export class GameState {
                                                     e2.actor === target
                                                 ) {
                                                     // ankan has no pai field; use consumed[0]
-                                                    res.winningTile =
-                                                        e2.pai ?? e2.consumed?.[0];
+                                                    res.winningTile = e2.pai ?? e2.consumed?.[0];
                                                     found = true;
                                                     break;
                                                 }
