@@ -1,6 +1,6 @@
 {
   "name": "riichienv-ui",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Replay viewer and live game visualizer for RiichiEnv",
   "main": "dist/viewer.js",
   "module": "dist/viewer.esm.js",

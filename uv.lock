@@ -2624,7 +2624,7 @@ wheels = [
 
 [[package]]
 name = "riichienv"
-version = "0.4.2"
+version = "0.4.3"
 source = { editable = "." }
 dependencies = [
     { name = "ipython" },
@@ -2661,7 +2661,7 @@ dev = [
 
 [[package]]
 name = "riichienv-ml"
-version = "0.4.2"
+version = "0.4.3"
 source = { editable = "riichienv-ml" }
 dependencies = [
     { name = "dotenv" },

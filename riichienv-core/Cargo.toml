@@ -1,6 +1,6 @@
 [package]
 name = "riichienv-core"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 license = "Apache-2.0"
 description = "Japanese Mahjong (Riichi) game engine with MJAI protocol support"
