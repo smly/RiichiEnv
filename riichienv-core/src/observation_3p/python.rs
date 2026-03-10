@@ -166,6 +166,7 @@ impl Observation3P {
             "kakan" => Some(crate::action::ActionType::Kakan),
             "daiminkan" => Some(crate::action::ActionType::Daiminkan),
             "ankan" => Some(crate::action::ActionType::Ankan),
+            "kita" => Some(crate::action::ActionType::Kita),
             "reach" => Some(crate::action::ActionType::Riichi),
             "hora" => None,
             "ryukyoku" => Some(crate::action::ActionType::KyushuKyuhai),
