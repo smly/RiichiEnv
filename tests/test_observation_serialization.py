@@ -80,6 +80,63 @@ class TestObservationSerialization:
             _assert_obs_fields_equal(obs, restored)
             _assert_legal_actions_equal(obs, restored)
 
+    def test_round_trip_preserves_incremental_events_for_same_player(self):
+        """Serialized observations should preserve per-player unseen-event deltas."""
+        env = RiichiEnv(seed=9)
+        obs_dict = env.reset()
+
+        hands = env.hands
+        hands[1] = []
+        hands[2] = []
+        hands[3] = []
+        env.hands = hands
+
+        dealer_obs = obs_dict[0]
+        assert [event["type"] for event in dealer_obs.events] == [
+            "start_game",
+            "start_kyoku",
+            "tsumo",
+        ]
+
+        discard = dealer_obs.hand[0]
+        obs_dict = env.step({0: Action(ActionType.Discard, tile=discard)})
+
+        for pid in [1, 2, 3]:
+            obs = obs_dict[pid]
+            discard = obs.hand[0]
+            obs_dict = env.step({pid: Action(ActionType.Discard, tile=discard)})
+            if env.phase == Phase.WaitResponse:
+                obs_dict = env.step(
+                    {player: Action(ActionType.Pass) for player in env.active_players}
+                )
+
+        dealer_obs_2 = obs_dict[0]
+        assert [event["type"] for event in dealer_obs_2.events] == [
+            "dahai",
+            "tsumo",
+            "dahai",
+            "tsumo",
+            "dahai",
+            "tsumo",
+            "dahai",
+            "tsumo",
+        ]
+
+        restored = Observation.deserialize_from_base64(
+            dealer_obs_2.serialize_to_base64()
+        )
+        assert [event["type"] for event in restored.events] == [
+            "dahai",
+            "tsumo",
+            "dahai",
+            "tsumo",
+            "dahai",
+            "tsumo",
+            "dahai",
+            "tsumo",
+        ]
+        assert restored.new_events() == dealer_obs_2.new_events()
+
     def test_invalid_base64_raises(self):
         """Invalid base64 input must raise ValueError."""
         with pytest.raises(ValueError):
