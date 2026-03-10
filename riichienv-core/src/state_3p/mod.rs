@@ -1498,6 +1498,22 @@ impl GameState3P {
             return;
         }
 
+        let dealer_score = self.players[self.oya as usize].score;
+        let dealer_is_top = self.players.iter().enumerate().all(|(seat, player)| {
+            seat == self.oya as usize
+                || dealer_score > player.score
+                || (dealer_score == player.score && self.oya as usize <= seat)
+        });
+        let is_last_regular_round = match self.game_mode {
+            4 => self.round_wind == 0 && self.oya == np - 1,
+            5 => self.round_wind == 1 && self.oya == np - 1,
+            _ => false,
+        };
+        if oya_won && is_last_regular_round && dealer_is_top && dealer_score >= 40000 {
+            self._process_end_game();
+            return;
+        }
+
         let mut next_honba = self.honba;
         let mut next_oya = self.oya;
         let mut next_round_wind = self.round_wind;
@@ -1522,7 +1538,7 @@ impl GameState3P {
             4 => {
                 // 3p-red-east
                 let max_score = self.players.iter().map(|p| p.score).max().unwrap_or(0);
-                if next_round_wind >= 1 && (max_score >= 30000 || next_round_wind > 1) {
+                if next_round_wind >= 1 && (max_score >= 40000 || next_round_wind > 1) {
                     self._process_end_game();
                     return;
                 }
@@ -1530,7 +1546,7 @@ impl GameState3P {
             5 => {
                 // 3p-red-half
                 let max_score = self.players.iter().map(|p| p.score).max().unwrap_or(0);
-                if next_round_wind >= 2 && (max_score >= 30000 || next_round_wind > 2) {
+                if next_round_wind >= 2 && (max_score >= 40000 || next_round_wind > 2) {
                     self._process_end_game();
                     return;
                 }

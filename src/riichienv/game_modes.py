@@ -79,8 +79,13 @@ class StandardGameMode(GameMode):
             if is_midway_draw:
                 return False  # No yame on abortive draws
 
-            # Agari-yame / Tenpai-yame logic if oya is 1st and >= target_score
-            if is_last_round or current_field > self.end_field:
+            # In the final scheduled round, the dealer automatically stops only when
+            # top and above the return-score threshold.
+            if is_last_round and env.ranks()[current_oya] == 1 and scores[current_oya] >= self.target_score:
+                return True
+
+            # In extra rounds, preserve the existing sudden-death requirement.
+            if current_field > self.end_field:
                 # Rank 1 is the top player (indices are 1-based)
                 if env.ranks()[current_oya] == 1 and scores[current_oya] >= self.target_score:
                     return True
@@ -132,9 +137,9 @@ def get_game_mode(game_type: GameType) -> GameMode:
     elif game_type == GameType.YON_TONPUSEN:
         return TonpuuGameMode(tobi=True)
     elif game_type == GameType.SAN_TONPUSEN:
-        return TonpuuGameMode(tobi=False)  # Example: San-nin might have different default
+        return TonpuuGameMode(target_score=40000, tobi=False)  # Sanma: 35000 start / 40000 return
     elif game_type == GameType.YON_HANCHAN:
         return HanchanGameMode(tobi=True)
     elif game_type == GameType.SAN_HANCHAN:
-        return HanchanGameMode(tobi=False)
+        return HanchanGameMode(target_score=40000, tobi=False)
     return OneKyokuGameMode(target_score=0, tobi=True)

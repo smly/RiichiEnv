@@ -59,8 +59,8 @@ while not env.done():
                for player_id, obs in obs_dict.items()}
     obs_dict = env.step(actions)
 
-scores, points, ranks = env.scores(), env.points(), env.ranks()
-print(scores, points, ranks)
+scores, ranks = env.scores(), env.ranks()
+print(scores, ranks)
 ```
 
 `env.reset()` initializes the game state and returns the initial observations. The returned `obs_dict` maps each active player ID to their respective `Observation` object.
@@ -86,7 +86,7 @@ By default, the environment runs a single round (kyoku). For game rules supporti
 
 The `Observation` object provides all relevant information to a player, including the current game state and available legal actions.
 
-`obs.new_events() -> list[str]` returns a list of new events since the last step, encoded as JSON strings in the MJAI protocol. The full history of events is accessible via `obs.events`.
+`obs.new_events() -> list[str]` returns a list of MJAI JSON events that are new for that player since their previous observation. On a player's first observation in a hand, this can include `start_game`, `start_kyoku`, and earlier events from the hand. The full history for that observation window is accessible via `obs.events`.
 
 ```python
 >>> obs = obs_dict[0]
@@ -138,7 +138,7 @@ while not env.done():
     actions = {pid: agents[pid].act(obs) for pid, obs in obs_dict.items()}
     obs_dict = env.step(actions)
 
-print(env.scores(), env.points(), env.ranks())
+print(env.scores(), env.ranks())
 ```
 
 ### Game Rules and Modes

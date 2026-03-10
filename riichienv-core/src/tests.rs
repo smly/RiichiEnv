@@ -407,6 +407,21 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_oyayame_requires_target_in_orasu_4p() {
+        let mut state = create_test_state(2);
+        state.round_wind = 1;
+        state.oya = 3;
+        state.players[0].score = 28900;
+        state.players[1].score = 20000;
+        state.players[2].score = 20100;
+        state.players[3].score = 29000;
+
+        state._initialize_next_round(true, false);
+
+        assert!(!state.is_done, "Game should continue if the orasu dealer is top but below 30000");
+    }
+
+    #[test]
     fn test_apply_mjai_event_honor_and_red_tiles() {
         use crate::replay::MjaiEvent;
 
@@ -693,6 +708,23 @@ mod unit_tests {
         assert_eq!(game_mode::num_players(), 3);
         assert_eq!(game_mode::starting_score(), 35000);
         assert_eq!(game_mode::tenpai_pool(), 2000);
+    }
+
+    #[test]
+    fn test_oyayame_requires_target_in_orasu_3p() {
+        let mut state = create_sanma_test_state(5);
+        state.round_wind = 1;
+        state.oya = 2;
+        state.players[0].score = 34900;
+        state.players[1].score = 34000;
+        state.players[2].score = 35100;
+
+        state._initialize_next_round(true, false);
+
+        assert!(
+            !state.is_done,
+            "Sanma should continue if the final dealer is top but below 40000"
+        );
     }
 
     #[test]

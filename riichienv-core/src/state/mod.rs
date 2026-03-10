@@ -1594,6 +1594,22 @@ impl GameState {
             return;
         }
 
+        let dealer_score = self.players[self.oya as usize].score;
+        let dealer_is_top = self.players.iter().enumerate().all(|(seat, player)| {
+            seat == self.oya as usize
+                || dealer_score > player.score
+                || (dealer_score == player.score && self.oya as usize <= seat)
+        });
+        let is_last_regular_round = match self.game_mode {
+            1 | 4 => self.round_wind == 0 && self.oya == np - 1,
+            2 | 5 => self.round_wind == 1 && self.oya == np - 1,
+            _ => false,
+        };
+        if oya_won && is_last_regular_round && dealer_is_top && dealer_score >= 30000 {
+            self._process_end_game();
+            return;
+        }
+
         let mut next_honba = self.honba;
         let mut next_oya = self.oya;
         let mut next_round_wind = self.round_wind;

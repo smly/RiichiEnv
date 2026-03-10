@@ -66,3 +66,17 @@ def test_oyayame_tiebreak_last_round():
 
     assert env.ranks()[3] == 1
     assert rule.is_game_over(env, is_renchan=True) is True
+
+
+def test_oyayame_last_round_requires_target_score():
+    rule = StandardGameMode(target_score=30000, end_field=1, max_extension_field=2)
+
+    env = helper_setup_env(
+        oya=3,
+        round_wind=1,  # South
+        points=[28900, 20000, 20100, 29000],
+    )
+
+    assert env.ranks()[3] == 1
+    assert env.scores()[3] < 30000
+    assert rule.is_game_over(env, is_renchan=True) is False
