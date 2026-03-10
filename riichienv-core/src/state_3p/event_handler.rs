@@ -19,6 +19,7 @@ impl GameState3PEventHandler for GameState3P {
         match event {
             MjaiEvent::StartKyoku {
                 bakaze,
+                kyoku,
                 honba,
                 kyoutaku,
                 scores,
@@ -27,11 +28,10 @@ impl GameState3PEventHandler for GameState3P {
                 oya,
                 ..
             } => {
+                // Replay starts before the dealer's opening draw.
+                // Keep a placeholder wall sized to that pre-tsumo state.
                 self.honba = honba;
                 self.riichi_sticks = kyoutaku as u32;
-                self.players.iter_mut().enumerate().for_each(|(i, p)| {
-                    p.score = scores[i];
-                });
                 self.round_wind = match bakaze.as_str() {
                     "E" => Wind::East as u8,
                     "S" => Wind::South as u8,
@@ -40,8 +40,43 @@ impl GameState3PEventHandler for GameState3P {
                     _ => Wind::East as u8,
                 };
                 self.oya = oya;
+                self.kyoku_idx = kyoku.saturating_sub(1);
+                self.current_player = self.oya;
+                self.turn_count = 0;
+                self.is_done = false;
+                self.needs_tsumo = true;
+                self.needs_initialize_next_round = false;
+                self.pending_oya_won = false;
+                self.pending_is_draw = false;
+                self.phase = Phase::WaitAct;
+                self.active_players.clear();
+                self.last_discard = None;
+                self.current_claims.clear();
+                self.pending_kan = None;
+                self.is_rinshan_flag = false;
+                self.is_first_turn = true;
+                self.riichi_pending_acceptance = None;
+                self.drawn_tile = None;
+                self.win_results.clear();
+                self.last_win_results.clear();
+                self.round_end_scores = None;
+                self.last_error = None;
+                self.is_after_kan = false;
+                self.riichi_sutehais = [None; 3];
+                self.last_tedashis = [None; 3];
+                self.wall.tiles = vec![0; 108 - 13 * 3];
                 self.wall.dora_indicators = vec![parse_mjai_tile(&dora_marker)];
+                self.wall.rinshan_draw_count = 0;
+                self.wall.pending_kan_dora_count = 0;
+                self.wall.wall_digest.clear();
+                self.wall.salt.clear();
 
+                for p in &mut self.players {
+                    p.reset_round();
+                }
+                self.players.iter_mut().enumerate().for_each(|(i, p)| {
+                    p.score = scores[i];
+                });
                 for (i, hand_strs) in tehais.iter().enumerate() {
                     let mut hand = Vec::new();
                     for tile_str in hand_strs {
@@ -50,17 +85,6 @@ impl GameState3PEventHandler for GameState3P {
                     hand.sort();
                     self.players[i].hand = hand;
                 }
-
-                for p in &mut self.players {
-                    p.discards.clear();
-                    p.melds.clear();
-                    p.riichi_declared = false;
-                    p.riichi_stage = false;
-                }
-                self.drawn_tile = None;
-                self.current_player = self.oya;
-                self.needs_tsumo = true;
-                self.is_done = false;
             }
             MjaiEvent::Tsumo { actor, pai } => {
                 let tile = parse_mjai_tile(&pai);

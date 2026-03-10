@@ -573,6 +573,103 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_apply_mjai_event_start_kyoku_resets_pre_tsumo_wall_4p() {
+        use crate::replay::MjaiEvent;
+
+        let mut state =
+            crate::state::GameState::new(2, true, None, 0, crate::rule::GameRule::default());
+
+        assert_eq!(
+            state.wall.tiles.len(),
+            83,
+            "fresh state should start post-tsumo"
+        );
+
+        state.apply_mjai_event(MjaiEvent::StartKyoku {
+            bakaze: "E".to_string(),
+            kyoku: 1,
+            honba: 0,
+            kyoutaku: 0,
+            oya: 0,
+            scores: vec![25000, 25000, 25000, 25000],
+            dora_marker: "1m".to_string(),
+            tehais: vec![
+                vec!["1m".to_string(); 13],
+                vec!["2m".to_string(); 13],
+                vec!["3m".to_string(); 13],
+                vec!["4m".to_string(); 13],
+            ],
+        });
+
+        assert_eq!(
+            state.wall.tiles.len(),
+            84,
+            "start_kyoku should rewind to pre-tsumo"
+        );
+        assert!(state.needs_tsumo, "dealer draw should still be pending");
+        assert!(state.drawn_tile.is_none(), "no tile should be drawn yet");
+
+        state.apply_mjai_event(MjaiEvent::Tsumo {
+            actor: 0,
+            pai: "5m".to_string(),
+        });
+
+        assert_eq!(
+            state.wall.tiles.len(),
+            83,
+            "first tsumo should consume exactly one tile"
+        );
+    }
+
+    #[test]
+    fn test_apply_mjai_event_start_kyoku_resets_pre_tsumo_wall_3p() {
+        use crate::replay::MjaiEvent;
+
+        let mut state =
+            crate::state_3p::GameState3P::new(5, true, None, 0, crate::rule::GameRule::default());
+
+        assert_eq!(
+            state.wall.tiles.len(),
+            68,
+            "fresh sanma state should start post-tsumo"
+        );
+
+        state.apply_mjai_event(MjaiEvent::StartKyoku {
+            bakaze: "E".to_string(),
+            kyoku: 1,
+            honba: 0,
+            kyoutaku: 0,
+            oya: 0,
+            scores: vec![35000, 35000, 35000],
+            dora_marker: "1p".to_string(),
+            tehais: vec![
+                vec!["1p".to_string(); 13],
+                vec!["2p".to_string(); 13],
+                vec!["3p".to_string(); 13],
+            ],
+        });
+
+        assert_eq!(
+            state.wall.tiles.len(),
+            69,
+            "sanma start_kyoku should rewind to pre-tsumo"
+        );
+        assert!(state.needs_tsumo, "dealer draw should still be pending");
+        assert!(state.drawn_tile.is_none(), "no tile should be drawn yet");
+
+        state.apply_mjai_event(MjaiEvent::Tsumo {
+            actor: 0,
+            pai: "4p".to_string(),
+        });
+
+        assert_eq!(
+            state.wall.tiles.len(),
+            68,
+            "first tsumo should consume exactly one tile"
+        );
+    }
+
+    #[test]
     fn test_reach_to_mjai_includes_actor() {
         use crate::action::{Action, ActionType};
 
