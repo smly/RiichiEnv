@@ -851,7 +851,13 @@ impl RiichiEnv {
         self.get_obs_py(py, Some(active))
     }
 
-    pub fn apply_mjai_event(&mut self, py: Python, event: Py<PyAny>) -> PyResult<()> {
+    /// Apply an MJAI event to advance the game state.
+    ///
+    /// Use this for replay parsing and training data generation where
+    /// observations are obtained separately via `get_observation()`.
+    /// For online inference, prefer `observe_event()` which combines
+    /// event application with observation retrieval.
+    pub fn apply_event(&mut self, py: Python, event: Py<PyAny>) -> PyResult<()> {
         let json = py.import("json")?;
         let s: String = json.call_method1("dumps", (event,))?.extract()?;
         let ev: MjaiEvent = serde_json::from_str(&s).map_err(|e| {
@@ -859,5 +865,68 @@ impl RiichiEnv {
         })?;
         with_variant_mut!(self, |s| s.apply_mjai_event(ev));
         Ok(())
+    }
+
+    /// Apply an MJAI event and return the observation for `player_id`
+    /// if that player has legal actions available. Returns `None` otherwise.
+    ///
+    /// This is the recommended API for online inference: feed events
+    /// one at a time and act whenever a non-None observation is returned.
+    #[pyo3(signature = (event, player_id))]
+    pub fn observe_event<'py>(
+        &mut self,
+        py: Python<'py>,
+        event: Py<PyAny>,
+        player_id: u8,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        // Parse and apply the event
+        let json = py.import("json")?;
+        let s: String = json.call_method1("dumps", (event,))?.extract()?;
+        let ev: MjaiEvent = serde_json::from_str(&s).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("JSON Parse Error: {}", e))
+        })?;
+
+        // Events that never require a player decision.
+        // Skipping the observation check for these avoids returning
+        // stale legal_actions from uncleared state (e.g. after reset).
+        let skip_check = matches!(
+            ev,
+            MjaiEvent::StartGame { .. }
+                | MjaiEvent::StartKyoku { .. }
+                | MjaiEvent::ReachAccepted { .. }
+                | MjaiEvent::Dora { .. }
+                | MjaiEvent::Hora { .. }
+                | MjaiEvent::Ryukyoku { .. }
+                | MjaiEvent::EndKyoku
+                | MjaiEvent::EndGame
+                | MjaiEvent::Other
+        );
+
+        with_variant_mut!(self, |s| s.apply_mjai_event(ev));
+
+        if skip_check {
+            return Ok(None);
+        }
+
+        // Check if this player has legal actions
+        let has_actions = match &mut self.variant {
+            GameStateVariant::FourPlayer(s) => {
+                let obs = s.get_observation(player_id);
+                if obs.legal_actions_method().is_empty() {
+                    None
+                } else {
+                    Some(obs.into_pyobject(py).map(|o| o.unbind().into())?)
+                }
+            }
+            GameStateVariant::ThreePlayer(s) => {
+                let obs = s.get_observation(player_id);
+                if obs.legal_actions_method().is_empty() {
+                    None
+                } else {
+                    Some(obs.into_pyobject(py).map(|o| o.unbind().into())?)
+                }
+            }
+        };
+        Ok(has_actions)
     }
 }

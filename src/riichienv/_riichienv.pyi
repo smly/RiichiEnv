@@ -354,6 +354,25 @@ class RiichiEnv:
     def _is_furiten(self, player_id: int) -> bool: ...
     def get_viewer(self) -> GameViewer: ...
     def _reveal_kan_dora(self) -> None: ...
+    def apply_event(self, event: dict[str, Any]) -> None:
+        """Apply an MJAI event to advance the game state.
+
+        Use this for replay parsing and training data generation where
+        observations are obtained separately via ``get_observation()``.
+        For online inference, prefer ``observe_event()``.
+        """
+        ...
+    def observe_event(self, event: dict[str, Any], player_id: int) -> Observation | None:
+        """Apply an MJAI event and return an Observation if *player_id* needs to act.
+
+        Returns ``None`` for events that never require decisions
+        (start_game, start_kyoku, dora, hora, ryukyoku, etc.) and when
+        the tracked player has no legal actions after the event.
+
+        This is the recommended API for online inference: feed events
+        one at a time and act whenever a non-None observation is returned.
+        """
+        ...
 
 class Score:
     total: int

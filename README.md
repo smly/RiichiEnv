@@ -301,6 +301,69 @@ viewer.get_results(0)   # list[WinResult] for round 0
 
 See [demos/README.md](riichienv-ui/demos/README.md) for full API details and notebook examples.
 
+### Event-driven API for Online Inference
+
+RiichiEnv provides two methods for applying MJAI events, designed for different use cases:
+
+| Method | Signature | Returns | Use case |
+|---|---|---|---|
+| `apply_event` | `apply_event(event)` | `None` | Replay parsing, training data generation |
+| `observe_event` | `observe_event(event, player_id)` | `Observation \| None` | Online inference (bot play) |
+
+**Why two methods?** `apply_event` is minimal — it only updates state, leaving observation timing to the caller. This is ideal for batch replay where all events are pre-determined. `observe_event` combines state update with observation retrieval in a single call, and encapsulates the logic of which events can produce legal actions. This avoids the caller having to manually skip non-action events (`start_game`, `dora`, `hora`, etc.) and separately call `get_observation()`.
+
+#### `apply_event(event)` — State update only
+
+Applies an MJAI event dict to advance the game state. Observations must be retrieved separately via `get_observation(player_id)`. This is the right choice when replaying full game logs for training data generation, where all events are already known and observation timing is managed externally (e.g., by `KyokuStepIterator`).
+
+```python
+env = RiichiEnv(game_mode="4p-red-half")
+env.apply_event({"type": "start_game"})
+env.apply_event({"type": "start_kyoku", "bakaze": "E", ...})
+env.apply_event({"type": "tsumo", "actor": 0, "pai": "5m"})
+# Manually check for actions:
+obs = env.get_observation(player_id=0)
+if obs.legal_actions():
+    ...
+```
+
+#### `observe_event(event, player_id)` — State update + observation
+
+Applies the event and returns an `Observation` if `player_id` has legal actions available. Returns `None` for events that never require decisions (`start_game`, `start_kyoku`, `dora`, `hora`, `ryukyoku`, etc.) and when the tracked player has no actions.
+
+This is the recommended API for online inference — feed events one at a time and act whenever a non-`None` observation is returned.
+
+```python
+env = RiichiEnv(game_mode="3p-red-half")
+my_seat = 0
+
+for event in mjai_events:
+    obs = env.observe_event(event, my_seat)
+    if obs is not None:
+        # This player needs to act
+        action = select_action(obs)  # your model logic
+        ...
+```
+
+The key advantage of `observe_event` is that it handles all the complexity of determining when a player needs to act — including reaction phases (pon, chi, ron) after an opponent's discard. A simple loop over events is sufficient for a fully functional bot:
+
+```python
+# 4P example: P1 can pon after P0's discard
+env = RiichiEnv(game_mode="default")
+env.observe_event({"type": "start_game"}, player_id=1)
+env.observe_event({"type": "start_kyoku", ...}, player_id=1)
+env.observe_event({"type": "tsumo", "actor": 0, "pai": "5m"}, player_id=1)
+
+obs = env.observe_event(
+    {"type": "dahai", "actor": 0, "pai": "5m", "tsumogiri": True},
+    player_id=1,
+)
+# obs is not None if player 1 can pon/ron the discarded tile
+if obs is not None:
+    for a in obs.legal_actions():
+        print(a.to_mjai())  # e.g. pon, pass
+```
+
 ## 🛠 Development
 
 For more architectural details and contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md) and [DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md).

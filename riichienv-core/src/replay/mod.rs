@@ -14,6 +14,8 @@ use crate::action::Action as EnvAction;
 #[cfg(feature = "python")]
 use crate::action::Action3P;
 #[cfg(feature = "python")]
+use crate::action::ActionType;
+#[cfg(feature = "python")]
 use crate::hand_evaluator::HandEvaluator;
 use crate::types::MeldType;
 #[cfg(feature = "python")]
@@ -101,6 +103,9 @@ pub struct KyokuStepIterator {
     pending_action: Option<(u8, EnvAction)>,
     filter_seat: Option<u8>,
     skip_single_action: bool,
+    /// Queued (pid, observation) pairs for players who implicitly passed
+    /// on a claim opportunity (pon/chi/ron) that existed in the log.
+    pending_pass_obs: Vec<(u8, crate::observation::Observation)>,
 }
 
 #[cfg(feature = "python")]
@@ -112,6 +117,77 @@ pub struct KyokuStepIterator3P {
     pending_action: Option<(u8, EnvAction)>,
     filter_seat: Option<u8>,
     skip_single_action: bool,
+    /// Queued (pid, observation) pairs for players who implicitly passed
+    /// on a claim opportunity (pon/ron) that existed in the log.
+    pending_pass_obs: Vec<(u8, crate::observation_3p::Observation3P)>,
+}
+
+#[cfg(feature = "python")]
+impl KyokuStepIterator {
+    /// After a discard is applied, check which other players could have
+    /// claimed (chi/pon/ron) but didn't. For each such player, generate a
+    /// pass observation so that "none" actions appear in the training data.
+    fn _collect_pass_observations(
+        &mut self,
+        discarder: u8,
+        tile: u8,
+        claimer: Option<u8>,
+    ) {
+        use crate::state::legal_actions::GameStateLegalActions;
+        let np = self.state.players.len() as u8;
+
+        for i in 0..np {
+            if i == discarder {
+                continue;
+            }
+            if claimer == Some(i) {
+                continue;
+            }
+
+            let (claim_actions, _missed) =
+                self.state._get_claim_actions_for_player(i, discarder, tile);
+            if claim_actions.is_empty() {
+                continue;
+            }
+
+            // Temporarily set up WaitResponse state to get a proper observation.
+            let orig_phase = self.state.phase;
+            let orig_active = self.state.active_players.clone();
+            let orig_claims = self.state.current_claims.clone();
+
+            self.state.phase = crate::action::Phase::WaitResponse;
+            self.state.active_players = vec![i];
+            self.state.current_claims.clear();
+            self.state.current_claims.insert(i, claim_actions);
+
+            let obs = self.state.get_observation(i);
+
+            self.state.phase = orig_phase;
+            self.state.active_players = orig_active;
+            self.state.current_claims = orig_claims;
+
+            self.pending_pass_obs.push((i, obs));
+        }
+    }
+
+    /// Peek at the next log action to determine if someone claimed.
+    fn _peek_next_claimer(&self) -> Option<u8> {
+        if self.idx >= self.actions.len() {
+            return None;
+        }
+        match &self.actions[self.idx] {
+            Action::ChiPengGang { seat, .. } => Some(*seat as u8),
+            Action::Hule { hules } => {
+                let first = &hules[0];
+                if !first.zimo {
+                    Some(first.seat as u8)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 #[cfg(feature = "python")]
@@ -125,6 +201,29 @@ impl KyokuStepIterator {
         let actions = slf.actions.clone();
 
         loop {
+            // Drain queued pass observations first
+            if let Some((pid, obs)) = slf.pending_pass_obs.pop() {
+                let pass_action = EnvAction::new(ActionType::Pass, None, vec![], Some(pid));
+
+                if let Some(target) = slf.filter_seat {
+                    if pid == target {
+                        if slf.skip_single_action && obs._legal_actions.len() <= 1 {
+                            continue;
+                        }
+                        let py = slf.py();
+                        return Ok(Some(
+                            (obs, pass_action).into_pyobject(py)?.unbind().into(),
+                        ));
+                    }
+                    continue;
+                } else {
+                    let py = slf.py();
+                    return Ok(Some(
+                        (pid, obs, pass_action).into_pyobject(py)?.unbind().into(),
+                    ));
+                }
+            }
+
             if let Some((pid, action)) = slf.pending_action.take() {
                 let mut staged_riichi = false;
                 if action.action_type == crate::action::ActionType::Discard {
@@ -145,9 +244,20 @@ impl KyokuStepIterator {
                 }
                 let obs = obs_result?;
 
+                let discard_tile_for_pass = action.tile;
+                let discarder_for_pass = pid;
+
                 let current_log_action = &actions[slf.idx];
                 slf.state.apply_log_action(current_log_action);
                 slf.idx += 1;
+
+                // Collect pass observations for discards (including riichi discards)
+                if action.action_type == ActionType::Discard {
+                    if let Some(dtile) = discard_tile_for_pass {
+                        let claimer = slf._peek_next_claimer();
+                        slf._collect_pass_observations(discarder_for_pass, dtile, claimer);
+                    }
+                }
 
                 if let Some(target) = slf.filter_seat {
                     if pid == target {
@@ -227,6 +337,7 @@ impl KyokuStepIterator {
                             ));
                         }
                     } else {
+                        let discard_tile = *tile;
                         let obs = slf.state.get_observation_for_replay(
                             pid,
                             &env_action,
@@ -235,6 +346,11 @@ impl KyokuStepIterator {
 
                         slf.state.apply_log_action(action);
                         slf.idx += 1;
+
+                        // Collect pass observations for players who could
+                        // have claimed this discard but didn't.
+                        let claimer = slf._peek_next_claimer();
+                        slf._collect_pass_observations(pid, discard_tile, claimer);
 
                         if let Some(target) = slf.filter_seat {
                             if pid == target {
@@ -410,6 +526,85 @@ impl KyokuStepIterator {
 }
 
 #[cfg(feature = "python")]
+impl KyokuStepIterator3P {
+    /// After a discard (or kita) is applied, check which other players could
+    /// have claimed (pon/ron) but didn't. For each such player, generate a
+    /// pass observation so that "none" actions appear in the training data.
+    ///
+    /// `discarder`: the player who discarded
+    /// `tile`: the discarded tile (136-encoding)
+    /// `claimer`: if the next log action is a claim (ChiPengGang/Hule),
+    ///            the seat of the player who claimed. Others with claim
+    ///            options implicitly passed.
+    fn _collect_pass_observations(
+        &mut self,
+        discarder: u8,
+        tile: u8,
+        claimer: Option<u8>,
+    ) {
+        use crate::state_3p::legal_actions::GameState3PLegalActions;
+        let np = self.state.players.len() as u8;
+
+        for i in 0..np {
+            if i == discarder {
+                continue;
+            }
+            // If this player is the one who actually claimed, skip
+            if claimer == Some(i) {
+                continue;
+            }
+
+            let (claim_actions, _missed) =
+                self.state._get_claim_actions_for_player(i, discarder, tile);
+            if claim_actions.is_empty() {
+                continue;
+            }
+
+            // This player could have claimed but passed.
+            // Temporarily set up WaitResponse state to get a proper observation.
+            let orig_phase = self.state.phase;
+            let orig_active = self.state.active_players.clone();
+            let orig_claims = self.state.current_claims.clone();
+
+            self.state.phase = crate::action::Phase::WaitResponse;
+            self.state.active_players = vec![i];
+            self.state.current_claims.clear();
+            self.state.current_claims.insert(i, claim_actions);
+
+            let obs = self.state.get_observation(i);
+
+            // Restore state
+            self.state.phase = orig_phase;
+            self.state.active_players = orig_active;
+            self.state.current_claims = orig_claims;
+
+            self.pending_pass_obs.push((i, obs));
+        }
+    }
+
+    /// Peek at the next log action to determine if someone claimed.
+    /// Returns Some(seat) if the next action is a ChiPengGang or Hule (ron).
+    fn _peek_next_claimer(&self) -> Option<u8> {
+        if self.idx >= self.actions.len() {
+            return None;
+        }
+        match &self.actions[self.idx] {
+            Action::ChiPengGang { seat, .. } => Some(*seat as u8),
+            Action::Hule { hules } => {
+                let first = &hules[0];
+                // Ron only (not tsumo)
+                if !first.zimo {
+                    Some(first.seat as u8)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+#[cfg(feature = "python")]
 #[pymethods]
 impl KyokuStepIterator3P {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -420,6 +615,30 @@ impl KyokuStepIterator3P {
         let actions = slf.actions.clone();
 
         loop {
+            // Drain queued pass observations first
+            if let Some((pid, obs)) = slf.pending_pass_obs.pop() {
+                let pass_action = EnvAction::new(ActionType::Pass, None, vec![], Some(pid));
+                let pass_action_3p = Action3P::from_action(pass_action);
+
+                if let Some(target) = slf.filter_seat {
+                    if pid == target {
+                        if slf.skip_single_action && obs._legal_actions.len() <= 1 {
+                            continue;
+                        }
+                        let py = slf.py();
+                        return Ok(Some(
+                            (obs, pass_action_3p).into_pyobject(py)?.unbind().into(),
+                        ));
+                    }
+                    continue;
+                } else {
+                    let py = slf.py();
+                    return Ok(Some(
+                        (pid, obs, pass_action_3p).into_pyobject(py)?.unbind().into(),
+                    ));
+                }
+            }
+
             if let Some((pid, action)) = slf.pending_action.take() {
                 let mut staged_riichi = false;
                 if action.action_type == crate::action::ActionType::Discard {
@@ -440,9 +659,20 @@ impl KyokuStepIterator3P {
                 }
                 let obs = obs_result?;
 
+                let discard_tile_for_pass = action.tile;
+                let discarder_for_pass = pid;
+
                 let current_log_action = &actions[slf.idx];
                 slf.state.apply_log_action(current_log_action);
                 slf.idx += 1;
+
+                // Collect pass observations for discards (including riichi discards)
+                if action.action_type == ActionType::Discard {
+                    if let Some(dtile) = discard_tile_for_pass {
+                        let claimer = slf._peek_next_claimer();
+                        slf._collect_pass_observations(discarder_for_pass, dtile, claimer);
+                    }
+                }
 
                 let action_3p = Action3P::from_action(action);
 
@@ -560,6 +790,7 @@ impl KyokuStepIterator3P {
                             ));
                         }
                     } else {
+                        let discard_tile = *tile;
                         let obs = slf.state.get_observation_for_replay(
                             pid,
                             &env_action,
@@ -568,6 +799,11 @@ impl KyokuStepIterator3P {
 
                         slf.state.apply_log_action(action);
                         slf.idx += 1;
+
+                        // Collect pass observations for players who could
+                        // have claimed this discard but didn't.
+                        let claimer = slf._peek_next_claimer();
+                        slf._collect_pass_observations(pid, discard_tile, claimer);
 
                         let env_action_3p = Action3P::from_action(env_action);
                         if let Some(target) = slf.filter_seat {
@@ -606,6 +842,10 @@ impl KyokuStepIterator3P {
 
                     let t = tiles.first().copied();
                     let env_action = EnvAction::new(env_action_type, t, tiles.to_vec(), None);
+
+                    // Pass observations for non-claimers are already collected
+                    // in the DiscardTile handler (via _peek_next_claimer).
+                    // No need to collect again here.
 
                     let obs = slf.state.get_observation_for_replay(
                         pid,
@@ -945,6 +1185,7 @@ impl LogKyoku {
                 pending_action: None,
                 filter_seat: seat,
                 skip_single_action,
+                pending_pass_obs: Vec::new(),
             };
             Ok(Py::new(py, iter)?.into_any())
         } else {
@@ -1030,6 +1271,7 @@ impl LogKyoku {
                 idx: 0,
                 pending_action: None,
                 filter_seat: seat,
+                pending_pass_obs: Vec::new(),
                 skip_single_action,
             };
             Ok(Py::new(py, iter)?.into_any())

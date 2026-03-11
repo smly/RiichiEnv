@@ -2,6 +2,7 @@ use crate::action::Phase;
 use crate::parser::mjai_to_tid;
 use crate::replay::{Action as LogAction, MjaiEvent};
 use crate::state::GameState;
+use crate::state::legal_actions::GameStateLegalActions;
 use crate::types::{Meld, MeldType, Wind};
 
 fn parse_mjai_tile(s: &str) -> u8 {
@@ -16,6 +17,12 @@ pub trait GameStateEventHandler {
 impl GameStateEventHandler for GameState {
     fn apply_mjai_event(&mut self, event: MjaiEvent) {
         match event {
+            MjaiEvent::StartGame { .. } => {
+                // Clear stale state from constructor's reset() so that
+                // get_observation() does not return stale legal actions.
+                self.current_player = u8::MAX;
+                self.active_players.clear();
+            }
             MjaiEvent::StartKyoku {
                 bakaze,
                 kyoku,
@@ -40,7 +47,7 @@ impl GameStateEventHandler for GameState {
                 };
                 self.oya = oya;
                 self.kyoku_idx = kyoku.saturating_sub(1);
-                self.current_player = self.oya;
+                self.current_player = u8::MAX; // No active player until first tsumo
                 self.turn_count = 0;
                 self.is_done = false;
                 self.needs_tsumo = true;
@@ -91,9 +98,12 @@ impl GameStateEventHandler for GameState {
                 self.drawn_tile = Some(tile);
                 self.players[actor].hand.push(tile);
                 self.players[actor].hand.sort();
+                self.players[actor].forbidden_discards.clear();
                 if !self.wall.tiles.is_empty() {
                     self.wall.tiles.pop();
                 }
+                self.phase = Phase::WaitAct;
+                self.active_players = vec![actor as u8];
                 self.needs_tsumo = false;
             }
             MjaiEvent::Dahai { actor, pai, .. } => {
@@ -108,6 +118,32 @@ impl GameStateEventHandler for GameState {
 
                 if self.players[actor].riichi_stage {
                     self.players[actor].riichi_declared = true;
+                    self.players[actor].riichi_stage = false;
+                }
+
+                // Populate current_claims for reaction phase (chi/pon/ron)
+                let np = self.players.len() as u8;
+                self.current_claims.clear();
+                self.active_players.clear();
+                let mut claim_active = Vec::new();
+                for i in 0..np {
+                    if i == actor as u8 {
+                        continue;
+                    }
+                    let (legals, _missed) =
+                        self._get_claim_actions_for_player(i, actor as u8, tile);
+                    if !legals.is_empty() {
+                        claim_active.push(i);
+                        self.current_claims.insert(i, legals);
+                    }
+                }
+                if !claim_active.is_empty() {
+                    self.phase = Phase::WaitResponse;
+                    self.active_players = claim_active;
+                } else {
+                    self.phase = Phase::WaitAct;
+                    self.active_players.clear();
+                    self.current_player = u8::MAX;
                 }
                 self.needs_tsumo = true;
             }
@@ -137,7 +173,14 @@ impl GameStateEventHandler for GameState {
                     called_tile: Some(tile),
                 });
                 self.drawn_tile = None;
+                self.phase = Phase::WaitAct;
+                self.active_players = vec![actor as u8];
                 self.needs_tsumo = false;
+                // Kuikae (swap-calling) forbidden
+                self.players[actor].forbidden_discards.clear();
+                if self.rule.kuikae_forbidden {
+                    self.players[actor].forbidden_discards.push(tile);
+                }
             }
             MjaiEvent::Chi {
                 actor,
@@ -165,7 +208,14 @@ impl GameStateEventHandler for GameState {
                     called_tile: Some(tile),
                 });
                 self.drawn_tile = None;
+                self.phase = Phase::WaitAct;
+                self.active_players = vec![actor as u8];
                 self.needs_tsumo = false;
+                // Kuikae forbidden for chi
+                self.players[actor].forbidden_discards.clear();
+                if self.rule.kuikae_forbidden {
+                    self.players[actor].forbidden_discards.push(tile);
+                }
             }
             MjaiEvent::Kan {
                 actor,
@@ -194,6 +244,8 @@ impl GameStateEventHandler for GameState {
                     from_who: -1,
                     called_tile: Some(tile),
                 });
+                self.phase = Phase::WaitAct;
+                self.active_players = vec![actor as u8];
                 self.needs_tsumo = true;
             }
             MjaiEvent::Ankan { actor, consumed } => {
@@ -212,6 +264,9 @@ impl GameStateEventHandler for GameState {
                     from_who: -1,
                     called_tile: None,
                 });
+                self.current_player = actor as u8;
+                self.phase = Phase::WaitAct;
+                self.active_players = vec![actor as u8];
                 self.needs_tsumo = true;
             }
             MjaiEvent::Kakan { actor, pai } => {
@@ -226,10 +281,15 @@ impl GameStateEventHandler for GameState {
                         break;
                     }
                 }
+                self.current_player = actor as u8;
+                self.phase = Phase::WaitAct;
+                self.active_players = vec![actor as u8];
                 self.needs_tsumo = true;
             }
             MjaiEvent::Reach { actor } => {
                 self.players[actor].riichi_stage = true;
+                // Keep current_player and phase so that the agent can
+                // select a riichi discard tile via legal_actions.
             }
             MjaiEvent::ReachAccepted { actor } => {
                 self.players[actor].riichi_declared = true;
