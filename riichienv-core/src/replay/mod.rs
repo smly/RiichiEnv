@@ -127,7 +127,7 @@ impl KyokuStepIterator {
     /// After a discard is applied, check which other players could have
     /// claimed (chi/pon/ron) but didn't. For each such player, generate a
     /// pass observation so that "none" actions appear in the training data.
-    fn _collect_pass_observations(&mut self, discarder: u8, tile: u8, claimer: Option<u8>) {
+    fn _collect_pass_observations(&mut self, discarder: u8, tile: u8, claimers: &[u8]) {
         use crate::state::legal_actions::GameStateLegalActions;
         let np = self.state.players.len() as u8;
 
@@ -135,7 +135,7 @@ impl KyokuStepIterator {
             if i == discarder {
                 continue;
             }
-            if claimer == Some(i) {
+            if claimers.contains(&i) {
                 continue;
             }
 
@@ -166,21 +166,21 @@ impl KyokuStepIterator {
     }
 
     /// Peek at the next log action to determine if someone claimed.
-    fn _peek_next_claimer(&self) -> Option<u8> {
+    /// Returns all claimer seats (handles double/triple ron).
+    fn _peek_next_claimers(&self) -> Vec<u8> {
         if self.idx >= self.actions.len() {
-            return None;
+            return Vec::new();
         }
         match &self.actions[self.idx] {
-            Action::ChiPengGang { seat, .. } => Some(*seat as u8),
+            Action::ChiPengGang { seat, .. } => vec![*seat as u8],
             Action::Hule { hules } => {
-                let first = &hules[0];
-                if !first.zimo {
-                    Some(first.seat as u8)
-                } else {
-                    None
-                }
+                hules
+                    .iter()
+                    .filter(|h| !h.zimo)
+                    .map(|h| h.seat as u8)
+                    .collect()
             }
-            _ => None,
+            _ => Vec::new(),
         }
     }
 }
@@ -248,8 +248,8 @@ impl KyokuStepIterator {
                 if action.action_type == ActionType::Discard
                     && let Some(dtile) = discard_tile_for_pass
                 {
-                    let claimer = slf._peek_next_claimer();
-                    slf._collect_pass_observations(discarder_for_pass, dtile, claimer);
+                    let claimers = slf._peek_next_claimers();
+                    slf._collect_pass_observations(discarder_for_pass, dtile, &claimers);
                 }
 
                 if let Some(target) = slf.filter_seat {
@@ -342,8 +342,8 @@ impl KyokuStepIterator {
 
                         // Collect pass observations for players who could
                         // have claimed this discard but didn't.
-                        let claimer = slf._peek_next_claimer();
-                        slf._collect_pass_observations(pid, discard_tile, claimer);
+                        let claimers = slf._peek_next_claimers();
+                        slf._collect_pass_observations(pid, discard_tile, &claimers);
 
                         if let Some(target) = slf.filter_seat {
                             if pid == target {
@@ -520,16 +520,15 @@ impl KyokuStepIterator {
 
 #[cfg(feature = "python")]
 impl KyokuStepIterator3P {
-    /// After a discard (or kita) is applied, check which other players could
-    /// have claimed (pon/ron) but didn't. For each such player, generate a
+    /// After a discard is applied, check which other players could have
+    /// claimed (pon/ron) but didn't. For each such player, generate a
     /// pass observation so that "none" actions appear in the training data.
     ///
     /// `discarder`: the player who discarded
     /// `tile`: the discarded tile (136-encoding)
-    /// `claimer`: if the next log action is a claim (ChiPengGang/Hule),
-    ///            the seat of the player who claimed. Others with claim
-    ///            options implicitly passed.
-    fn _collect_pass_observations(&mut self, discarder: u8, tile: u8, claimer: Option<u8>) {
+    /// `claimers`: seats of players who actually claimed (from peek).
+    ///             Others with claim options implicitly passed.
+    fn _collect_pass_observations(&mut self, discarder: u8, tile: u8, claimers: &[u8]) {
         use crate::state_3p::legal_actions::GameState3PLegalActions;
         let np = self.state.players.len() as u8;
 
@@ -537,8 +536,7 @@ impl KyokuStepIterator3P {
             if i == discarder {
                 continue;
             }
-            // If this player is the one who actually claimed, skip
-            if claimer == Some(i) {
+            if claimers.contains(&i) {
                 continue;
             }
 
@@ -571,23 +569,21 @@ impl KyokuStepIterator3P {
     }
 
     /// Peek at the next log action to determine if someone claimed.
-    /// Returns Some(seat) if the next action is a ChiPengGang or Hule (ron).
-    fn _peek_next_claimer(&self) -> Option<u8> {
+    /// Returns all claimer seats (handles double ron).
+    fn _peek_next_claimers(&self) -> Vec<u8> {
         if self.idx >= self.actions.len() {
-            return None;
+            return Vec::new();
         }
         match &self.actions[self.idx] {
-            Action::ChiPengGang { seat, .. } => Some(*seat as u8),
+            Action::ChiPengGang { seat, .. } => vec![*seat as u8],
             Action::Hule { hules } => {
-                let first = &hules[0];
-                // Ron only (not tsumo)
-                if !first.zimo {
-                    Some(first.seat as u8)
-                } else {
-                    None
-                }
+                hules
+                    .iter()
+                    .filter(|h| !h.zimo)
+                    .map(|h| h.seat as u8)
+                    .collect()
             }
-            _ => None,
+            _ => Vec::new(),
         }
     }
 }
@@ -661,8 +657,8 @@ impl KyokuStepIterator3P {
                 if action.action_type == ActionType::Discard
                     && let Some(dtile) = discard_tile_for_pass
                 {
-                    let claimer = slf._peek_next_claimer();
-                    slf._collect_pass_observations(discarder_for_pass, dtile, claimer);
+                    let claimers = slf._peek_next_claimers();
+                    slf._collect_pass_observations(discarder_for_pass, dtile, &claimers);
                 }
 
                 let action_3p = Action3P::from_action(action);
@@ -793,8 +789,8 @@ impl KyokuStepIterator3P {
 
                         // Collect pass observations for players who could
                         // have claimed this discard but didn't.
-                        let claimer = slf._peek_next_claimer();
-                        slf._collect_pass_observations(pid, discard_tile, claimer);
+                        let claimers = slf._peek_next_claimers();
+                        slf._collect_pass_observations(pid, discard_tile, &claimers);
 
                         let env_action_3p = Action3P::from_action(env_action);
                         if let Some(target) = slf.filter_seat {
@@ -835,7 +831,7 @@ impl KyokuStepIterator3P {
                     let env_action = EnvAction::new(env_action_type, t, tiles.to_vec(), None);
 
                     // Pass observations for non-claimers are already collected
-                    // in the DiscardTile handler (via _peek_next_claimer).
+                    // in the DiscardTile handler (via _peek_next_claimers).
                     // No need to collect again here.
 
                     let obs = slf.state.get_observation_for_replay(

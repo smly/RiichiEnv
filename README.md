@@ -352,7 +352,7 @@ The key advantage of `observe_event` is that it handles all the complexity of de
 env = RiichiEnv(game_mode="default")
 env.observe_event({"type": "start_game"}, player_id=1)
 env.observe_event({"type": "start_kyoku", ...}, player_id=1)
-env.observe_event({"type": "tsumo", "actor": 0, "pai": "5m"}, player_id=1)
+env.observe_event({"type": "tsumo", "actor": 0, "pai": "?"}, player_id=1)
 
 obs = env.observe_event(
     {"type": "dahai", "actor": 0, "pai": "5m", "tsumogiri": True},

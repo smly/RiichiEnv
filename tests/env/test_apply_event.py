@@ -215,7 +215,7 @@ class TestApplyEvent4P:
         assert obs is None  # P0 just discarded, no self-reaction
 
         # P1 tsumo -> P0 should not get obs
-        obs = env.observe_event({"type": "tsumo", "actor": 1, "pai": "?"}, player_id)
+        obs = env.observe_event({"type": "tsumo", "actor": 1, "pai": "6s"}, player_id)
         assert obs is None
 
         # P1 dahai -> P0 might get reaction obs
@@ -371,7 +371,7 @@ class TestApplyEvent3P:
         assert obs is None
 
         # P1 tsumo -> P0 gets nothing
-        obs = env.observe_event({"type": "tsumo", "actor": 1, "pai": "?"}, player_id)
+        obs = env.observe_event({"type": "tsumo", "actor": 1, "pai": "6s"}, player_id)
         assert obs is None
 
         # P1 dahai -> P0 might get reaction
