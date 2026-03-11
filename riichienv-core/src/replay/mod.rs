@@ -173,13 +173,11 @@ impl KyokuStepIterator {
         }
         match &self.actions[self.idx] {
             Action::ChiPengGang { seat, .. } => vec![*seat as u8],
-            Action::Hule { hules } => {
-                hules
-                    .iter()
-                    .filter(|h| !h.zimo)
-                    .map(|h| h.seat as u8)
-                    .collect()
-            }
+            Action::Hule { hules } => hules
+                .iter()
+                .filter(|h| !h.zimo)
+                .map(|h| h.seat as u8)
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -576,13 +574,11 @@ impl KyokuStepIterator3P {
         }
         match &self.actions[self.idx] {
             Action::ChiPengGang { seat, .. } => vec![*seat as u8],
-            Action::Hule { hules } => {
-                hules
-                    .iter()
-                    .filter(|h| !h.zimo)
-                    .map(|h| h.seat as u8)
-                    .collect()
-            }
+            Action::Hule { hules } => hules
+                .iter()
+                .filter(|h| !h.zimo)
+                .map(|h| h.seat as u8)
+                .collect(),
             _ => Vec::new(),
         }
     }
