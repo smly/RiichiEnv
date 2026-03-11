@@ -127,12 +127,7 @@ impl KyokuStepIterator {
     /// After a discard is applied, check which other players could have
     /// claimed (chi/pon/ron) but didn't. For each such player, generate a
     /// pass observation so that "none" actions appear in the training data.
-    fn _collect_pass_observations(
-        &mut self,
-        discarder: u8,
-        tile: u8,
-        claimer: Option<u8>,
-    ) {
+    fn _collect_pass_observations(&mut self, discarder: u8, tile: u8, claimer: Option<u8>) {
         use crate::state::legal_actions::GameStateLegalActions;
         let np = self.state.players.len() as u8;
 
@@ -211,9 +206,7 @@ impl KyokuStepIterator {
                             continue;
                         }
                         let py = slf.py();
-                        return Ok(Some(
-                            (obs, pass_action).into_pyobject(py)?.unbind().into(),
-                        ));
+                        return Ok(Some((obs, pass_action).into_pyobject(py)?.unbind().into()));
                     }
                     continue;
                 } else {
@@ -536,12 +529,7 @@ impl KyokuStepIterator3P {
     /// `claimer`: if the next log action is a claim (ChiPengGang/Hule),
     ///            the seat of the player who claimed. Others with claim
     ///            options implicitly passed.
-    fn _collect_pass_observations(
-        &mut self,
-        discarder: u8,
-        tile: u8,
-        claimer: Option<u8>,
-    ) {
+    fn _collect_pass_observations(&mut self, discarder: u8, tile: u8, claimer: Option<u8>) {
         use crate::state_3p::legal_actions::GameState3PLegalActions;
         let np = self.state.players.len() as u8;
 
@@ -634,7 +622,10 @@ impl KyokuStepIterator3P {
                 } else {
                     let py = slf.py();
                     return Ok(Some(
-                        (pid, obs, pass_action_3p).into_pyobject(py)?.unbind().into(),
+                        (pid, obs, pass_action_3p)
+                            .into_pyobject(py)?
+                            .unbind()
+                            .into(),
                     ));
                 }
             }

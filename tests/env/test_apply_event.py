@@ -9,12 +9,9 @@ Tests both 4-player and 3-player modes, verifying:
 - Full game replay via observe_event produces correct observations
 """
 
-import json
-
 import pytest
 
 from riichienv import ActionType, RiichiEnv
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: hand setups that guarantee specific claim opportunities
@@ -120,9 +117,7 @@ class TestApplyEvent4P:
         env.observe_event({"type": "start_game"}, 1)
         env.observe_event(_start_kyoku_event_4p(), 1)
         env.observe_event({"type": "tsumo", "actor": 0, "pai": "1m"}, 1)
-        obs = env.observe_event(
-            {"type": "dahai", "actor": 0, "pai": "1m", "tsumogiri": True}, 1
-        )
+        obs = env.observe_event({"type": "dahai", "actor": 0, "pai": "1m", "tsumogiri": True}, 1)
         assert obs is not None
         actions = obs.legal_actions()
         action_types = {a.action_type for a in actions}
@@ -136,9 +131,7 @@ class TestApplyEvent4P:
         env.observe_event(_start_kyoku_event_4p(), 2)
         env.observe_event({"type": "tsumo", "actor": 0, "pai": "1m"}, 2)
         # P2 has no 1m tiles, so no pon/ron possible
-        obs = env.observe_event(
-            {"type": "dahai", "actor": 0, "pai": "1m", "tsumogiri": True}, 2
-        )
+        obs = env.observe_event({"type": "dahai", "actor": 0, "pai": "1m", "tsumogiri": True}, 2)
         # P2 cannot pon 1m (has no 1m in hand), so None is expected
         # (P2 may or may not have chi depending on hand, but
         #  we verify that if obs is returned, it has legal actions)
@@ -152,9 +145,7 @@ class TestApplyEvent4P:
         env.observe_event({"type": "tsumo", "actor": 0, "pai": "1m"}, 0)
         # Apply reach (may or may not return obs depending on state)
         env.observe_event({"type": "reach", "actor": 0}, 0)
-        env.observe_event(
-            {"type": "dahai", "actor": 0, "pai": "1m", "tsumogiri": False}, 0
-        )
+        env.observe_event({"type": "dahai", "actor": 0, "pai": "1m", "tsumogiri": False}, 0)
         result = env.observe_event({"type": "reach_accepted", "actor": 0}, 0)
         assert result is None
 
@@ -185,9 +176,7 @@ class TestApplyEvent4P:
         env.observe_event({"type": "start_game"}, 1)
         env.observe_event(_start_kyoku_event_4p(), 1)
         env.observe_event({"type": "tsumo", "actor": 0, "pai": "1m"}, 1)
-        env.observe_event(
-            {"type": "dahai", "actor": 0, "pai": "1m", "tsumogiri": True}, 1
-        )
+        env.observe_event({"type": "dahai", "actor": 0, "pai": "1m", "tsumogiri": True}, 1)
         # P1 draws next
         obs = env.observe_event({"type": "tsumo", "actor": 1, "pai": "6s"}, 1)
         assert obs is not None
@@ -199,14 +188,9 @@ class TestApplyEvent4P:
         env.observe_event({"type": "start_game"}, 1)
         env.observe_event(_start_kyoku_event_4p(), 1)
         env.observe_event({"type": "tsumo", "actor": 0, "pai": "1m"}, 1)
-        env.observe_event(
-            {"type": "dahai", "actor": 0, "pai": "1m", "tsumogiri": True}, 1
-        )
+        env.observe_event({"type": "dahai", "actor": 0, "pai": "1m", "tsumogiri": True}, 1)
         # P1 pons
-        obs = env.observe_event(
-            {"type": "pon", "actor": 1, "target": 0, "pai": "1m",
-             "consumed": ["1m", "1m"]}, 1
-        )
+        obs = env.observe_event({"type": "pon", "actor": 1, "target": 0, "pai": "1m", "consumed": ["1m", "1m"]}, 1)
         assert obs is not None
         actions = obs.legal_actions()
         discard_actions = [a for a in actions if a.action_type == ActionType.Discard]
@@ -220,9 +204,7 @@ class TestApplyEvent4P:
         env.observe_event(_start_kyoku_event_4p(), player_id)
 
         # P0 tsumo -> should get obs
-        obs = env.observe_event(
-            {"type": "tsumo", "actor": 0, "pai": "4p"}, player_id
-        )
+        obs = env.observe_event({"type": "tsumo", "actor": 0, "pai": "4p"}, player_id)
         assert obs is not None
 
         # P0 dahai -> should not get obs (it's our own discard)
@@ -233,9 +215,7 @@ class TestApplyEvent4P:
         assert obs is None  # P0 just discarded, no self-reaction
 
         # P1 tsumo -> P0 should not get obs
-        obs = env.observe_event(
-            {"type": "tsumo", "actor": 1, "pai": "?"}, player_id
-        )
+        obs = env.observe_event({"type": "tsumo", "actor": 1, "pai": "?"}, player_id)
         assert obs is None
 
         # P1 dahai -> P0 might get reaction obs
@@ -295,9 +275,7 @@ class TestApplyEvent3P:
         env.observe_event({"type": "start_game"}, 1)
         env.observe_event(_start_kyoku_event_3p(), 1)
         env.observe_event({"type": "tsumo", "actor": 0, "pai": "3z"}, 1)
-        obs = env.observe_event(
-            {"type": "dahai", "actor": 0, "pai": "1p", "tsumogiri": False}, 1
-        )
+        obs = env.observe_event({"type": "dahai", "actor": 0, "pai": "1p", "tsumogiri": False}, 1)
         assert obs is not None
         actions = obs.legal_actions()
         action_types = {a.action_type for a in actions}
@@ -311,9 +289,7 @@ class TestApplyEvent3P:
         env.observe_event(_start_kyoku_event_3p(), 2)
         env.observe_event({"type": "tsumo", "actor": 0, "pai": "3z"}, 2)
         # P0 discards 2p; P2 has no 2p tiles
-        obs = env.observe_event(
-            {"type": "dahai", "actor": 0, "pai": "2p", "tsumogiri": False}, 2
-        )
+        obs = env.observe_event({"type": "dahai", "actor": 0, "pai": "2p", "tsumogiri": False}, 2)
         if obs is not None:
             assert len(obs.legal_actions()) > 0
 
@@ -337,9 +313,7 @@ class TestApplyEvent3P:
         env.observe_event({"type": "start_game"}, 1)
         env.observe_event(_start_kyoku_event_3p(), 1)
         env.observe_event({"type": "tsumo", "actor": 0, "pai": "3z"}, 1)
-        env.observe_event(
-            {"type": "dahai", "actor": 0, "pai": "3z", "tsumogiri": True}, 1
-        )
+        env.observe_event({"type": "dahai", "actor": 0, "pai": "3z", "tsumogiri": True}, 1)
         obs = env.observe_event({"type": "tsumo", "actor": 1, "pai": "5z"}, 1)
         assert obs is not None
         assert len(obs.legal_actions()) > 0
@@ -350,13 +324,8 @@ class TestApplyEvent3P:
         env.observe_event({"type": "start_game"}, 1)
         env.observe_event(_start_kyoku_event_3p(), 1)
         env.observe_event({"type": "tsumo", "actor": 0, "pai": "3z"}, 1)
-        env.observe_event(
-            {"type": "dahai", "actor": 0, "pai": "1p", "tsumogiri": False}, 1
-        )
-        obs = env.observe_event(
-            {"type": "pon", "actor": 1, "target": 0, "pai": "1p",
-             "consumed": ["1p", "1p"]}, 1
-        )
+        env.observe_event({"type": "dahai", "actor": 0, "pai": "1p", "tsumogiri": False}, 1)
+        obs = env.observe_event({"type": "pon", "actor": 1, "target": 0, "pai": "1p", "consumed": ["1p", "1p"]}, 1)
         assert obs is not None
         actions = obs.legal_actions()
         discard_actions = [a for a in actions if a.action_type == ActionType.Discard]
@@ -366,13 +335,16 @@ class TestApplyEvent3P:
         """Kita by another player should return None."""
         env = self._make_env()
         env.observe_event({"type": "start_game"}, 1)
-        env.observe_event(_start_kyoku_event_3p(
-            tehais=[
-                ["1m", "9m", "1p", "2p", "3p", "4p", "5p", "6p", "7s", "8s", "9s", "1z", "4z"],
-                ["1p", "1p", "7p", "8p", "9p", "1s", "2s", "3s", "4s", "5s", "6s", "3z", "4z"],
-                ["5z", "6z", "7z", "7s", "8s", "9s", "7p", "8p", "9p", "1m", "9m", "1z", "2z"],
-            ],
-        ), 1)
+        env.observe_event(
+            _start_kyoku_event_3p(
+                tehais=[
+                    ["1m", "9m", "1p", "2p", "3p", "4p", "5p", "6p", "7s", "8s", "9s", "1z", "4z"],
+                    ["1p", "1p", "7p", "8p", "9p", "1s", "2s", "3s", "4s", "5s", "6s", "3z", "4z"],
+                    ["5z", "6z", "7z", "7s", "8s", "9s", "7p", "8p", "9p", "1m", "9m", "1z", "2z"],
+                ],
+            ),
+            1,
+        )
         env.observe_event({"type": "tsumo", "actor": 0, "pai": "4z"}, 1)
         result = env.observe_event({"type": "kita", "actor": 0}, 1)
         # Kita is not a skip_check event, but P1 may or may not get
@@ -388,9 +360,7 @@ class TestApplyEvent3P:
         env.observe_event(_start_kyoku_event_3p(), player_id)
 
         # P0 tsumo -> obs
-        obs = env.observe_event(
-            {"type": "tsumo", "actor": 0, "pai": "3z"}, player_id
-        )
+        obs = env.observe_event({"type": "tsumo", "actor": 0, "pai": "3z"}, player_id)
         assert obs is not None
 
         # P0 dahai -> no self-reaction
@@ -401,9 +371,7 @@ class TestApplyEvent3P:
         assert obs is None
 
         # P1 tsumo -> P0 gets nothing
-        obs = env.observe_event(
-            {"type": "tsumo", "actor": 1, "pai": "?"}, player_id
-        )
+        obs = env.observe_event({"type": "tsumo", "actor": 1, "pai": "?"}, player_id)
         assert obs is None
 
         # P1 dahai -> P0 might get reaction
@@ -423,10 +391,13 @@ class TestApplyEvent3P:
 class TestApplyEventConsistency:
     """Verify observe_event behaves consistently across game modes."""
 
-    @pytest.mark.parametrize("game_mode,start_kyoku_fn,n_players", [
-        ("default", _start_kyoku_event_4p, 4),
-        ("3p-red-half", _start_kyoku_event_3p, 3),
-    ])
+    @pytest.mark.parametrize(
+        "game_mode,start_kyoku_fn,n_players",
+        [
+            ("default", _start_kyoku_event_4p, 4),
+            ("3p-red-half", _start_kyoku_event_3p, 3),
+        ],
+    )
     def test_non_action_events_always_none(self, game_mode, start_kyoku_fn, n_players):
         """All non-action event types return None regardless of player_id."""
         env = RiichiEnv(game_mode=game_mode)
@@ -440,15 +411,15 @@ class TestApplyEventConsistency:
         for ev in non_action_events:
             for pid in range(n_players):
                 result = env.observe_event(ev, pid)
-                assert result is None, (
-                    f"{ev['type']} should return None for player {pid} "
-                    f"in {game_mode} mode"
-                )
+                assert result is None, f"{ev['type']} should return None for player {pid} in {game_mode} mode"
 
-    @pytest.mark.parametrize("game_mode,start_kyoku_fn", [
-        ("default", _start_kyoku_event_4p),
-        ("3p-red-half", _start_kyoku_event_3p),
-    ])
+    @pytest.mark.parametrize(
+        "game_mode,start_kyoku_fn",
+        [
+            ("default", _start_kyoku_event_4p),
+            ("3p-red-half", _start_kyoku_event_3p),
+        ],
+    )
     def test_tsumo_only_returns_obs_for_actor(self, game_mode, start_kyoku_fn):
         """Tsumo returns obs only when player_id == actor."""
         env = RiichiEnv(game_mode=game_mode)
@@ -461,9 +432,7 @@ class TestApplyEventConsistency:
             env2 = RiichiEnv(game_mode=game_mode)
             env2.observe_event({"type": "start_game"}, pid)
             env2.observe_event(start_kyoku_fn(), pid)
-            obs = env2.observe_event(
-                {"type": "tsumo", "actor": 0, "pai": tsumo_tile}, pid
-            )
+            obs = env2.observe_event({"type": "tsumo", "actor": 0, "pai": tsumo_tile}, pid)
             if pid == 0:
                 assert obs is not None, "Actor should get observation on own tsumo"
             else:
