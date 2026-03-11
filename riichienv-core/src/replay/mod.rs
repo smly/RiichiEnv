@@ -245,7 +245,9 @@ impl KyokuStepIterator {
                 slf.idx += 1;
 
                 // Collect pass observations for discards (including riichi discards)
-                if action.action_type == ActionType::Discard && let Some(dtile) = discard_tile_for_pass {
+                if action.action_type == ActionType::Discard
+                    && let Some(dtile) = discard_tile_for_pass
+                {
                     let claimer = slf._peek_next_claimer();
                     slf._collect_pass_observations(discarder_for_pass, dtile, claimer);
                 }
@@ -656,7 +658,9 @@ impl KyokuStepIterator3P {
                 slf.idx += 1;
 
                 // Collect pass observations for discards (including riichi discards)
-                if action.action_type == ActionType::Discard && let Some(dtile) = discard_tile_for_pass {
+                if action.action_type == ActionType::Discard
+                    && let Some(dtile) = discard_tile_for_pass
+                {
                     let claimer = slf._peek_next_claimer();
                     slf._collect_pass_observations(discarder_for_pass, dtile, claimer);
                 }
