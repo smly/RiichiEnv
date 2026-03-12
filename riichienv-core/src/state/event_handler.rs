@@ -211,10 +211,24 @@ impl GameStateEventHandler for GameState {
                 self.phase = Phase::WaitAct;
                 self.active_players = vec![actor as u8];
                 self.needs_tsumo = false;
-                // Kuikae forbidden for chi
+                // Kuikae forbidden for chi: mirror claim-resolution logic
                 self.players[actor].forbidden_discards.clear();
                 if self.rule.kuikae_forbidden {
                     self.players[actor].forbidden_discards.push(tile);
+                    let t34 = tile / 4;
+                    let mut consumed_34 = [c1 / 4, c2 / 4];
+                    consumed_34.sort();
+                    if consumed_34[0] == t34 + 1 && consumed_34[1] == t34 + 2 {
+                        if t34 % 9 <= 5 {
+                            self.players[actor].forbidden_discards.push((t34 + 3) * 4);
+                        }
+                    } else if t34 >= 2
+                        && consumed_34[1] == t34 - 1
+                        && consumed_34[0] == t34 - 2
+                        && t34 % 9 >= 3
+                    {
+                        self.players[actor].forbidden_discards.push((t34 - 3) * 4);
+                    }
                 }
             }
             MjaiEvent::Kan {
