@@ -55,7 +55,7 @@ class TestPaoCompositeYakuman:
         env.phase = Phase.WaitAct
 
         # Execute Tsumo
-        action = Action(ActionType.Tsumo)
+        action = Action(ActionType.TSUMO)
         env.step({0: action})
         assert env.win_results[0].yakuman
 
@@ -149,12 +149,12 @@ class TestPaoCompositeYakuman:
         env.phase = Phase.WaitAct
 
         # Discard 122
-        action = Action(ActionType.Discard, 122, [])
+        action = Action(ActionType.DISCARD, 122, [])
         env.step({1: action})
 
         assert env.phase == Phase.WaitResponse
 
-        action_ron = Action(ActionType.Ron, 122, [])
+        action_ron = Action(ActionType.RON, 122, [])
         env.step({0: action_ron})
 
         # Expected: Triple Yakuman (Daisuushi 2x + Tsuuiisou 1x) = 144000.
@@ -219,11 +219,11 @@ class TestPaoCompositeYakuman:
         env.phase = Phase.WaitAct
 
         # Discard 4
-        action = Action(ActionType.Discard, 4, [])
+        action = Action(ActionType.DISCARD, 4, [])
         env.step({1: action})
 
         assert env.phase == Phase.WaitResponse
-        action_ron = Action(ActionType.Ron, 4, [])
+        action_ron = Action(ActionType.RON, 4, [])
         env.step({0: action_ron})
 
         # Expected: Single Yakuman (48000).
@@ -289,12 +289,12 @@ class TestPaoCompositeYakuman:
         env.needs_tsumo = False
         env.phase = Phase.WaitAct
 
-        action = Action(ActionType.Discard, 113, [])
+        action = Action(ActionType.DISCARD, 113, [])
         env.step({0: action})
 
         assert env.phase == Phase.WaitResponse
 
-        action_ron = Action(ActionType.Ron, 113, [])
+        action_ron = Action(ActionType.RON, 113, [])
         env.step({2: action_ron})
 
         # Double yakuman (Daisangen 1x + Tsuuiisou 1x) = 64000 (ko).
@@ -349,11 +349,11 @@ class TestPaoCompositeYakuman:
         env.needs_tsumo = False
         env.phase = Phase.WaitAct
 
-        action = Action(ActionType.Discard, 113, [])
+        action = Action(ActionType.DISCARD, 113, [])
         env.step({0: action})
         assert env.phase == Phase.WaitResponse
 
-        action_ron = Action(ActionType.Ron, 113, [])
+        action_ron = Action(ActionType.RON, 113, [])
         env.step({2: action_ron})
 
         # 64000 + 1000 riichi deposit = 65000 for winner.

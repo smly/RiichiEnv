@@ -81,7 +81,7 @@ def test_furiten_ron():
     env.hands = hands
 
     # Perform discard step
-    actions = {target_player: Action(ActionType.Discard, tile=discard_tile)}
+    actions = {target_player: Action(ActionType.DISCARD, tile=discard_tile)}
     obs_dict = env.step(actions)
 
     # Should now be in WaitResponse phase (if Ron/Pon/Chi is possible)
@@ -121,11 +121,11 @@ def test_ron_allowed_without_furiten():
     hands[target_player].append(discard_tile)
     env.hands = hands
 
-    actions = {target_player: Action(ActionType.Discard, tile=discard_tile)}
+    actions = {target_player: Action(ActionType.DISCARD, tile=discard_tile)}
     obs_dict = env.step(actions)
 
     # P0 should now be able to Ron.
     assert 0 in obs_dict, "Player 0 should be active (No Furiten -> Ron allowed)"
     obs0 = obs_dict[0]
-    ron_moves = [a for a in obs0.legal_actions() if a.action_type == ActionType.Ron]
+    ron_moves = [a for a in obs0.legal_actions() if a.action_type == ActionType.RON]
     assert len(ron_moves) > 0, "Ron should be allowed when not in Furiten"

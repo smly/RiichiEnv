@@ -5,27 +5,27 @@ from riichienv import Action, ActionType, Observation
 
 class TestActionToMjaiFormat:
     def test_action_to_mjai_dahai(self):
-        act = Action(ActionType.Discard, tile=53)
+        act = Action(ActionType.DISCARD, tile=53)
         mjai = act.to_mjai()
         assert json.loads(mjai) == {"type": "dahai", "pai": "5p"}
 
     def test_action_to_mjai_chi(self):
         # Chi 5p with 4p,6p consumed
         # 5p (53), 4p (49), 6p (57)
-        act = Action(ActionType.Chi, tile=53, consume_tiles=[49, 57])
+        act = Action(ActionType.CHI, tile=53, consume_tiles=[49, 57])
         mjai = act.to_mjai()
         expected = {"type": "chi", "pai": "5p", "consumed": ["4p", "6p"]}
         assert json.loads(mjai) == expected
 
     def test_action_to_mjai_reach(self):
-        act = Action(ActionType.Riichi)
+        act = Action(ActionType.RIICHI)
         mjai = act.to_mjai()
         assert json.loads(mjai) == {"type": "reach"}
 
     def test_select_action_from_mjai(self):
         legal_actions = [
-            Action(ActionType.Discard, tile=53),  # 5p
-            Action(ActionType.Riichi),
+            Action(ActionType.DISCARD, tile=53),  # 5p
+            Action(ActionType.RIICHI),
         ]
 
         player_id = 0
@@ -66,13 +66,13 @@ class TestActionToMjaiFormat:
         mjai_dict = {"type": "dahai", "pai": "5p"}
         selected = obs.select_action_from_mjai(mjai_dict)
         assert selected is not None
-        assert selected.action_type == ActionType.Discard
+        assert selected.action_type == ActionType.DISCARD
         assert selected.tile == 53
 
         # Riichi
         selected = obs.select_action_from_mjai({"type": "reach"})
         assert selected is not None
-        assert selected.action_type == ActionType.Riichi
+        assert selected.action_type == ActionType.RIICHI
 
         # Non-existent action
         selected = obs.select_action_from_mjai({"type": "dahai", "pai": "1z"})
@@ -82,5 +82,5 @@ class TestActionToMjaiFormat:
         mjai_loose = {"type": "dahai", "pai": "5p", "tsumogiri": True, "meta": {"foo": "bar"}}
         selected = obs.select_action_from_mjai(mjai_loose)
         assert selected is not None
-        assert selected.action_type == ActionType.Discard
+        assert selected.action_type == ActionType.DISCARD
         assert selected.tile == 53

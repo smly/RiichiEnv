@@ -88,8 +88,8 @@ class TestRiichiSequenceHandling:
         obs = obs_dict[3]
         legals = obs.legal_actions()
 
-        riichi_actions = [a for a in legals if a.action_type == ActionType.Riichi]
-        ankan_actions = [a for a in legals if a.action_type == ActionType.Ankan]
+        riichi_actions = [a for a in legals if a.action_type == ActionType.RIICHI]
+        ankan_actions = [a for a in legals if a.action_type == ActionType.ANKAN]
 
         assert len(riichi_actions) > 0, "Should be able to riichi when tenpai and menzen"
         assert len(ankan_actions) > 0, "Should be able to ankan with 4 tiles of 3m"
@@ -105,14 +105,14 @@ class TestRiichiSequenceHandling:
 
         # During riichi_stage (reach declared, awaiting discard), ankan is not offered.
         # Only discard actions are available at this point.
-        ankan_after_reach = [a for a in legals_after_reach if a.action_type == ActionType.Ankan]
+        ankan_after_reach = [a for a in legals_after_reach if a.action_type == ActionType.ANKAN]
         assert len(ankan_after_reach) == 0, "Ankan should NOT be available during riichi_stage"
 
-        discard_actions = [a for a in legals_after_reach if a.action_type == ActionType.Discard]
+        discard_actions = [a for a in legals_after_reach if a.action_type == ActionType.DISCARD]
         assert len(discard_actions) > 0, "Should be able to discard after reach"
 
         # Riichi should NOT be available anymore (already in riichi_stage)
-        riichi_after_reach = [a for a in legals_after_reach if a.action_type == ActionType.Riichi]
+        riichi_after_reach = [a for a in legals_after_reach if a.action_type == ActionType.RIICHI]
         assert len(riichi_after_reach) == 0, "Riichi should not be available when already in riichi_stage"
 
     def test_mjai_reach_then_dahai_sequence(self) -> None:
@@ -168,7 +168,7 @@ class TestRiichiSequenceHandling:
         reach_action = obs.select_action_from_mjai(reach_response)
 
         assert reach_action is not None, "Should be able to select reach action"
-        assert reach_action.action_type == ActionType.Riichi, "Action type should be Riichi"
+        assert reach_action.action_type == ActionType.RIICHI, "Action type should be Riichi"
 
         # Step with reach action (no tile specified - this is the issue!)
         # RiichiEnv's Riichi action can optionally include a tile
@@ -185,13 +185,13 @@ class TestRiichiSequenceHandling:
 
         # Should only have discard actions available (and possibly ankan if wait unchanged)
         # But should NOT have Riichi available
-        riichi_in_new_legals = [a for a in new_legals if a.action_type == ActionType.Riichi]
+        riichi_in_new_legals = [a for a in new_legals if a.action_type == ActionType.RIICHI]
         assert len(riichi_in_new_legals) == 0, (
             f"Riichi should not be available after reach declaration. Legals: {new_legals}"
         )
 
         # Should have discard actions
-        discard_in_new_legals = [a for a in new_legals if a.action_type == ActionType.Discard]
+        discard_in_new_legals = [a for a in new_legals if a.action_type == ActionType.DISCARD]
         assert len(discard_in_new_legals) > 0, "Should have discard actions available"
 
         # Now simulate the dahai action
@@ -200,7 +200,7 @@ class TestRiichiSequenceHandling:
         dahai_action = new_obs.select_action_from_mjai(dahai_response)
 
         assert dahai_action is not None, f"Should be able to select dahai action. Legals: {new_legals}"
-        assert dahai_action.action_type == ActionType.Discard, "Action type should be Discard"
+        assert dahai_action.action_type == ActionType.DISCARD, "Action type should be Discard"
 
         # Step the env with the dahai action to complete the reach→dahai sequence
         env.step({3: dahai_action})
@@ -265,8 +265,8 @@ class TestRiichiSequenceHandling:
         legals = obs.legal_actions()
 
         # Check consistency with expected Mortal state after reach
-        can_discard = any(a.action_type == ActionType.Discard for a in legals)
-        can_riichi = any(a.action_type == ActionType.Riichi for a in legals)
+        can_discard = any(a.action_type == ActionType.DISCARD for a in legals)
+        can_riichi = any(a.action_type == ActionType.RIICHI for a in legals)
 
         assert can_discard is True, "Should be able to discard during riichi_stage"
         assert can_riichi is False, "Should NOT be able to riichi when already in riichi_stage"

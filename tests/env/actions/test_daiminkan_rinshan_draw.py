@@ -21,7 +21,7 @@ class TestDaiminkan:
             phase=Phase.WaitAct,
             drawn_tile=75,  # 2s (4th copy). P1 has 72,73,74.
         )
-        obs_dict = env.step({0: Action(ActionType.Discard, tile=75)})
+        obs_dict = env.step({0: Action(ActionType.DISCARD, tile=75)})
         assert 1 in obs_dict, "Player 1 should be active"
         assert env.phase == Phase.WaitResponse, f"Phase should be WaitResponse, got {env.phase}"
 

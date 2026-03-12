@@ -41,14 +41,14 @@ class TestRiichiEnv:
 
         # P0 performs Kakan
         env.needs_tsumo = False
-        obs_dict = env.step({0: Action(ActionType.Kakan, tile=63)})
+        obs_dict = env.step({0: Action(ActionType.KAKAN, tile=63)})
 
         # Verify P1 can Ron
         assert env.phase == Phase.WaitResponse
         assert 1 in env.active_players
         obs1 = obs_dict[1]
         legals = obs1.legal_actions()
-        ron = [a for a in legals if a.action_type == ActionType.Ron]
+        ron = [a for a in legals if a.action_type == ActionType.RON]
         assert len(ron) == 1
 
         # Execute Ron
@@ -86,13 +86,13 @@ class TestRiichiEnv:
 
         # Step: P2 discards 9p
         env.needs_tsumo = False
-        obs_dict = env.step({2: Action(ActionType.Discard, tile=discard_tile)})
+        obs_dict = env.step({2: Action(ActionType.DISCARD, tile=discard_tile)})
 
         assert pid in obs_dict, "P3 should receive an observation after discard."
         legals = obs_dict[pid].legal_actions()
-        has_ron = any(a.action_type == ActionType.Ron for a in legals)
+        has_ron = any(a.action_type == ActionType.RON for a in legals)
         assert has_ron, "Ron should be legal because South (Bakaze) is a Yaku in a South round."
-        obs_dict = env.step({pid: Action(ActionType.Ron, tile=discard_tile)})
+        obs_dict = env.step({pid: Action(ActionType.RON, tile=discard_tile)})
         # 11: 役牌:場風牌 => 南
         # 21: 対々和
         # 22: 三暗刻

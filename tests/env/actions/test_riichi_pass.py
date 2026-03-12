@@ -32,16 +32,16 @@ class TestRiichiPassAction:
         obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
 
-        # expected legal actions => [ActionType.Discard, ActionType.Tsumo]
-        assert ActionType.Discard in [a.action_type for a in obs.legal_actions()], (
+        # expected legal actions => [ActionType.DISCARD, ActionType.TSUMO]
+        assert ActionType.DISCARD in [a.action_type for a in obs.legal_actions()], (
             "DISCARD should be available in Riichi"
         )
-        assert ActionType.Pass not in [a.action_type for a in obs.legal_actions()], (
+        assert ActionType.PASS not in [a.action_type for a in obs.legal_actions()], (
             "PASS should NOT be available in Riichi (WaitAct)"
         )
-        assert ActionType.Tsumo in [a.action_type for a in obs.legal_actions()], "Tsumo should be available in Riichi"
+        assert ActionType.TSUMO in [a.action_type for a in obs.legal_actions()], "Tsumo should be available in Riichi"
 
-        act = Action(ActionType.Discard, 10)
+        act = Action(ActionType.DISCARD, 10)
         obs = env.step({player_id: act})
         assert 1 in obs, (
             f"Should be player 1's turn. Keys: {list(obs.keys())}. Phase: {env.phase}, Active: {env.active_players}"

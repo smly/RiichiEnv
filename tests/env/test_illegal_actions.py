@@ -19,7 +19,7 @@ class TestIllegalActions:
             invalid_tile += 1
 
         # Perform illegal action
-        action = Action(ActionType.Discard, tile=invalid_tile)
+        action = Action(ActionType.DISCARD, tile=invalid_tile)
         empty_dict = env.step({0: action})
 
         # NOTE: should return empty_dict?
@@ -74,8 +74,8 @@ class TestIllegalActions:
         valid_tile = p0_hand[-1]
 
         actions = {
-            0: Action(ActionType.Discard, tile=valid_tile),  # Valid
-            1: Action(ActionType.Discard, tile=0),  # Illegal (Out of turn)
+            0: Action(ActionType.DISCARD, tile=valid_tile),  # Valid
+            1: Action(ActionType.DISCARD, tile=0),  # Illegal (Out of turn)
         }
         env.step(actions)
 
@@ -112,9 +112,9 @@ class TestIllegalActions:
         valid_tile = p0_hand[-1]
 
         actions = {
-            0: Action(ActionType.Discard, tile=valid_tile),
-            1: Action(ActionType.Discard, tile=0),
-            2: Action(ActionType.Discard, tile=0),
+            0: Action(ActionType.DISCARD, tile=valid_tile),
+            1: Action(ActionType.DISCARD, tile=0),
+            2: Action(ActionType.DISCARD, tile=0),
         }
 
         env.step(actions)

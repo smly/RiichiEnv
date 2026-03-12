@@ -21,7 +21,7 @@ class TestAbortiveDraw:
             h[p][0] = tiles[i]
             env.hands = h
             env.drawn_tile = tiles[i]
-            env.step({p: Action(ActionType.Discard, tile=tiles[i])})
+            env.step({p: Action(ActionType.DISCARD, tile=tiles[i])})
             if i < 3:
                 assert not env.done()
 
@@ -45,7 +45,7 @@ class TestAbortiveDraw:
         )
 
         p = env.current_player
-        env.step({p: Action(ActionType.Discard, tile=108)})
+        env.step({p: Action(ActionType.DISCARD, tile=108)})
 
         assert env.done()
         assert any(e["reason"] == "suukansansen" for e in env.mjai_log if e["type"] == "ryukyoku")

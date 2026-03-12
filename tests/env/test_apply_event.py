@@ -116,7 +116,7 @@ class TestApplyEvent4P:
         actions = obs.legal_actions()
         assert len(actions) > 0
         # Should have at least discard options
-        discard_actions = [a for a in actions if a.action_type == ActionType.Discard]
+        discard_actions = [a for a in actions if a.action_type == ActionType.DISCARD]
         assert len(discard_actions) > 0
 
     def test_tsumo_returns_none_for_other_player(self):
@@ -137,8 +137,8 @@ class TestApplyEvent4P:
         assert obs is not None
         actions = obs.legal_actions()
         action_types = {a.action_type for a in actions}
-        assert ActionType.Pon in action_types
-        assert ActionType.Pass in action_types
+        assert ActionType.PON in action_types
+        assert ActionType.PASS in action_types
 
     def test_dahai_returns_none_when_no_reaction(self):
         """After P0 discards a tile no one can claim, returns None."""
@@ -209,7 +209,7 @@ class TestApplyEvent4P:
         obs = env.observe_event({"type": "pon", "actor": 1, "target": 0, "pai": "1m", "consumed": ["1m", "1m"]}, 1)
         assert obs is not None
         actions = obs.legal_actions()
-        discard_actions = [a for a in actions if a.action_type == ActionType.Discard]
+        discard_actions = [a for a in actions if a.action_type == ActionType.DISCARD]
         assert len(discard_actions) > 0
 
     def test_chi_kuikae_forbids_called_and_other_side_tile(self):
@@ -232,7 +232,7 @@ class TestApplyEvent4P:
             1,
         )
         assert obs is not None
-        discard_t34 = {a.tile // 4 for a in obs.legal_actions() if a.action_type == ActionType.Discard}
+        discard_t34 = {a.tile // 4 for a in obs.legal_actions() if a.action_type == ActionType.DISCARD}
         # 3m (t34=2) is the called tile — forbidden
         assert 2 not in discard_t34, "3m (called tile) must be forbidden by kuikae"
         # 6m (t34=5) is the other-side tile of the 3-4-5 sequence — forbidden
@@ -301,7 +301,7 @@ class TestApplyEvent3P:
         assert obs is not None
         actions = obs.legal_actions()
         assert len(actions) > 0
-        discard_actions = [a for a in actions if a.action_type == ActionType.Discard]
+        discard_actions = [a for a in actions if a.action_type == ActionType.DISCARD]
         assert len(discard_actions) > 0
 
     def test_tsumo_returns_none_for_other_player(self):
@@ -321,8 +321,8 @@ class TestApplyEvent3P:
         assert obs is not None
         actions = obs.legal_actions()
         action_types = {a.action_type for a in actions}
-        assert ActionType.Pon in action_types
-        assert ActionType.Pass in action_types
+        assert ActionType.PON in action_types
+        assert ActionType.PASS in action_types
 
     def test_dahai_returns_none_when_no_reaction(self):
         """P2 should not get reaction when P0 discards a tile P2 can't claim."""
@@ -370,7 +370,7 @@ class TestApplyEvent3P:
         obs = env.observe_event({"type": "pon", "actor": 1, "target": 0, "pai": "1p", "consumed": ["1p", "1p"]}, 1)
         assert obs is not None
         actions = obs.legal_actions()
-        discard_actions = [a for a in actions if a.action_type == ActionType.Discard]
+        discard_actions = [a for a in actions if a.action_type == ActionType.DISCARD]
         assert len(discard_actions) > 0
 
     def test_kita_returns_none_for_other(self):
@@ -537,9 +537,9 @@ class TestReplayFuriten:
                 p1_pass_has_ron = []
                 for step in kyoku.steps(seat=None, skip_single_action=False):
                     pid, obs, action = step
-                    if pid == 1 and action.action_type == ActionType.Pass:
+                    if pid == 1 and action.action_type == ActionType.PASS:
                         types = {a.action_type for a in obs.legal_actions()}
-                        p1_pass_has_ron.append(ActionType.Ron in types)
+                        p1_pass_has_ron.append(ActionType.RON in types)
                 # Both passes should have Ron (doujun furiten resets after discard)
                 assert len(p1_pass_has_ron) == 2, f"expected 2 pass obs, got {len(p1_pass_has_ron)}"
                 assert p1_pass_has_ron[0] is True, "1st pass should include Ron"
@@ -591,9 +591,9 @@ class TestReplayFuriten:
                 p1_pass_has_ron = []
                 for step in kyoku.steps(seat=None, skip_single_action=False):
                     pid, obs, action = step
-                    if pid == 1 and action.action_type == ActionType.Pass:
+                    if pid == 1 and action.action_type == ActionType.PASS:
                         types = {a.action_type for a in obs.legal_actions()}
-                        p1_pass_has_ron.append(ActionType.Ron in types)
+                        p1_pass_has_ron.append(ActionType.RON in types)
                 # Only the first pass (from P0's 3m) should have Ron.
                 # The second 3m (from P2) produces no pass obs because
                 # riichi furiten blocks all claims.

@@ -53,29 +53,31 @@ class Phase(IntEnum):
     WaitResponse = 1
 
 class ActionType:
-    Discard: ActionType
-    Chi: ActionType
-    Pon: ActionType
-    Daiminkan: ActionType
-    Ankan: ActionType
-    Kakan: ActionType
-    Riichi: ActionType
-    Tsumo: ActionType
-    Ron: ActionType
-    Pass: ActionType
-    KyushuKyuhai: ActionType
-    # Upper case aliases
     DISCARD: ActionType
     CHI: ActionType
     PON: ActionType
     DAIMINKAN: ActionType
-    ANKAN: ActionType
-    KAKAN: ActionType
+    RON: ActionType
     RIICHI: ActionType
     TSUMO: ActionType
-    RON: ActionType
     PASS: ActionType
+    ANKAN: ActionType
+    KAKAN: ActionType
     KYUSHU_KYUHAI: ActionType
+    KITA: ActionType
+    # PascalCase aliases (deprecated)
+    Discard: ActionType
+    Chi: ActionType
+    Pon: ActionType
+    Daiminkan: ActionType
+    Ron: ActionType
+    Riichi: ActionType
+    Tsumo: ActionType
+    Pass: ActionType
+    Ankan: ActionType
+    Kakan: ActionType
+    KyushuKyuhai: ActionType
+    Kita: ActionType
     def __int__(self) -> int: ...
 
 class Action:
@@ -95,7 +97,7 @@ class Action3P:
 
     def __init__(
         self,
-        type: ActionType = ActionType.Pass,  # noqa: A002
+        type: ActionType = ActionType.PASS,  # noqa: A002
         tile: int | None = None,
         consume_tiles: list[int] = [],
         actor: int | None = None,

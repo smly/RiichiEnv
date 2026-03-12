@@ -30,7 +30,7 @@ def test_riichi_autoplay():
     # The wall needs to be set up so P0 draws a safe tile.
 
     # Let's mock _perform_discard to set up P0 state explicitly or call it.
-    # Calling env.step({env.current_player: Action(ActionType.Discard, 100)}) on P3's turn:
+    # Calling env.step({env.current_player: Action(ActionType.DISCARD, 100)}) on P3's turn:
     # 1. P3 discards 100.
     # 2. Check Ron/Pon/Chi... assume none.
     # 3. Next player P0 draws.
@@ -61,14 +61,14 @@ def test_riichi_autoplay():
     # If drawn_tile=None, assumes manual discard from hand.
     env.drawn_tile = None
 
-    obs = env.step({env.current_player: Action(ActionType.Discard, 100)})  # P3 discards 100
+    obs = env.step({env.current_player: Action(ActionType.DISCARD, 100)})  # P3 discards 100
 
     # In Rust, Riichi doesn't auto-play immediately if drawn. It waits for explicit discard.
     # So P0 should be active now (Tsumo).
     assert env.current_player == 0
     # P0 must discard drawn tile (101).
     dt = env.drawn_tile
-    obs = env.step({0: Action(ActionType.Discard, dt)})
+    obs = env.step({0: Action(ActionType.DISCARD, dt)})
 
     # Check if P1 is active
     assert list(obs.keys()) == [1]

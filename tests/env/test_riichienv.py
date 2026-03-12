@@ -76,13 +76,13 @@ class TestRiichiEnv:
         assert list(obs_dict.keys()) == [0]
         obs = obs_dict[0]
         tile_to_discard = obs.hand[-1]
-        obs_dict = env.step({0: Action(ActionType.Discard, tile=tile_to_discard)})
+        obs_dict = env.step({0: Action(ActionType.DISCARD, tile=tile_to_discard)})
 
         # Players who can act are stored in `env.active_players`
         # Multiple players may be able to act in the `Phase.WaitResponse` phase
         # If no one can act, the `Phase.WaitResponse` phase is skipped
         while env.phase == Phase.WaitResponse:
-            actions = {pid: Action(ActionType.Pass) for pid in env.active_players}
+            actions = {pid: Action(ActionType.PASS) for pid in env.active_players}
             obs_dict = env.step(actions)
 
         # WaitAct phase for the next player
@@ -151,7 +151,7 @@ class TestRiichiEnv:
         p0_events = []
 
         p0_tile = p0_obs.hand[0]
-        obs_dict = env.step({0: Action(ActionType.Discard, tile=p0_tile)})
+        obs_dict = env.step({0: Action(ActionType.DISCARD, tile=p0_tile)})
         collect_p0(obs_dict, p0_events)
 
         assert env.phase == Phase.WaitAct
@@ -174,11 +174,11 @@ class TestRiichiEnv:
             assert new_evs[-1]["actor"] == actor
 
             discard_tile = obs.hand[0]
-            obs_dict = env.step({pid: Action(ActionType.Discard, tile=discard_tile)})
+            obs_dict = env.step({pid: Action(ActionType.DISCARD, tile=discard_tile)})
             collect_p0(obs_dict, p0_events)
 
             if env.phase == Phase.WaitResponse:
-                obs_dict = env.step({pid: Action(ActionType.Pass) for pid in env.active_players})
+                obs_dict = env.step({pid: Action(ActionType.PASS) for pid in env.active_players})
                 collect_p0(obs_dict, p0_events)
 
         assert env.phase == Phase.WaitAct
@@ -212,7 +212,7 @@ class TestRiichiEnv:
         env.current_player = 0
         env.drawn_tile = 52  # 5p
 
-        obs_dict = env.step({0: Action(ActionType.Discard, tile=0)})
+        obs_dict = env.step({0: Action(ActionType.DISCARD, tile=0)})
         assert env.phase == Phase.WaitResponse
         assert env.active_players == [2]
         assert list(obs_dict.keys()) == [2]
@@ -254,7 +254,7 @@ class TestRiichiEnv:
         env.current_player = 0
         env.drawn_tile = 16  # 5mr
 
-        obs_dict = env.step({0: Action(ActionType.Discard, tile=16)})
+        obs_dict = env.step({0: Action(ActionType.DISCARD, tile=16)})
         assert env.phase == Phase.WaitResponse
         assert env.active_players == [2]
         assert list(obs_dict.keys()) == [2]
@@ -578,7 +578,7 @@ class TestRiichiEnv:
         h[0].sort()
         env.hands = h
 
-        obs_dict = env.step({0: Action(ActionType.Discard, tile=tile_5m_target)})
+        obs_dict = env.step({0: Action(ActionType.DISCARD, tile=tile_5m_target)})
 
         assert env.phase == Phase.WaitResponse
         assert env.active_players == [1]
@@ -586,7 +586,7 @@ class TestRiichiEnv:
 
         # P1 Legal Ron
         obs = obs_dict[1]
-        ron = [a for a in obs.legal_actions() if a.action_type == ActionType.Ron]
+        ron = [a for a in obs.legal_actions() if a.action_type == ActionType.RON]
         assert len(ron) == 1
 
         # Execute Ron
@@ -630,5 +630,5 @@ class TestRiichiEnv:
 
         # In this scenario, 1s,1s,1s,1s were part of a 1s,2s,3s sequence wait.
         # Ankan would change the waits, so it should be ILLEGAL.
-        ankan = [a for a in legals if a.action_type == ActionType.Ankan]
+        ankan = [a for a in legals if a.action_type == ActionType.ANKAN]
         assert len(ankan) == 0, f"Ankan should be illegal as it changes waits. Legals: {legals}"

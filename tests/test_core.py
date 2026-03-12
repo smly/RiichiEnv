@@ -189,13 +189,13 @@ def test_only_aka_dora_fails():
 
 def test_reach_action_to_mjai_includes_actor():
     # actor ありの reach → to_mjai() に "actor" が含まれる
-    action = Action(type=ActionType.Riichi, actor=2)
+    action = Action(type=ActionType.RIICHI, actor=2)
     result = json.loads(action.to_mjai())
     assert result["type"] == "reach"
     assert result["actor"] == 2, f"Expected actor=2, got {result.get('actor')}"
 
     # actor なしの reach → "actor" キーが存在しない
-    action_no_actor = Action(type=ActionType.Riichi)
+    action_no_actor = Action(type=ActionType.RIICHI)
     result2 = json.loads(action_no_actor.to_mjai())
     assert result2["type"] == "reach"
     assert "actor" not in result2, f"actor key should not exist, got {result2}"

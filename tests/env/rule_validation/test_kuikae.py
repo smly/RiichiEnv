@@ -22,7 +22,7 @@ class TestKuikae:
 
         # P1 discards 1s (72).
         discard_tile = 72
-        action_discard = Action(ActionType.Discard, discard_tile, [])
+        action_discard = Action(ActionType.DISCARD, discard_tile, [])
 
         obs_dict = env.step({1: action_discard})
 
@@ -33,12 +33,12 @@ class TestKuikae:
 
         # 1s 2s 3s Chi involves consuming 2s + 3s.
         assert env.phase == Phase.WaitResponse
-        assert any(a.action_type == ActionType.Chi for a in actions), "Chi should be offered"
-        obs2 = env.step({2: Action(ActionType.Chi, 72, [79, 82])})
+        assert any(a.action_type == ActionType.CHI for a in actions), "Chi should be offered"
+        obs2 = env.step({2: Action(ActionType.CHI, 72, [79, 82])})
 
         # P2 should not be able to discard 4s
         actions = obs2[2].legal_actions()
-        assert not any(a.action_type == ActionType.Discard for a in actions if a.tile // 4 == 21)
+        assert not any(a.action_type == ActionType.DISCARD for a in actions if a.tile // 4 == 21)
 
     def test_kuikae_suji_chi_avoid_kuikae_deadlock(self) -> None:
         env = helper_setup_env(
@@ -66,7 +66,7 @@ class TestKuikae:
 
         # P1 discards 1s (72).
         discard_tile = 72
-        action_discard = Action(ActionType.Discard, discard_tile, [])
+        action_discard = Action(ActionType.DISCARD, discard_tile, [])
 
         obs_dict = env.step({1: action_discard})
 
@@ -95,7 +95,7 @@ class TestKuikae:
 
         # P1 discards 1s (72).
         discard_tile = 72
-        obs = env.step({1: Action(ActionType.Discard, discard_tile, [])})
+        obs = env.step({1: Action(ActionType.DISCARD, discard_tile, [])})
 
         # P2 should be active with Chi offer.
         assert 2 in obs, "P2 should be active"
@@ -104,7 +104,7 @@ class TestKuikae:
         # Find Chi action
         chi_action = None
         for a in actions:
-            if a.action_type == ActionType.Chi:
+            if a.action_type == ActionType.CHI:
                 # We want to consume 2s(79), 3s(82)
                 if 79 in a.consume_tiles and 82 in a.consume_tiles:
                     chi_action = a
@@ -123,7 +123,7 @@ class TestKuikae:
         can_discard_7p = False
 
         for a in discard_actions:
-            if a.action_type == ActionType.Discard:
+            if a.action_type == ActionType.DISCARD:
                 t = a.tile
                 if t // 4 == 21:  # 4s
                     can_discard_4s = True

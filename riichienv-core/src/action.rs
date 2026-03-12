@@ -42,7 +42,13 @@ impl Phase {
 
 #[cfg_attr(
     feature = "python",
-    pyclass(module = "riichienv._riichienv", eq, eq_int, from_py_object)
+    pyclass(
+        module = "riichienv._riichienv",
+        eq,
+        eq_int,
+        from_py_object,
+        rename_all = "SCREAMING_SNAKE_CASE"
+    )
 )]
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

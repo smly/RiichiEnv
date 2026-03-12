@@ -30,7 +30,7 @@ class TestChankan:
 
         # Player 0 performs Kakan
         # Pon tiles are [0, 1, 2]
-        kakan_action = Action(ActionType.Kakan, tile=3, consume_tiles=[0, 1, 2])
+        kakan_action = Action(ActionType.KAKAN, tile=3, consume_tiles=[0, 1, 2])
         obs_dict = env.step({0: kakan_action})
 
         # Env should transition to WaitResponse for Player 1
@@ -41,7 +41,7 @@ class TestChankan:
 
         # Player 1 should have Ron action
         legal_actions = obs_dict[1].legal_actions()
-        ron_actions = [a for a in legal_actions if a.action_type == ActionType.Ron]
+        ron_actions = [a for a in legal_actions if a.action_type == ActionType.RON]
         assert len(ron_actions) > 0, f"No Ron actions found. Legal actions: {legal_actions}"
         assert ron_actions[0].tile == 3
 
@@ -84,11 +84,11 @@ class TestChankan:
         env.phase = Phase.WaitAct
         env.active_players = [0]
 
-        kakan_action = Action(ActionType.Kakan, tile=3, consume_tiles=[0, 1, 2])
+        kakan_action = Action(ActionType.KAKAN, tile=3, consume_tiles=[0, 1, 2])
         env.step({0: kakan_action})
 
         # Player 1 performs PASS
-        env.step({1: Action(ActionType.Pass)})
+        env.step({1: Action(ActionType.PASS)})
 
         # Env should proceed with KAKAN execution and Rinshan Draw for Player 0
         assert env.phase == Phase.WaitAct
@@ -128,7 +128,7 @@ class TestChankan:
         env.active_players = [0]
 
         # Use tile 111 for Ankan
-        ankan_action = Action(ActionType.Ankan, tile=111, consume_tiles=[108, 109, 110, 111])
+        ankan_action = Action(ActionType.ANKAN, tile=111, consume_tiles=[108, 109, 110, 111])
         obs_dict = env.step({0: ankan_action})
 
         # Should transition to WaitResponse for Player 1
@@ -136,7 +136,7 @@ class TestChankan:
         assert 1 in env.active_players
 
         legal_actions = obs_dict[1].legal_actions()
-        ron_actions = [a for a in legal_actions if a.action_type == ActionType.Ron]
+        ron_actions = [a for a in legal_actions if a.action_type == ActionType.RON]
         assert len(ron_actions) > 0
         assert ron_actions[0].tile == 111
 
@@ -176,7 +176,7 @@ class TestChankan:
         env.active_players = [0]
 
         # Use tile 111 for Ankan
-        ankan_action = Action(ActionType.Ankan, tile=111, consume_tiles=[108, 109, 110, 111])
+        ankan_action = Action(ActionType.ANKAN, tile=111, consume_tiles=[108, 109, 110, 111])
         env.step({0: ankan_action})
 
         assert env.phase == Phase.WaitAct
@@ -208,7 +208,7 @@ class TestChankan:
         env.phase = Phase.WaitAct
         env.active_players = [0]
 
-        ankan_action = Action(ActionType.Ankan, tile=111, consume_tiles=[108, 109, 110, 111])
+        ankan_action = Action(ActionType.ANKAN, tile=111, consume_tiles=[108, 109, 110, 111])
         env.step({0: ankan_action})
 
         # Should NOT transition to WaitResponse. Should immediately execute ANKAN.
@@ -237,7 +237,7 @@ class TestChankan:
 
         obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
-        ankan = [a for a in legals if a.action_type == ActionType.Ankan]
+        ankan = [a for a in legals if a.action_type == ActionType.ANKAN]
         assert len(ankan) > 0
         assert ankan[0].tile in [0, 1, 2, 3]
         assert sorted(ankan[0].consume_tiles) == [0, 1, 2, 3]
@@ -262,7 +262,7 @@ class TestChankan:
 
         obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
-        ankan = [a for a in legals if a.action_type == ActionType.Ankan]
+        ankan = [a for a in legals if a.action_type == ActionType.ANKAN]
         assert len(ankan) > 0
         assert ankan[0].tile == 0  # In Riichi, must be the drawn tile (or equivalent type)
         assert sorted(ankan[0].consume_tiles) == [0, 1, 2, 3]
@@ -300,12 +300,12 @@ class TestChankan:
 
         # 1. P2 discards 7p (63). (P0 has 61, 62).
         # Wait, P2 discard 7p (63). P0 (61, 62) should have Pon.
-        obs = env.step({2: Action(ActionType.Discard, 63)})
+        obs = env.step({2: Action(ActionType.DISCARD, 63)})
         assert 0 in obs
 
         # 2. All pass.
         # Strict turn validation requires only active players to act.
-        env.step({pid: Action(ActionType.Pass) for pid in obs.keys()})
+        env.step({pid: Action(ActionType.PASS) for pid in obs.keys()})
         assert env.current_player == 3
 
         # 3. P3 draws 6p (59) and kakans.
@@ -314,8 +314,8 @@ class TestChankan:
         h3[3] = [59]
         env.hands = h3
 
-        obs = env.step({3: Action(ActionType.Kakan, 59, [56, 57, 58])})
+        obs = env.step({3: Action(ActionType.KAKAN, 59, [56, 57, 58])})
 
         assert 0 in obs, f"P0 should be active for Chankan. Phase: {env.phase}, Active: {env.active_players}"
         action_types = [a.action_type for a in obs[0].legal_actions()]
-        assert ActionType.Ron in action_types, f"P0 should have Ron offered. Actions: {action_types}"
+        assert ActionType.RON in action_types, f"P0 should have Ron offered. Actions: {action_types}"

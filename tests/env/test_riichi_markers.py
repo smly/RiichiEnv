@@ -16,7 +16,7 @@ class TestRiichiMarker:
         env.hands = hands
         obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
-        riichi_actions = [a for a in legals if a.action_type == ActionType.Riichi]
+        riichi_actions = [a for a in legals if a.action_type == ActionType.RIICHI]
         assert len(riichi_actions) > 0, "Manual setup did not provide Riichi opportunity"
 
         # 1. Declare Riichi
@@ -33,7 +33,7 @@ class TestRiichiMarker:
         # We must pick a legal discard.
         obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
-        discards = [a for a in legals if a.action_type == ActionType.Discard]
+        discards = [a for a in legals if a.action_type == ActionType.DISCARD]
         assert len(discards) > 0
         discard_action = discards[0]
 
@@ -69,7 +69,7 @@ class TestRiichiMarker:
         # P0 just discards naturally
         obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
-        discards = [a for a in legals if a.action_type == ActionType.Discard]
+        discards = [a for a in legals if a.action_type == ActionType.DISCARD]
 
         if discards:
             env.step({0: discards[0]})
@@ -88,7 +88,7 @@ class TestRiichiMarker:
         env.hands = hands
         obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
-        riichi_actions = [a for a in legals if a.action_type == ActionType.Riichi]
+        riichi_actions = [a for a in legals if a.action_type == ActionType.RIICHI]
         assert riichi_actions
 
         env.step({0: riichi_actions[0]})
@@ -96,7 +96,7 @@ class TestRiichiMarker:
         # Discard
         obs = env.get_observations([0])[0]
         legals = obs.legal_actions()
-        discards = [a for a in legals if a.action_type == ActionType.Discard]
+        discards = [a for a in legals if a.action_type == ActionType.DISCARD]
         env.step({0: discards[0]})
 
         # Check markers set

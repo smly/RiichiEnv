@@ -31,14 +31,14 @@ def test_honba_reset_on_ko_win():
     env.active_players = [0, 1, 2, 3]
 
     # Step where 0 discards
-    env.step({0: Action(ActionType.Discard, 25, [])})
+    env.step({0: Action(ActionType.DISCARD, 25, [])})
 
     # Now it should be WaitResponse phase, Player 1 can Ron
     assert env.phase == Phase.WaitResponse
     assert env.last_discard == (0, 25)  # (pid, tile)
 
     # Player 1 Rons
-    env.step({1: Action(ActionType.Ron, 25, [])})
+    env.step({1: Action(ActionType.RON, 25, [])})
 
     # Transition to end state
     env.step({})
@@ -65,7 +65,7 @@ def test_honba_increment_on_oya_win():
     env.needs_tsumo = False
     env.phase = Phase.WaitAct
 
-    env.step({0: Action(ActionType.Tsumo)})
+    env.step({0: Action(ActionType.TSUMO)})
 
     env.step({})
 

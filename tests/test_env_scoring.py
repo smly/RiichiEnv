@@ -22,16 +22,16 @@ class TestRiichiScoring:
         env.hands = h
 
         # P1 discards 126
-        obs = env.step({1: Action(ActionType.Discard, tile=126)})
+        obs = env.step({1: Action(ActionType.DISCARD, tile=126)})
 
         # P0 should have Ron option
         assert 0 in obs
         actions = obs[0].legal_actions()
-        ron_action = next((a for a in actions if a.action_type == ActionType.Ron), None)
+        ron_action = next((a for a in actions if a.action_type == ActionType.RON), None)
         assert ron_action is not None
 
         # P0 declares Ron
-        env.step({0: Action(ActionType.Ron, tile=126)})
+        env.step({0: Action(ActionType.RON, tile=126)})
 
         # Check log
         hora_event = next(e for e in reversed(env.mjai_log) if e["type"] == "hora")
@@ -64,11 +64,11 @@ class TestRiichiScoring:
 
         # Verify legal actions
         actions = env._get_legal_actions(0)
-        tsumo_act = next((a for a in actions if a.action_type == ActionType.Tsumo), None)
+        tsumo_act = next((a for a in actions if a.action_type == ActionType.TSUMO), None)
         assert tsumo_act is not None
 
         # Execute Tsumo
-        env.step({0: Action(ActionType.Tsumo)})
+        env.step({0: Action(ActionType.TSUMO)})
 
         # Check log
         hora_event = next(e for e in reversed(env.mjai_log) if e["type"] == "hora")
@@ -101,7 +101,7 @@ class TestRiichiScoring:
         env.drawn_tile = 13
         env.current_player = 0
 
-        env.step({0: Action(ActionType.Tsumo)})
+        env.step({0: Action(ActionType.TSUMO)})
 
         hora_event = next(e for e in reversed(env.mjai_log) if e["type"] == "hora")
         assert len(hora_event["ura_markers"]) > 0
@@ -136,7 +136,7 @@ class TestRiichiScoring:
         env.discards = d  # Reassign for PyO3
 
         # Execute Tsumo
-        env.step({0: Action(ActionType.Tsumo)})
+        env.step({0: Action(ActionType.TSUMO)})
         hora_event = next(e for e in reversed(env.mjai_log) if e["type"] == "hora")
 
         deltas = hora_event["deltas"]

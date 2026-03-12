@@ -34,9 +34,9 @@ def _play_one_turn(env, obs):
     pid = env.current_player
     o = obs[pid]
     tile = o.hand[-1]
-    obs = env.step({pid: Action(ActionType.Discard, tile=tile)})
+    obs = env.step({pid: Action(ActionType.DISCARD, tile=tile)})
     while env.phase == Phase.WaitResponse:
-        actions = {p: Action(ActionType.Pass) for p in env.active_players}
+        actions = {p: Action(ActionType.PASS) for p in env.active_players}
         obs = env.step(actions)
     return obs
 
@@ -142,7 +142,7 @@ class TestSanmaNoChi:
             pid = env.current_player
             o = obs[pid]
             for a in o.legal_actions():
-                assert a.action_type != ActionType.Chi, "Chi must not appear in sanma"
+                assert a.action_type != ActionType.CHI, "Chi must not appear in sanma"
             obs = _play_one_turn(env, obs)
 
     def test_shimocha_cannot_chi(self):
@@ -160,12 +160,12 @@ class TestSanmaNoChi:
         env.drawn_tile = 88
 
         # P0 discards 1p (36) - P1 has 2p(41),3p(45) but cannot Chi
-        obs = env.step({0: Action(ActionType.Discard, tile=36)})
+        obs = env.step({0: Action(ActionType.DISCARD, tile=36)})
         if env.phase == Phase.WaitResponse:
             for pid in env.active_players:
                 if pid in obs:
                     for a in obs[pid].legal_actions():
-                        assert a.action_type != ActionType.Chi
+                        assert a.action_type != ActionType.CHI
 
 
 # ===========================================================================
@@ -188,12 +188,12 @@ class TestSanmaPon:
         env.active_players = [0]
         env.drawn_tile = 88
 
-        obs = env.step({0: Action(ActionType.Discard, tile=36)})
+        obs = env.step({0: Action(ActionType.DISCARD, tile=36)})
         assert env.phase == Phase.WaitResponse
 
         # P1 should have pon option
         obs_p1 = obs[1]
-        pon_actions = [a for a in obs_p1.legal_actions() if a.action_type == ActionType.Pon]
+        pon_actions = [a for a in obs_p1.legal_actions() if a.action_type == ActionType.PON]
         assert len(pon_actions) > 0
 
         # Execute pon
@@ -418,10 +418,10 @@ class TestSanmaScoring:
         env.discards = d
 
         actions = env._get_legal_actions(0)
-        tsumo = next((a for a in actions if a.action_type == ActionType.Tsumo), None)
+        tsumo = next((a for a in actions if a.action_type == ActionType.TSUMO), None)
         assert tsumo is not None, f"Expected tsumo in legal actions: {actions}"
 
-        env.step({0: Action(ActionType.Tsumo)})
+        env.step({0: Action(ActionType.TSUMO)})
         hora = next(e for e in reversed(env.mjai_log) if e["type"] == "hora")
         assert hora["tsumo"] is True
         deltas = hora["deltas"]
@@ -449,11 +449,11 @@ class TestSanmaScoring:
         env.active_players = [0]
         env.drawn_tile = 96
 
-        obs = env.step({0: Action(ActionType.Discard, tile=1)})
+        obs = env.step({0: Action(ActionType.DISCARD, tile=1)})
         assert env.phase == Phase.WaitResponse
         assert 1 in obs
 
-        ron_acts = [a for a in obs[1].legal_actions() if a.action_type == ActionType.Ron]
+        ron_acts = [a for a in obs[1].legal_actions() if a.action_type == ActionType.RON]
         assert len(ron_acts) == 1
 
         env.step({1: ron_acts[0]})
@@ -486,14 +486,14 @@ class TestSanmaGameFlow:
             o = obs[pid]
             # Try tsumo first if available
             legals = o.legal_actions()
-            tsumo = next((a for a in legals if a.action_type == ActionType.Tsumo), None)
+            tsumo = next((a for a in legals if a.action_type == ActionType.TSUMO), None)
             if tsumo:
                 obs = env.step({pid: tsumo})
             else:
                 tile = o.hand[-1]
-                obs = env.step({pid: Action(ActionType.Discard, tile=tile)})
+                obs = env.step({pid: Action(ActionType.DISCARD, tile=tile)})
             while env.phase == Phase.WaitResponse and not env.is_done:
-                actions = {p: Action(ActionType.Pass) for p in env.active_players}
+                actions = {p: Action(ActionType.PASS) for p in env.active_players}
                 obs = env.step(actions)
             turns += 1
         assert env.is_done or turns >= 200
@@ -516,11 +516,11 @@ class TestSanmaGameFlow:
         env, obs = _create_sanma_env()
         # P0 discards
         tile = obs[0].hand[-1]
-        obs = env.step({0: Action(ActionType.Discard, tile=tile)})
+        obs = env.step({0: Action(ActionType.DISCARD, tile=tile)})
 
         # Handle WaitResponse
         while env.phase == Phase.WaitResponse:
-            actions = {p: Action(ActionType.Pass) for p in env.active_players}
+            actions = {p: Action(ActionType.PASS) for p in env.active_players}
             obs = env.step(actions)
 
         # P1 should see events including start_kyoku with 3 player tehais
@@ -550,7 +550,7 @@ class TestSanmaMjaiAction:
         mjai_str = tid_to_mjai(tile)
         action = o.select_action_from_mjai({"type": "dahai", "pai": mjai_str, "actor": 0})
         assert action is not None
-        assert action.action_type == ActionType.Discard
+        assert action.action_type == ActionType.DISCARD
 
     def test_select_action_from_mjai_pass(self):
         """Pass should always be selectable during WaitResponse."""
@@ -565,12 +565,12 @@ class TestSanmaMjaiAction:
         env.active_players = [0]
         env.drawn_tile = 88
 
-        obs = env.step({0: Action(ActionType.Discard, tile=36)})
+        obs = env.step({0: Action(ActionType.DISCARD, tile=36)})
         if 1 in obs:
             o = obs[1]
             action = o.select_action_from_mjai({"type": "none"})
             assert action is not None
-            assert action.action_type == ActionType.Pass
+            assert action.action_type == ActionType.PASS
 
 
 # ===========================================================================

@@ -31,15 +31,15 @@ class TestClaimPriority:
         )
 
         # P0 Discards 57
-        env.step({0: Action(ActionType.Discard, tile=57)})
+        env.step({0: Action(ActionType.DISCARD, tile=57)})
         assert env.phase == Phase.WaitResponse
 
         # We expect P1 and P2 to be in active_players if they have legal actions.
         assert env.active_players == [1, 2]
 
         # Submit Actions: P1 Chi, P2 Pon
-        action_chi = Action(ActionType.Chi, tile=57, consume_tiles=[62, 65])
-        action_pon = Action(ActionType.Pon, tile=57, consume_tiles=[56, 58])
+        action_chi = Action(ActionType.CHI, tile=57, consume_tiles=[62, 65])
+        action_pon = Action(ActionType.PON, tile=57, consume_tiles=[56, 58])
         actions = {1: action_chi, 2: action_pon}
 
         # Step

@@ -26,7 +26,7 @@ class TestDiscardType:
         env.hands = h
 
         # Action: Discard the drawn tile
-        env.step({0: Action(ActionType.Discard, tile=drawn_tile)})
+        env.step({0: Action(ActionType.DISCARD, tile=drawn_tile)})
 
         # Verify: Last discard for P0 should be Tsumogiri (from_hand=False)
         assert len(env.discard_from_hand[0]) == 1
@@ -54,7 +54,7 @@ class TestDiscardType:
         if hand_tile == new_drawn:
             hand_tile = env.hands[0][1]
 
-        env.step({0: Action(ActionType.Discard, tile=hand_tile)})
+        env.step({0: Action(ActionType.DISCARD, tile=hand_tile)})
 
         # Verify
         assert len(env.discard_from_hand[0]) == 2

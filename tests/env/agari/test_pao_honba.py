@@ -39,9 +39,9 @@ class TestPaoHonba:
         env.phase = Phase.WaitResponse
         env.last_discard = (0, 134)  # 3rd Red
         env.active_players = [3]
-        env.current_claims = {3: [Action(ActionType.Pon, tile=134, consume_tiles=[132, 133])]}
+        env.current_claims = {3: [Action(ActionType.PON, tile=134, consume_tiles=[132, 133])]}
 
-        env.step({3: Action(ActionType.Pon, tile=134, consume_tiles=[132, 133])})
+        env.step({3: Action(ActionType.PON, tile=134, consume_tiles=[132, 133])})
 
         assert env.pao[3].get(37) == 0  # Seat 3 won, Seat 0 responsible
 
@@ -49,14 +49,14 @@ class TestPaoHonba:
         # After PON, P3 must discard. Hand: [0, 1, 2, 4, 99].
         # Discard 99. Hand: [0, 1, 2, 4]. Triplet 1m + Single 2m. Wait on 2m.
         # Total tiles: 4 (hand) + 9 (3 melds) = 13.
-        env.step({3: Action(ActionType.Discard, tile=99)})
+        env.step({3: Action(ActionType.DISCARD, tile=99)})
 
         # Now Seat 2 discards winning tile (6 for 2m triplet)
         env.current_player = 2
         env.phase = Phase.WaitResponse
         env.last_discard = (2, 6)
         env.active_players = [3]
-        env.current_claims = {3: [Action(ActionType.Ron, tile=6)]}
+        env.current_claims = {3: [Action(ActionType.RON, tile=6)]}
 
         # Result:
         # Winner: Seat 3 (Ko)
@@ -66,7 +66,7 @@ class TestPaoHonba:
         # Discarder pays 16000.
         # Pao pays 16600.
 
-        env.step({3: Action(ActionType.Ron, tile=6)})
+        env.step({3: Action(ActionType.RON, tile=6)})
 
         hora = next(m for m in reversed(env.mjai_log) if m["type"] == "hora")
         deltas = hora["deltas"]

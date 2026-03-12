@@ -24,5 +24,5 @@ class TestValidAnkanRiichiLegality:
         obs = obs_dict[2]
         legals = obs.legal_actions()
 
-        ankan = [a for a in legals if a.action_type == ActionType.Ankan]
+        ankan = [a for a in legals if a.action_type == ActionType.ANKAN]
         assert len(ankan) == 1, f"Ankan should be LEGAL as it does NOT change waits. Legals: {legals}"

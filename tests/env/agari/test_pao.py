@@ -33,14 +33,14 @@ class TestPao:
         )
 
         # P1 discards 3rd Red Dragon (134)
-        env.step({1: Action(ActionType.Discard, tile=134)})
+        env.step({1: Action(ActionType.DISCARD, tile=134)})
 
         # P0 calls Pon
-        env.step({0: Action(ActionType.Pon, tile=134, consume_tiles=[132, 133])})
+        env.step({0: Action(ActionType.PON, tile=134, consume_tiles=[132, 133])})
 
         # Verify Pao is established (Daisangen Yaku ID 37)
         assert env.pao[0].get(37) == 1
-        env.step({0: Action(ActionType.Discard, tile=4)})
+        env.step({0: Action(ActionType.DISCARD, tile=4)})
 
         # P0 draws completing tile for 2m pair (6 is 2m)
         env.current_player = 0
@@ -53,7 +53,7 @@ class TestPao:
         env.hands = h
 
         # Tsumo
-        env.step({0: Action(ActionType.Tsumo)})
+        env.step({0: Action(ActionType.TSUMO)})
 
         # Verify scoring
         agari_res = env.win_results[0]
@@ -111,48 +111,48 @@ class TestPao:
         )
 
         # P1 discards 134
-        env.step({1: Action(ActionType.Discard, tile=134)})
+        env.step({1: Action(ActionType.DISCARD, tile=134)})
 
         # P0 Pons
-        env.step({0: Action(ActionType.Pon, tile=134, consume_tiles=[132, 133])})
+        env.step({0: Action(ActionType.PON, tile=134, consume_tiles=[132, 133])})
 
         assert env.pao[0].get(37) == 1
 
         # P0 Discards 120 (North). Hand: 0,1,2 (1m), 36(1p). Tanki wait on 1p.
-        env.step({0: Action(ActionType.Discard, tile=120)})
+        env.step({0: Action(ActionType.DISCARD, tile=120)})
 
         # To clear "Doujun Furiten", we must cycle a full turn so P0 draws again.
 
         # P1 Turn
         env.step({})
-        env.step({1: Action(ActionType.Discard, tile=100)})
+        env.step({1: Action(ActionType.DISCARD, tile=100)})
 
         # P2 Turn
         env.step({})
-        env.step({2: Action(ActionType.Discard, tile=101)})
+        env.step({2: Action(ActionType.DISCARD, tile=101)})
 
         # P3 Turn
         env.step({})
-        env.step({3: Action(ActionType.Discard, tile=102)})
+        env.step({3: Action(ActionType.DISCARD, tile=102)})
 
         # P0 Turn - Draws and Discards (clears Furiten)
         env.step({})
-        env.step({0: Action(ActionType.Discard, tile=103)})
+        env.step({0: Action(ActionType.DISCARD, tile=103)})
 
         # P1 Turn
         env.step({})
-        env.step({1: Action(ActionType.Discard, tile=10)})
+        env.step({1: Action(ActionType.DISCARD, tile=10)})
 
         # P2 Turn - Discards Winning Tile 37
         env.step({})
-        env.step({2: Action(ActionType.Discard, tile=37)})
+        env.step({2: Action(ActionType.DISCARD, tile=37)})
 
         # P0 Ron
         obs = env.get_obs_py([0])[0]
-        ron_available = any(a.action_type == ActionType.Ron for a in obs.legal_actions())
+        ron_available = any(a.action_type == ActionType.RON for a in obs.legal_actions())
         assert ron_available, f"Ron not available! Legal: {obs.legal_actions()}"
 
-        env.step({0: Action(ActionType.Ron, tile=37)})
+        env.step({0: Action(ActionType.RON, tile=37)})
         assert env.is_done
 
         # Ko Yakuman Ron: 32000 points.

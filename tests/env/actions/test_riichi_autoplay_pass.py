@@ -23,12 +23,12 @@ class TestRiichiAutoPlayAfterPass:
             drawn_tile=parse_tile("5p"),
         )
         env.get_observations([0])
-        obs = env.step({0: Action(ActionType.Riichi)})
+        obs = env.step({0: Action(ActionType.RIICHI)})
         legal_actions = obs[0].legal_actions()
 
         # All legal actions should be Discard
         legal_types = [a.action_type for a in legal_actions]
-        assert all(a.action_type == ActionType.Discard for a in legal_actions), (
+        assert all(a.action_type == ActionType.DISCARD for a in legal_actions), (
             f"Non-discard action found: {legal_types}"
         )
         # "5p" and "1z" should be among the tiles to discard.

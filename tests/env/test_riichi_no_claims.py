@@ -19,15 +19,15 @@ def test_no_chi_during_riichi():
         wall=list(range(136)),
     )
 
-    action = Action(ActionType.Discard, 72, [])
+    action = Action(ActionType.DISCARD, 72, [])
     obs_dict = env.step({1: action})
 
     assert 2 in obs_dict, "Player 2 should be active (Draw/Tsumo) but with NO claims offered"
     obs2 = obs_dict[2]
     actions = obs2.legal_actions()
 
-    chi_actions = [a for a in actions if a.action_type == ActionType.Chi]
-    pon_actions = [a for a in actions if a.action_type == ActionType.Pon]
+    chi_actions = [a for a in actions if a.action_type == ActionType.CHI]
+    pon_actions = [a for a in actions if a.action_type == ActionType.PON]
 
     assert len(chi_actions) == 0, f"Chi should NOT be offered during Riichi! Offered: {chi_actions}"
     assert len(pon_actions) == 0, f"Pon should NOT be offered during Riichi! Offered: {pon_actions}"
@@ -48,14 +48,14 @@ def test_chi_offered_when_not_in_riichi():
         wall=list(range(136)),
     )
 
-    action = Action(ActionType.Discard, 72, [])
+    action = Action(ActionType.DISCARD, 72, [])
     obs_dict = env.step({1: action})
 
     assert 2 in obs_dict, f"Player 2 should be in active players when NOT in Riichi, but obs_dict was {obs_dict.keys()}"
     obs2 = obs_dict[2]
     actions = obs2.legal_actions()
 
-    chi_actions = [a for a in actions if a.action_type == ActionType.Chi]
+    chi_actions = [a for a in actions if a.action_type == ActionType.CHI]
     assert len(chi_actions) > 0, "Player 2 should have Chi actions when NOT in Riichi"
 
 
@@ -74,15 +74,15 @@ def test_no_pon_during_riichi():
         wall=list(range(136)),
     )
 
-    action = Action(ActionType.Discard, 78, [])
+    action = Action(ActionType.DISCARD, 78, [])
     obs_dict = env.step({1: action})
 
     assert 2 in obs_dict, "Player 2 should be active (Draw/Tsumo) but with NO claims offered"
     obs2 = obs_dict[2]
     actions = obs2.legal_actions()
 
-    chi_actions = [a for a in actions if a.action_type == ActionType.Chi]
-    pon_actions = [a for a in actions if a.action_type == ActionType.Pon]
+    chi_actions = [a for a in actions if a.action_type == ActionType.CHI]
+    pon_actions = [a for a in actions if a.action_type == ActionType.PON]
 
     assert len(chi_actions) == 0, f"Chi should NOT be offered during Riichi! Offered: {chi_actions}"
     assert len(pon_actions) == 0, f"Pon should NOT be offered during Riichi! Offered: {pon_actions}"

@@ -139,13 +139,13 @@ def test_mjai_replay_3p_reach_discard_observation_is_not_duplicated_state(tmp_pa
     riichi_obs, riichi_act = steps[0]
     discard_obs, discard_act = steps[1]
 
-    assert riichi_act.action_type == ActionType.Riichi
-    assert discard_act.action_type == ActionType.Discard
+    assert riichi_act.action_type == ActionType.RIICHI
+    assert discard_act.action_type == ActionType.DISCARD
 
     riichi_legals = [a.action_type for a in riichi_obs.legal_actions()]
     discard_legals = [a.action_type for a in discard_obs.legal_actions()]
-    assert ActionType.Riichi in riichi_legals
-    assert ActionType.Riichi not in discard_legals
+    assert ActionType.RIICHI in riichi_legals
+    assert ActionType.RIICHI not in discard_legals
 
 
 def test_mjai_replay_4p_reach_discard_observation_is_not_duplicated_state(tmp_path):
@@ -188,10 +188,10 @@ def test_mjai_replay_4p_reach_discard_observation_is_not_duplicated_state(tmp_pa
     riichi_obs, riichi_act = steps[0]
     discard_obs, discard_act = steps[1]
 
-    assert riichi_act.action_type == ActionType.Riichi
-    assert discard_act.action_type == ActionType.Discard
+    assert riichi_act.action_type == ActionType.RIICHI
+    assert discard_act.action_type == ActionType.DISCARD
 
     riichi_legals = [a.action_type for a in riichi_obs.legal_actions()]
     discard_legals = [a.action_type for a in discard_obs.legal_actions()]
-    assert ActionType.Riichi in riichi_legals
-    assert ActionType.Riichi not in discard_legals
+    assert ActionType.RIICHI in riichi_legals
+    assert ActionType.RIICHI not in discard_legals

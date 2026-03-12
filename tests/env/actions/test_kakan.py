@@ -33,7 +33,7 @@ class TestKakan:
         player_id = 0
         obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
-        assert any([a.action_type == ActionType.Kakan for a in obs.legal_actions()]), (
+        assert any([a.action_type == ActionType.KAKAN for a in obs.legal_actions()]), (
             "Should have KAKAN action available"
         )
 
@@ -61,11 +61,11 @@ class TestKakan:
         player_id = 0
         obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
-        assert any([a.action_type == ActionType.Kakan for a in obs.legal_actions()]), (
+        assert any([a.action_type == ActionType.KAKAN for a in obs.legal_actions()]), (
             "Should have KAKAN action available"
         )
 
-        kakan_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.Kakan]
+        kakan_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.KAKAN]
         assert len(kakan_actions) > 0, "Should have KAKAN action available"
 
         k_action = kakan_actions[0]

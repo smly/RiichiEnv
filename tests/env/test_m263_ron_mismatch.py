@@ -51,14 +51,14 @@ def test_ron_mismatch_after_call():
     env.current_player = 1
     env.phase = Phase.WaitAct
     # P1 discards 1p (36).
-    obs = env.step({1: Action(ActionType.Discard, 36)})
+    obs = env.step({1: Action(ActionType.DISCARD, 36)})
 
     # P3 calls Pon
     # (Consume 37, 38)
-    env.step({3: Action(ActionType.Pon, 36, [37, 38])})
+    env.step({3: Action(ActionType.PON, 36, [37, 38])})
 
     # P3 discards dummy (2p - 40).
-    obs = env.step({3: Action(ActionType.Discard, 40)})
+    obs = env.step({3: Action(ActionType.DISCARD, 40)})
 
     # Now P3 should NO LONGER be in temporary furiten.
     # P2 discards 7s (93).
@@ -68,10 +68,10 @@ def test_ron_mismatch_after_call():
 
     env.current_player = 2
     env.phase = Phase.WaitAct
-    obs = env.step({2: Action(ActionType.Discard, 93)})
+    obs = env.step({2: Action(ActionType.DISCARD, 93)})
 
     # P3 should be offered Ron.
     assert 3 in obs, "P3 should be active for Ron"
     actions = obs[3].legal_actions()
     action_types = [a.action_type for a in actions]
-    assert ActionType.Ron in action_types, f"P3 should have Ron offered. Actions: {action_types}"
+    assert ActionType.RON in action_types, f"P3 should have Ron offered. Actions: {action_types}"

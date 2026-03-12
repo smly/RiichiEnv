@@ -25,10 +25,10 @@ class TestGameRule:
         assert env._custom_round_wind == Wind.East
         assert env.honba == 0
 
-        obs = env.step({0: Action(ActionType.Discard, tile=80)})
+        obs = env.step({0: Action(ActionType.DISCARD, tile=80)})
         assert 1 in obs
-        assert any(a for a in obs[1].legal_actions() if a.action_type == ActionType.KyushuKyuhai)
-        env.step({1: Action(ActionType.KyushuKyuhai)})
+        assert any(a for a in obs[1].legal_actions() if a.action_type == ActionType.KYUSHU_KYUHAI)
+        env.step({1: Action(ActionType.KYUSHU_KYUHAI)})
         assert env.done()
 
     def test_tonpuu_ranchan_transitions(self) -> None:
@@ -51,10 +51,10 @@ class TestGameRule:
         assert env._custom_round_wind == Wind.East
         assert env.honba == 0
 
-        obs = env.step({0: Action(ActionType.Discard, tile=80)})
+        obs = env.step({0: Action(ActionType.DISCARD, tile=80)})
         assert 1 in obs
-        assert any(a for a in obs[1].legal_actions() if a.action_type == ActionType.KyushuKyuhai)
-        obs = env.step({1: Action(ActionType.KyushuKyuhai)})
+        assert any(a for a in obs[1].legal_actions() if a.action_type == ActionType.KYUSHU_KYUHAI)
+        obs = env.step({1: Action(ActionType.KYUSHU_KYUHAI)})
         assert not env.done()
 
         assert 0 in obs
@@ -85,10 +85,10 @@ class TestGameRule:
         assert env._custom_round_wind == Wind.East
         assert env.honba == 0
 
-        obs = env.step({0: Action(ActionType.Discard, tile=80)})
+        obs = env.step({0: Action(ActionType.DISCARD, tile=80)})
         assert 1 in obs
-        assert any(a for a in obs[1].legal_actions() if a.action_type == ActionType.KyushuKyuhai)
-        obs = env.step({1: Action(ActionType.KyushuKyuhai)})
+        assert any(a for a in obs[1].legal_actions() if a.action_type == ActionType.KYUSHU_KYUHAI)
+        obs = env.step({1: Action(ActionType.KYUSHU_KYUHAI)})
         assert not env.done()
 
         assert 0 in obs

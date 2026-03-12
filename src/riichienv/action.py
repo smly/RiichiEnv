@@ -2,15 +2,16 @@ from ._riichienv import Action, Action3P, ActionType
 
 __all__ = ["Action", "Action3P", "ActionType"]
 
-# Uppercase aliases for backward compatibility
-ActionType.DISCARD = ActionType.Discard
-ActionType.CHI = ActionType.Chi
-ActionType.PON = ActionType.Pon
-ActionType.DAIMINKAN = ActionType.Daiminkan
-ActionType.RON = ActionType.Ron
-ActionType.RIICHI = ActionType.Riichi
-ActionType.TSUMO = ActionType.Tsumo
-ActionType.PASS = ActionType.Pass
-ActionType.ANKAN = ActionType.Ankan
-ActionType.KAKAN = ActionType.Kakan
-ActionType.KYUSHU_KYUHAI = ActionType.KyushuKyuhai
+# PascalCase aliases for backward compatibility (deprecated)
+ActionType.Discard = ActionType.DISCARD
+ActionType.Chi = ActionType.CHI
+ActionType.Pon = ActionType.PON
+ActionType.Daiminkan = ActionType.DAIMINKAN
+ActionType.Ron = ActionType.RON
+ActionType.Riichi = ActionType.RIICHI
+ActionType.Tsumo = ActionType.TSUMO
+ActionType.Pass = ActionType.PASS
+ActionType.Ankan = ActionType.ANKAN
+ActionType.Kakan = ActionType.KAKAN
+ActionType.KyushuKyuhai = ActionType.KYUSHU_KYUHAI
+ActionType.Kita = ActionType.KITA

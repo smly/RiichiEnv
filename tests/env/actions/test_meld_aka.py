@@ -22,10 +22,10 @@ class TestMeldWithAkaDora:
             active_players=[0],
             drawn_tile=17,
         )
-        env.step({0: Action(ActionType.Discard, 17, [])})
+        env.step({0: Action(ActionType.DISCARD, 17, [])})
         assert env.phase == Phase.WaitResponse
         # 3m(8), 4m (12), 5m(17)
-        env.step({1: Action(ActionType.Chi, tile=17, consume_tiles=[8, 12])})
+        env.step({1: Action(ActionType.CHI, tile=17, consume_tiles=[8, 12])})
         assert env.phase == Phase.WaitAct
         assert env.mjai_log[-1]["type"] == "chi"
         assert env.active_players == [1]
@@ -43,10 +43,10 @@ class TestMeldWithAkaDora:
             active_players=[0],
             drawn_tile=16,
         )
-        env.step({0: Action(ActionType.Discard, 16, [])})
+        env.step({0: Action(ActionType.DISCARD, 16, [])})
         assert env.phase == Phase.WaitResponse
         # 3m(8), 4m (12), 0m(16)
-        env.step({1: Action(ActionType.Chi, tile=16, consume_tiles=[8, 12])})
+        env.step({1: Action(ActionType.CHI, tile=16, consume_tiles=[8, 12])})
         assert env.phase == Phase.WaitAct
         assert env.mjai_log[-1]["type"] == "chi"
         assert env.active_players == [1]
@@ -64,10 +64,10 @@ class TestMeldWithAkaDora:
             active_players=[0],
             drawn_tile=17,
         )
-        env.step({0: Action(ActionType.Discard, 17, [])})
+        env.step({0: Action(ActionType.DISCARD, 17, [])})
         assert env.phase == Phase.WaitResponse
         # 4m (12), 5m(17), 6m (20)
-        env.step({1: Action(ActionType.Chi, tile=17, consume_tiles=[12, 20])})
+        env.step({1: Action(ActionType.CHI, tile=17, consume_tiles=[12, 20])})
         assert env.phase == Phase.WaitAct
         assert env.active_players == [1]
         assert env.mjai_log[-1]["type"] == "chi"
@@ -85,10 +85,10 @@ class TestMeldWithAkaDora:
             active_players=[0],
             drawn_tile=16,
         )
-        env.step({0: Action(ActionType.Discard, 16, [])})
+        env.step({0: Action(ActionType.DISCARD, 16, [])})
         assert env.phase == Phase.WaitResponse
         # 4m (12), 0m(16), 6m (20)
-        env.step({1: Action(ActionType.Chi, tile=16, consume_tiles=[12, 20])})
+        env.step({1: Action(ActionType.CHI, tile=16, consume_tiles=[12, 20])})
         assert env.phase == Phase.WaitAct
         assert env.mjai_log[-1]["type"] == "chi"
         assert env.active_players == [1]
@@ -106,10 +106,10 @@ class TestMeldWithAkaDora:
             active_players=[0],
             drawn_tile=17,
         )
-        env.step({0: Action(ActionType.Discard, 17, [])})
+        env.step({0: Action(ActionType.DISCARD, 17, [])})
         assert env.phase == Phase.WaitResponse
         # 4m (12), 5m(17), 6m (20)
-        env.step({1: Action(ActionType.Chi, tile=17, consume_tiles=[20, 24])})
+        env.step({1: Action(ActionType.CHI, tile=17, consume_tiles=[20, 24])})
         assert env.phase == Phase.WaitAct
         assert env.mjai_log[-1]["type"] == "chi"
         assert env.active_players == [1]
@@ -127,12 +127,12 @@ class TestMeldWithAkaDora:
             active_players=[0],
             drawn_tile=16,
         )
-        env.step({0: Action(ActionType.Discard, 16, [])})
+        env.step({0: Action(ActionType.DISCARD, 16, [])})
         assert env.phase == Phase.WaitResponse
         assert env.active_players == [1]
         assert 20 in env.hands[1]  # 6m
         assert 24 in env.hands[1]  # 7m (first 7m)
-        env.step({1: Action(ActionType.Chi, tile=16, consume_tiles=[20, 24])})
+        env.step({1: Action(ActionType.CHI, tile=16, consume_tiles=[20, 24])})
         assert env.phase == Phase.WaitAct
         assert env.mjai_log[-1]["type"] == "chi"
         assert env.active_players == [1]
@@ -150,14 +150,14 @@ class TestMeldWithAkaDora:
             active_players=[0],
             drawn_tile=16,
         )
-        env.step({0: Action(ActionType.Discard, 16, [])})
+        env.step({0: Action(ActionType.DISCARD, 16, [])})
         assert env.phase == Phase.WaitResponse
         assert env.active_players == [1]
         assert 20 in env.hands[1]  # 6m
         assert 25 in env.hands[1]  # 7m (second 7m)
         assert cvt.tid_to_mpsz(25) == "7m"
         # NOTE: Verify relaxed check for chi
-        env.step({1: Action(ActionType.Chi, tile=16, consume_tiles=[20, 25])})
+        env.step({1: Action(ActionType.CHI, tile=16, consume_tiles=[20, 25])})
         assert env.phase == Phase.WaitAct
         assert env.mjai_log[-1]["type"] == "chi"
         assert env.active_players == [1]
@@ -175,12 +175,12 @@ class TestMeldWithAkaDora:
             active_players=[0],
             drawn_tile=16,
         )
-        env.step({0: Action(ActionType.Discard, 16, [])})
+        env.step({0: Action(ActionType.DISCARD, 16, [])})
         assert env.phase == Phase.WaitResponse
         assert env.active_players == [1]
         assert 17 in env.hands[1]
         assert 18 in env.hands[1]
-        env.step({1: Action(ActionType.Pon, tile=16, consume_tiles=[17, 18])})
+        env.step({1: Action(ActionType.PON, tile=16, consume_tiles=[17, 18])})
         assert env.phase == Phase.WaitAct
         assert env.mjai_log[-1]["type"] == "pon"
         assert env.active_players == [1]
@@ -198,12 +198,12 @@ class TestMeldWithAkaDora:
             active_players=[0],
             drawn_tile=19,
         )
-        env.step({0: Action(ActionType.Discard, 19, [])})
+        env.step({0: Action(ActionType.DISCARD, 19, [])})
         assert env.phase == Phase.WaitResponse
         assert env.active_players == [1]
         assert 17 in env.hands[1]
         assert 18 in env.hands[1]
-        env.step({1: Action(ActionType.Pon, tile=19, consume_tiles=[17, 18])})
+        env.step({1: Action(ActionType.PON, tile=19, consume_tiles=[17, 18])})
         assert env.phase == Phase.WaitAct
         assert env.mjai_log[-1]["type"] == "pon"
         assert env.active_players == [1]
@@ -221,12 +221,12 @@ class TestMeldWithAkaDora:
             active_players=[0],
             drawn_tile=18,
         )
-        env.step({0: Action(ActionType.Discard, 18, [])})
+        env.step({0: Action(ActionType.DISCARD, 18, [])})
         assert env.phase == Phase.WaitResponse
         assert env.active_players == [1]
         assert 16 in env.hands[1]
         assert 17 in env.hands[1]
-        env.step({1: Action(ActionType.Pon, tile=18, consume_tiles=[16, 17])})
+        env.step({1: Action(ActionType.PON, tile=18, consume_tiles=[16, 17])})
         assert env.phase == Phase.WaitAct
         assert env.mjai_log[-1]["type"] == "pon"
         assert env.active_players == [1]

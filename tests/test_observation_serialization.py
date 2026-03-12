@@ -66,10 +66,10 @@ class TestObservationSerialization:
             pid = env.current_player
             obs = obs_dict[pid]
             tile = obs.hand[-1]
-            obs_dict = env.step({pid: Action(ActionType.Discard, tile=tile)})
+            obs_dict = env.step({pid: Action(ActionType.DISCARD, tile=tile)})
             # Handle WaitResponse phase (pass all claims)
             while env.phase == Phase.WaitResponse:
-                actions = {p: Action(ActionType.Pass) for p in env.active_players}
+                actions = {p: Action(ActionType.PASS) for p in env.active_players}
                 obs_dict = env.step(actions)
 
         if not env.is_done:
@@ -99,14 +99,14 @@ class TestObservationSerialization:
         ]
 
         discard = dealer_obs.hand[0]
-        obs_dict = env.step({0: Action(ActionType.Discard, tile=discard)})
+        obs_dict = env.step({0: Action(ActionType.DISCARD, tile=discard)})
 
         for pid in [1, 2, 3]:
             obs = obs_dict[pid]
             discard = obs.hand[0]
-            obs_dict = env.step({pid: Action(ActionType.Discard, tile=discard)})
+            obs_dict = env.step({pid: Action(ActionType.DISCARD, tile=discard)})
             if env.phase == Phase.WaitResponse:
-                obs_dict = env.step({player: Action(ActionType.Pass) for player in env.active_players})
+                obs_dict = env.step({player: Action(ActionType.PASS) for player in env.active_players})
 
         dealer_obs_2 = obs_dict[0]
         assert [event["type"] for event in dealer_obs_2.events] == [

@@ -38,7 +38,7 @@ class TestKanDoraTimingEvents:
         obs = obs_dict[player_id]
 
         # Find ankan action
-        ankan_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.Ankan]
+        ankan_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.ANKAN]
         assert len(ankan_actions) > 0, "Should have ANKAN action available"
 
         # Execute ankan
@@ -92,7 +92,7 @@ class TestKanDoraTimingEvents:
         obs = obs_dict[player_id]
 
         # Find kakan action
-        kakan_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.Kakan]
+        kakan_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.KAKAN]
         assert len(kakan_actions) > 0, "Should have KAKAN action available"
 
         # Execute kakan
@@ -101,7 +101,7 @@ class TestKanDoraTimingEvents:
         # Now we need to discard
         obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
-        discard_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.Discard]
+        discard_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.DISCARD]
         assert len(discard_actions) > 0, "Should have DISCARD action available"
 
         # Execute discard
@@ -158,7 +158,7 @@ class TestKanDoraTimingEvents:
         env.drawn_tile = 75
 
         # Step 1: Player 0 discards tile 75
-        obs_dict = env.step({0: Action(ActionType.Discard, tile=75)})
+        obs_dict = env.step({0: Action(ActionType.DISCARD, tile=75)})
 
         # Step 2: Player 1 calls DAIMINKAN
         assert 1 in obs_dict, "Player 1 should be active"
@@ -171,7 +171,7 @@ class TestKanDoraTimingEvents:
         player_id = 1
         obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
-        discard_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.Discard]
+        discard_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.DISCARD]
         assert len(discard_actions) > 0, "Should have DISCARD action available"
         env.step({player_id: discard_actions[0]})
 
@@ -232,7 +232,7 @@ class TestKanDoraTimingEvents3P:
         obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
 
-        ankan_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.Ankan]
+        ankan_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.ANKAN]
         assert len(ankan_actions) > 0, "Should have ANKAN action available"
 
         env.step({player_id: ankan_actions[0]})
@@ -283,7 +283,7 @@ class TestKanDoraTimingEvents3P:
         obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
 
-        kakan_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.Kakan]
+        kakan_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.KAKAN]
         assert len(kakan_actions) > 0, "Should have KAKAN action available"
 
         env.step({player_id: kakan_actions[0]})
@@ -291,7 +291,7 @@ class TestKanDoraTimingEvents3P:
         # Now discard after rinshan draw
         obs_dict = env.get_observations([player_id])
         obs = obs_dict[player_id]
-        discard_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.Discard]
+        discard_actions = [a for a in obs.legal_actions() if a.action_type == ActionType.DISCARD]
         assert len(discard_actions) > 0, "Should have DISCARD action available"
         env.step({player_id: discard_actions[0]})
 

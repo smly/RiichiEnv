@@ -25,7 +25,7 @@ class TestRiichiNoClaim:
             phase=Phase.WaitAct,
             drawn_tile=2,
         )
-        env.step({3: Action(ActionType.Discard, 2)})
+        env.step({3: Action(ActionType.DISCARD, 2)})
 
         # Turned into P0's turn implies PON opportunity was skipped
         assert env.phase == Phase.WaitAct and env.active_players == [0]
@@ -45,11 +45,11 @@ class TestRiichiNoClaim:
             phase=Phase.WaitAct,
             drawn_tile=11,
         )
-        obs = env.step({3: Action(ActionType.Discard, 11)})
+        obs = env.step({3: Action(ActionType.DISCARD, 11)})
         assert env.phase == Phase.WaitResponse and env.active_players == [0]
         actions = obs[0].legal_actions()
-        assert not any(ac.action_type == ActionType.Chi for ac in actions)
-        assert any(ac.action_type == ActionType.Ron for ac in actions)
+        assert not any(ac.action_type == ActionType.CHI for ac in actions)
+        assert any(ac.action_type == ActionType.RON for ac in actions)
 
     @pytest.mark.skip(reason="Too complex to test")
     def test_riichi_rule_violation(self) -> None:
