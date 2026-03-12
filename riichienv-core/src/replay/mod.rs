@@ -145,6 +145,10 @@ impl KyokuStepIterator {
                 continue;
             }
 
+            let had_ron = claim_actions
+                .iter()
+                .any(|a| a.action_type == ActionType::Ron);
+
             // Temporarily set up WaitResponse state to get a proper observation.
             let orig_phase = self.state.phase;
             let orig_active = self.state.active_players.clone();
@@ -162,6 +166,15 @@ impl KyokuStepIterator {
             self.state.current_claims = orig_claims;
 
             self.pending_pass_obs.push((i, obs));
+
+            // Apply furiten: passing on a ron opportunity triggers same-turn furiten.
+            if had_ron {
+                let iu = i as usize;
+                self.state.players[iu].missed_agari_doujun = true;
+                if self.state.players[iu].riichi_declared {
+                    self.state.players[iu].missed_agari_riichi = true;
+                }
+            }
         }
     }
 
@@ -544,6 +557,10 @@ impl KyokuStepIterator3P {
                 continue;
             }
 
+            let had_ron = claim_actions
+                .iter()
+                .any(|a| a.action_type == ActionType::Ron);
+
             // This player could have claimed but passed.
             // Temporarily set up WaitResponse state to get a proper observation.
             let orig_phase = self.state.phase;
@@ -563,6 +580,15 @@ impl KyokuStepIterator3P {
             self.state.current_claims = orig_claims;
 
             self.pending_pass_obs.push((i, obs));
+
+            // Apply furiten: passing on a ron opportunity triggers same-turn furiten.
+            if had_ron {
+                let iu = i as usize;
+                self.state.players[iu].missed_agari_doujun = true;
+                if self.state.players[iu].riichi_declared {
+                    self.state.players[iu].missed_agari_riichi = true;
+                }
+            }
         }
     }
 

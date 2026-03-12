@@ -383,6 +383,8 @@ impl GameStateEventHandler for GameState {
                     .push(*is_liqi || *is_wliqi);
                 self.last_discard = Some((s as u8, t));
                 self.drawn_tile = None;
+                // Reset same-turn furiten after own discard.
+                self.players[s].missed_agari_doujun = false;
                 // Track nagashi eligibility: discard must be terminal/honor
                 self.players[s].nagashi_eligible &= crate::types::is_terminal_tile(t);
 

@@ -386,6 +386,8 @@ impl GameState3PEventHandler for GameState3P {
                     .push(*is_liqi || *is_wliqi);
                 self.last_discard = Some((s as u8, t));
                 self.drawn_tile = None;
+                // Reset same-turn furiten after own discard.
+                self.players[s].missed_agari_doujun = false;
 
                 self.players[s].riichi_declared =
                     self.players[s].riichi_declared || *is_liqi || *is_wliqi;

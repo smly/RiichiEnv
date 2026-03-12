@@ -9,9 +9,12 @@ Tests both 4-player and 3-player modes, verifying:
 - Full game replay via observe_event produces correct observations
 """
 
+import os
+import tempfile
+
 import pytest
 
-from riichienv import ActionType, RiichiEnv
+from riichienv import ActionType, MjaiReplay, RiichiEnv
 
 # ---------------------------------------------------------------------------
 # Fixtures: hand setups that guarantee specific claim opportunities
@@ -208,6 +211,32 @@ class TestApplyEvent4P:
         actions = obs.legal_actions()
         discard_actions = [a for a in actions if a.action_type == ActionType.Discard]
         assert len(discard_actions) > 0
+
+    def test_chi_kuikae_forbids_called_and_other_side_tile(self):
+        """After chi on 3m with 4m-5m, both 3m and 6m are forbidden discards."""
+        env = self._make_env()
+        # P1 has 4m,5m,6m so can chi 3m from P0 (kamicha)
+        tehais = [
+            _UNKNOWN_HAND_13,
+            ["4m", "5m", "6m", "1p", "2p", "3p", "4p", "5p", "6p", "7p", "8p", "9p", "1z"],
+            _UNKNOWN_HAND_13,
+            _UNKNOWN_HAND_13,
+        ]
+        env.observe_event({"type": "start_game"}, 1)
+        env.observe_event(_start_kyoku_event_4p(tehais=tehais), 1)
+        env.observe_event({"type": "tsumo", "actor": 0, "pai": "?"}, 1)
+        env.observe_event({"type": "dahai", "actor": 0, "pai": "3m", "tsumogiri": True}, 1)
+        # P1 calls chi on 3m with 4m-5m
+        obs = env.observe_event(
+            {"type": "chi", "actor": 1, "target": 0, "pai": "3m", "consumed": ["4m", "5m"]},
+            1,
+        )
+        assert obs is not None
+        discard_t34 = {a.tile // 4 for a in obs.legal_actions() if a.action_type == ActionType.Discard}
+        # 3m (t34=2) is the called tile — forbidden
+        assert 2 not in discard_t34, "3m (called tile) must be forbidden by kuikae"
+        # 6m (t34=5) is the other-side tile of the 3-4-5 sequence — forbidden
+        assert 5 not in discard_t34, "6m (other-side tile) must be forbidden by kuikae"
 
     def test_multi_turn_sequence(self):
         """Play multiple turns and verify observations appear at correct times."""
@@ -447,3 +476,128 @@ class TestApplyEventConsistency:
                 assert obs is not None, "Actor should get observation on own tsumo"
             else:
                 assert obs is None, f"Player {pid} should not get obs on P0's tsumo"
+
+
+# ===========================================================================
+# Replay iterator: pass observation furiten tests
+# ===========================================================================
+
+# Shared hand layout for furiten tests:
+# P0: 3m,3m,5m,...  (has two 3m to discard)
+# P1: 1s-9s + 1m,1m,1m,2m  (tenpai for 3m: 1s-2s-3s,4s-5s-6s,7s-8s-9s,1m-2m-3m + 1m pair)
+# P2: 1z,...,3m,...  (has a 3m to discard)
+# P3: safe tiles
+_FURITEN_TEHAIS_JSON = (
+    '["3m","3m","5m","6m","7m","8m","9m","1p","2p","3p","4p","5p","6p"],'
+    '["1s","2s","3s","4s","5s","6s","7s","8s","9s","1m","1m","1m","2m"],'
+    '["1z","2z","3z","4z","5z","6z","7z","7p","8p","9p","3m","8s","9s"],'
+    '["4s","5s","6s","7s","8s","9s","4m","5m","6m","7m","8m","9m","1z"]'
+)
+
+
+def _write_jsonl(lines: list[str]) -> str:
+    """Write JSONL lines to a temp file, return path."""
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
+    f.write("\n".join(lines))
+    f.close()
+    return f.name
+
+
+class TestReplayFuriten:
+    """Verify that pass observations update furiten state correctly."""
+
+    def test_doujun_furiten_resets_after_own_discard(self):
+        """Same-turn furiten: P1 passes on ron, then draws/discards.
+        After P1's own discard, doujun furiten resets, so P1 can ron
+        the same tile again from a different player."""
+        lines = [
+            '{"type":"start_game"}',
+            '{"type":"start_kyoku","bakaze":"E","kyoku":1,"honba":0,"kyoutaku":0,'
+            '"oya":0,"scores":[25000,25000,25000,25000],"dora_marker":"2p",'
+            '"tehais":[' + _FURITEN_TEHAIS_JSON + "]}",
+            # P0 draws, discards 3m — P1 can ron but passes
+            '{"type":"tsumo","actor":0,"pai":"7p"}',
+            '{"type":"dahai","actor":0,"pai":"3m","tsumogiri":false}',
+            # P1 draws, discards (doujun furiten resets)
+            '{"type":"tsumo","actor":1,"pai":"4z"}',
+            '{"type":"dahai","actor":1,"pai":"4z","tsumogiri":true}',
+            # P2 discards 3m — P1 should have Ron again
+            '{"type":"tsumo","actor":2,"pai":"5z"}',
+            '{"type":"dahai","actor":2,"pai":"3m","tsumogiri":false}',
+            '{"type":"tsumo","actor":3,"pai":"3z"}',
+            '{"type":"dahai","actor":3,"pai":"3z","tsumogiri":true}',
+            '{"type":"ryukyoku","reason":"yao9"}',
+            '{"type":"end_kyoku"}',
+            '{"type":"end_game"}',
+        ]
+        path = _write_jsonl(lines)
+        try:
+            replay = MjaiReplay.from_jsonl(path, rule="tenhou")
+            for kyoku in replay.take_kyokus():
+                p1_pass_has_ron = []
+                for step in kyoku.steps(seat=None, skip_single_action=False):
+                    pid, obs, action = step
+                    if pid == 1 and action.action_type == ActionType.Pass:
+                        types = {a.action_type for a in obs.legal_actions()}
+                        p1_pass_has_ron.append(ActionType.Ron in types)
+                # Both passes should have Ron (doujun furiten resets after discard)
+                assert len(p1_pass_has_ron) == 2, f"expected 2 pass obs, got {len(p1_pass_has_ron)}"
+                assert p1_pass_has_ron[0] is True, "1st pass should include Ron"
+                assert p1_pass_has_ron[1] is True, "2nd pass should include Ron (doujun reset)"
+        finally:
+            os.unlink(path)
+
+    def test_riichi_furiten_persists_after_own_discard(self):
+        """Riichi furiten: P1 in riichi passes on ron, so missed_agari_riichi
+        is set permanently. Even after P1's own discard, the second 3m
+        from P2 should NOT give P1 a Ron opportunity."""
+        lines = [
+            '{"type":"start_game"}',
+            '{"type":"start_kyoku","bakaze":"E","kyoku":1,"honba":0,"kyoutaku":0,'
+            '"oya":0,"scores":[25000,25000,25000,25000],"dora_marker":"2p",'
+            '"tehais":[' + _FURITEN_TEHAIS_JSON + "]}",
+            # P0 draws, discards safe tile
+            '{"type":"tsumo","actor":0,"pai":"7p"}',
+            '{"type":"dahai","actor":0,"pai":"7p","tsumogiri":true}',
+            # P1 draws, declares riichi, discards
+            '{"type":"tsumo","actor":1,"pai":"4z"}',
+            '{"type":"reach","actor":1}',
+            '{"type":"dahai","actor":1,"pai":"4z","tsumogiri":true}',
+            '{"type":"reach_accepted","actor":1}',
+            # P2, P3 safe discards
+            '{"type":"tsumo","actor":2,"pai":"5z"}',
+            '{"type":"dahai","actor":2,"pai":"5z","tsumogiri":true}',
+            '{"type":"tsumo","actor":3,"pai":"2z"}',
+            '{"type":"dahai","actor":3,"pai":"2z","tsumogiri":true}',
+            # P0 discards 3m — P1 (riichi) can ron but passes
+            '{"type":"tsumo","actor":0,"pai":"1z"}',
+            '{"type":"dahai","actor":0,"pai":"3m","tsumogiri":false}',
+            # P1 draws, auto-tsumogiri (riichi)
+            '{"type":"tsumo","actor":1,"pai":"6z"}',
+            '{"type":"dahai","actor":1,"pai":"6z","tsumogiri":true}',
+            # P2 discards 3m — P1 should NOT get Ron (riichi furiten)
+            '{"type":"tsumo","actor":2,"pai":"7z"}',
+            '{"type":"dahai","actor":2,"pai":"3m","tsumogiri":false}',
+            '{"type":"tsumo","actor":3,"pai":"3z"}',
+            '{"type":"dahai","actor":3,"pai":"3z","tsumogiri":true}',
+            '{"type":"ryukyoku","reason":"yao9"}',
+            '{"type":"end_kyoku"}',
+            '{"type":"end_game"}',
+        ]
+        path = _write_jsonl(lines)
+        try:
+            replay = MjaiReplay.from_jsonl(path, rule="tenhou")
+            for kyoku in replay.take_kyokus():
+                p1_pass_has_ron = []
+                for step in kyoku.steps(seat=None, skip_single_action=False):
+                    pid, obs, action = step
+                    if pid == 1 and action.action_type == ActionType.Pass:
+                        types = {a.action_type for a in obs.legal_actions()}
+                        p1_pass_has_ron.append(ActionType.Ron in types)
+                # Only the first pass (from P0's 3m) should have Ron.
+                # The second 3m (from P2) produces no pass obs because
+                # riichi furiten blocks all claims.
+                assert len(p1_pass_has_ron) == 1, f"expected 1 pass obs, got {len(p1_pass_has_ron)}"
+                assert p1_pass_has_ron[0] is True, "1st pass should include Ron"
+        finally:
+            os.unlink(path)
