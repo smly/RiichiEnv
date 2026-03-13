@@ -552,54 +552,78 @@ mod tests {
 
     #[test]
     fn test_best_ukeire_subtracts_hand_counts() {
-        // 22223456789m 11z (14 tiles).
-        // Discard one 2m → 2223456789m 11z (tenpai).
-        // If 2m is an effective draw, remaining = 4 - 0(visible) - 3(hand) = 1,
-        // NOT 4 as the old code would compute.
+        // 123m 456m 789m 12p 112z (14 tiles, shanten=0).
+        // Best discard: 2z → 123m 456m 789m 12p 11z (tenpai, waiting 3p).
+        // Draw 3p: remaining = 4 - 0(visible) - 0(hand) = 4.
+        // Total ukeire = 4.
         let hand = tiles_from_types(&[
-            1, 1, 1, 1, // 2222m
-            2, 3, 4, 5, 6, 7, 8, // 3456789m
-            27, 27, // 11z
+            0, 1, 2, // 123m
+            3, 4, 5, // 456m
+            6, 7, 8, // 789m
+            9, 10, // 12p
+            27, 27, 28, // 112z
         ]);
         let visible: Vec<u32> = vec![];
 
         let ukeire = calculate_best_ukeire(&hand, &visible);
-        assert!(ukeire > 0, "ukeire should be positive for this hand");
-        assert!(ukeire <= 20, "ukeire={ukeire} looks over-counted");
+        assert_eq!(ukeire, 4, "tenpai waiting on 3p should have ukeire=4");
     }
 
     #[test]
     fn test_best_ukeire_3p_subtracts_hand_counts() {
-        // 3p hand: 111m 999m 234p 567s 11z (14 tiles).
+        // 123p 456p 789p 12s 112z (14 tiles, shanten=0).
+        // Best discard: 2z → 123p 456p 789p 12s 11z (tenpai, waiting 3s).
+        // Draw 3s: remaining = 4 - 0(visible) - 0(hand) = 4.
         let hand = tiles_from_types(&[
-            0, 0, 0, // 111m
-            8, 8, 8, // 999m
-            10, 11, 12, // 234p
-            24, 25, 26, // 567s
-            27, 27, // 11z
+            9, 10, 11, // 123p
+            12, 13, 14, // 456p
+            15, 16, 17, // 789p
+            18, 19, // 12s
+            27, 27, 28, // 112z
         ]);
         let visible: Vec<u32> = vec![];
 
         let ukeire = calculate_best_ukeire_3p(&hand, &visible);
-        assert!(ukeire > 0, "ukeire should be positive for this hand");
-        assert!(ukeire <= 20, "ukeire={ukeire} looks over-counted");
+        assert_eq!(ukeire, 4, "tenpai waiting on 3s should have ukeire=4");
     }
 
     #[test]
-    fn test_best_ukeire_all_copies_accounted() {
-        // 111m 234p 567s 1222z (13 tiles) + draw.
-        // 1 copy of 2z is visible (discarded by someone).
-        // Discard 1z → 111m 234p 567s 222z.
-        // 2z: 4 - 1(visible) - 3(hand) = 0 remaining → contributes nothing.
+    fn test_best_ukeire_hand_copies_reduce_remaining() {
+        // 123m 456m 789m 33p 332z (14 tiles).
+        // Discard 2z → 123m 456m 789m 33p 33z (13 tiles, tenpai).
+        // Winning draw: 3p → 333p as koutsu, or 3z → 333z as koutsu.
+        //   3p in hand: 2 copies → remaining = 4 - 0 - 2 = 2
+        //   3z in hand: 2 copies → remaining = 4 - 0 - 2 = 2
+        // Total ukeire = 4 (not 8 as old code would compute).
         let hand = tiles_from_types(&[
-            0, 0, 0, // 111m
-            10, 11, 12, // 234p
-            24, 25, 26, // 567s
-            27, 28, 28, 28, // 1z 222z
+            0, 1, 2, // 123m
+            3, 4, 5, // 456m
+            6, 7, 8, // 789m
+            11, 11, // 33p
+            29, 29, 28, // 332z
         ]);
-        let visible = vec![28 * 4 + 1]; // 2z instance 1
+        let visible: Vec<u32> = vec![];
 
         let ukeire = calculate_best_ukeire(&hand, &visible);
-        assert!(ukeire <= 20, "ukeire={ukeire} looks over-counted");
+        assert_eq!(ukeire, 4, "hand copies should reduce remaining count");
+    }
+
+    #[test]
+    fn test_best_ukeire_visible_and_hand_both_subtracted() {
+        // 123m 456m 789m 33p 332z (14 tiles).
+        // 1 copy of 3p visible → 3p remaining = 4 - 1 - 2 = 1
+        // 3z remaining = 4 - 0 - 2 = 2
+        // Total ukeire = 3.
+        let hand = tiles_from_types(&[
+            0, 1, 2, // 123m
+            3, 4, 5, // 456m
+            6, 7, 8, // 789m
+            11, 11, // 33p
+            29, 29, 28, // 332z
+        ]);
+        let visible = vec![11 * 4 + 2]; // 3p instance 2
+
+        let ukeire = calculate_best_ukeire(&hand, &visible);
+        assert_eq!(ukeire, 3, "visible + hand copies should both reduce count");
     }
 }
