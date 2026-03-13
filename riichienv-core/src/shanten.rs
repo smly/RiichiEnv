@@ -306,6 +306,13 @@ pub fn calculate_best_ukeire(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
             .filter(|(i, _)| *i != idx)
             .map(|(_, &t)| t)
             .collect();
+        let mut new_hand_counts = [0u8; TILE_MAX];
+        for &tile in &new_hand {
+            let tile_type = (tile / 4) as usize;
+            if tile_type < TILE_MAX {
+                new_hand_counts[tile_type] += 1;
+            }
+        }
 
         let new_shanten = calculate_shanten(&new_hand);
         if new_shanten > current_shanten {
@@ -314,6 +321,10 @@ pub fn calculate_best_ukeire(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
 
         let mut ukeire = 0;
         for tile_type in 0..34 {
+            if new_hand_counts[tile_type as usize] >= 4 {
+                continue;
+            }
+
             let mut test_hand = new_hand.clone();
             test_hand.push(tile_type * 4);
             let test_shanten = calculate_shanten(&test_hand);
@@ -466,6 +477,13 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
             .filter(|(i, _)| *i != idx)
             .map(|(_, &t)| t)
             .collect();
+        let mut new_hand_counts = [0u8; TILE_MAX];
+        for &tile in &new_hand {
+            let tile_type = (tile / 4) as usize;
+            if tile_type < TILE_MAX {
+                new_hand_counts[tile_type] += 1;
+            }
+        }
 
         let new_shanten = calculate_shanten_3p(&new_hand);
         if new_shanten > current_shanten {
@@ -474,6 +492,10 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
 
         let mut ukeire = 0;
         for &tile_type in &SANMA_VALID_TILE_TYPES {
+            if new_hand_counts[tile_type as usize] >= 4 {
+                continue;
+            }
+
             let mut test_hand = new_hand.clone();
             test_hand.push(tile_type * 4);
             let test_shanten = calculate_shanten_3p(&test_hand);

@@ -119,6 +119,19 @@ class TestApplyEvent4P:
         discard_actions = [a for a in actions if a.action_type == ActionType.DISCARD]
         assert len(discard_actions) > 0
 
+    def test_encode_shanten_efficiency_handles_quad_draw(self):
+        env = self._make_env()
+        hand = ["5m", "7m", "2p", "3p", "4p", "2s", "2s", "4s", "6s", "7s", "8s", "8s", "8s"]
+        tehais = [_UNKNOWN_HAND_13, hand, _UNKNOWN_HAND_13, _UNKNOWN_HAND_13]
+
+        env.observe_event({"type": "start_game"}, 1)
+        env.observe_event(_start_kyoku_event_4p(tehais=tehais, oya=1), 1)
+        obs = env.observe_event({"type": "tsumo", "actor": 1, "pai": "8s"}, 1)
+
+        assert obs is not None
+        enc = obs.encode_shanten_efficiency()
+        assert len(enc) == 64
+
     def test_tsumo_returns_none_for_other_player(self):
         """Tsumo for a different seat should return None."""
         env = self._make_env()
@@ -303,6 +316,19 @@ class TestApplyEvent3P:
         assert len(actions) > 0
         discard_actions = [a for a in actions if a.action_type == ActionType.DISCARD]
         assert len(discard_actions) > 0
+
+    def test_encode_shanten_efficiency_handles_quad_draw(self):
+        env = self._make_env()
+        hand = ["1m", "9m", "2p", "3p", "4p", "2s", "2s", "4s", "6s", "7s", "8s", "8s", "8s"]
+        tehais = [_UNKNOWN_HAND_13, hand, _UNKNOWN_HAND_13]
+
+        env.observe_event({"type": "start_game"}, 1)
+        env.observe_event(_start_kyoku_event_3p(tehais=tehais, oya=1), 1)
+        obs = env.observe_event({"type": "tsumo", "actor": 1, "pai": "8s"}, 1)
+
+        assert obs is not None
+        enc = obs.encode_shanten_efficiency()
+        assert len(enc) == 48
 
     def test_tsumo_returns_none_for_other_player(self):
         env = self._make_env()
