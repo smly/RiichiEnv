@@ -9,7 +9,7 @@ use crate::parser::tid_to_mjai;
 use crate::replay::Action as LogAction;
 use crate::replay::MjaiEvent;
 use crate::rule::GameRule;
-use crate::types::{Conditions, Meld, MeldType, WinResult, Wind};
+use crate::types::{Conditions, INITIAL_HAND_SIZE, Meld, MeldType, WinResult, Wind};
 
 pub mod event_handler;
 pub mod game_mode;
@@ -1961,7 +1961,10 @@ impl GameState3P {
                         if i == pid {
                             masked_tehais.push(hand_val.clone());
                         } else {
-                            let len = hand_val.as_array().map(|a| a.len()).unwrap_or(13);
+                            let len = hand_val
+                                .as_array()
+                                .map(|a| a.len())
+                                .unwrap_or(INITIAL_HAND_SIZE);
                             let masked = vec!["?".to_string(); len];
                             masked_tehais.push(serde_json::to_value(masked).expect("valid JSON"));
                         }
