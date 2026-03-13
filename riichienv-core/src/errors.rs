@@ -1,15 +1,15 @@
 #[derive(Debug, thiserror::Error)]
 pub enum RiichiError {
-    /// 牌文字列・手牌文字列のパースエラー
+    /// Parse error for tile strings or hand strings
     #[error("Parse error on '{input}': {message}")]
     Parse { input: String, message: String },
-    /// アクション構成・エンコードのバリデーションエラー
+    /// Validation error for action construction or encoding
     #[error("Invalid action: {message}")]
     InvalidAction { message: String },
-    /// ゲーム状態の不整合（リプレイ同期ずれ等）
+    /// Game state inconsistency (e.g. replay desync)
     #[error("Invalid state: {message}")]
     InvalidState { message: String },
-    /// シリアライズ/デシリアライズの失敗
+    /// Serialization or deserialization failure
     #[error("Serialization error: {message}")]
     Serialization { message: String },
 }
