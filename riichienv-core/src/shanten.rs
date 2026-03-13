@@ -343,7 +343,8 @@ pub fn calculate_best_ukeire(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
             let test_shanten = calculate_shanten(&test_hand);
 
             if test_shanten < new_shanten {
-                ukeire += 4 - visible_counts[tile_type as usize]
+                ukeire += 4
+                    - visible_counts[tile_type as usize]
                     - new_hand_counts[tile_type as usize] as u32;
             }
         }
@@ -528,7 +529,8 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
             let test_shanten = calculate_shanten_3p(&test_hand);
 
             if test_shanten < new_shanten {
-                ukeire += 4 - visible_counts[tile_type as usize]
+                ukeire += 4
+                    - visible_counts[tile_type as usize]
                     - new_hand_counts[tile_type as usize] as u32;
             }
         }
