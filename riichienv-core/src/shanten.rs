@@ -324,7 +324,9 @@ pub fn calculate_best_ukeire(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
             .collect();
         let removed_type = (hand_tiles[idx] / 4) as usize;
         let mut new_hand_counts = base_counts;
-        new_hand_counts[removed_type] -= 1;
+        if removed_type < TILE_MAX {
+            new_hand_counts[removed_type] -= 1;
+        }
 
         let new_shanten = calculate_shanten(&new_hand);
         if new_shanten > current_shanten {
@@ -510,7 +512,9 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
             .collect();
         let removed_type = (hand_tiles[idx] / 4) as usize;
         let mut new_hand_counts = base_counts;
-        new_hand_counts[removed_type] -= 1;
+        if removed_type < TILE_MAX {
+            new_hand_counts[removed_type] -= 1;
+        }
 
         let new_shanten = calculate_shanten_3p(&new_hand);
         if new_shanten > current_shanten {
