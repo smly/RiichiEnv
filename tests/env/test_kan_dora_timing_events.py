@@ -212,7 +212,7 @@ class TestKanDoraTimingEvents3P:
         Ankan reveals dora before rinshan tsumo in 3P.
         Expected order: ankan → dora → tsumo
         """
-        rule = GameRule.default_tenhou_sanma()
+        rule = GameRule.default_tenhou()
 
         env = RiichiEnv(seed=42, game_mode=GameType.SAN_IKKYOKU, rule=rule)
         env.reset()
@@ -260,7 +260,7 @@ class TestKanDoraTimingEvents3P:
         Kakan reveals dora before discard in 3P.
         Expected order: kakan → tsumo → dora → dahai
         """
-        rule = GameRule.default_tenhou_sanma()
+        rule = GameRule.default_tenhou()
 
         env = RiichiEnv(seed=42, game_mode=GameType.SAN_IKKYOKU, rule=rule)
         env.reset()

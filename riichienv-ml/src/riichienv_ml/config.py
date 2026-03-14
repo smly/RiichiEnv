@@ -19,7 +19,7 @@ GAME_PARAMS = {
         "tile_dim": 27,
         "num_actions": 60,
         "game_mode": "3p-red-half",
-        "replay_rule": "mjsoul_sanma",
+        "replay_rule": "mjsoul",
         "starting_scores": [35000, 35000, 35000],
     },
 }

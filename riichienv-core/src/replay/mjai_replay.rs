@@ -278,12 +278,9 @@ impl MjaiReplay {
             Some("tenhou") => crate::rule::GameRule::default_tenhou(),
             Some("mjsoul") => crate::rule::GameRule::default_mjsoul(),
             None => crate::rule::GameRule::default_tenhou(),
-            Some("tenhou_sanma") => crate::rule::GameRule::default_tenhou_sanma(),
-            Some("mjsoul_sanma") => crate::rule::GameRule::default_mjsoul_sanma(),
             Some(other) => {
                 return Err(PyValueError::new_err(format!(
-                    "Unknown rule: '{}'. Expected 'tenhou', 'mjsoul', \
-                     'tenhou_sanma', or 'mjsoul_sanma'",
+                    "Unknown rule: '{}'. Expected 'tenhou' or 'mjsoul'",
                     other
                 )));
             }
@@ -361,6 +358,12 @@ impl MjaiReplay {
         // Final flush if unexpected end
         if let Some(b) = builder.take() {
             rounds.push(b.build());
+        }
+
+        // For all non-final rounds, the next round's start scores are the
+        // authoritative post-round scores.
+        for i in 0..rounds.len().saturating_sub(1) {
+            rounds[i].end_scores = rounds[i + 1].scores.clone();
         }
 
         Ok(MjaiReplay { rounds })

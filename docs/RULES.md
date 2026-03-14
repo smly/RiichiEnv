@@ -93,13 +93,4 @@ Differences in standard ranked match rules across major platforms and Mortal.
 | `.yakuman_pao_is_liability_only` | `False` | `True` |
 | `.sanchaho_is_draw` | `True` | `False` |
 
-### 3-Player (Sanma) Presets
-
-| Flag | `default_tenhou_sanma()` | `default_mjsoul_sanma()` |
-|------|--------|--------------|
-| `.allows_ron_on_ankan_for_kokushi_musou` | `False` | `True` |
-| `.is_kokushi_musou_13machi_double` | `False` | `True` |
-| `.is_suuankou_tanki_double` | `False` | `True` |
-| `.is_junsei_chuurenpoutou_double` | `False` | `True` |
-| `.is_daisuushii_double` | `False` | `True` |
-| `.yakuman_pao_is_liability_only` | `False` | `True` |
+The same presets apply to both 4-player and 3-player (sanma) games. The number of players is determined automatically from the game mode or replay data.

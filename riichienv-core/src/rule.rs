@@ -55,36 +55,6 @@ impl GameRule {
             kuikae_forbidden: true,
         }
     }
-
-    pub fn default_mjsoul_sanma() -> Self {
-        Self {
-            allows_ron_on_ankan_for_kokushi_musou: true,
-            is_kokushi_musou_13machi_double: true,
-            is_suuankou_tanki_double: true,
-            is_junsei_chuurenpoutou_double: true,
-            is_daisuushii_double: true,
-            yakuman_pao_is_liability_only: true,
-
-            sanchaho_is_draw: false,
-
-            kuikae_forbidden: true,
-        }
-    }
-
-    pub fn default_tenhou_sanma() -> Self {
-        Self {
-            allows_ron_on_ankan_for_kokushi_musou: false,
-            is_kokushi_musou_13machi_double: false,
-            is_suuankou_tanki_double: false,
-            is_junsei_chuurenpoutou_double: false,
-            is_daisuushii_double: false,
-            yakuman_pao_is_liability_only: false,
-
-            sanchaho_is_draw: false,
-
-            kuikae_forbidden: true,
-        }
-    }
 }
 
 #[cfg(feature = "python")]
@@ -125,12 +95,6 @@ impl GameRule {
     #[pyo3(name = "default_mjsoul")]
     pub fn py_default_mjsoul() -> Self {
         Self::default_mjsoul()
-    }
-
-    #[staticmethod]
-    #[pyo3(name = "default_tenhou_sanma")]
-    pub fn py_default_tenhou_sanma() -> Self {
-        Self::default_tenhou_sanma()
     }
 
     fn __repr__(&self) -> String {

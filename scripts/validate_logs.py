@@ -11,8 +11,10 @@ Validates Tenhou logs by replaying each kyoku step-by-step and checking:
   7. Score conservation: sum(delta) accounts for riichi stick movement
   8. First obs scores match kyoku starting scores
   9. Win consistency: tsumo/ron actions have tenpai obs with matching waits
+  10. MJAI round-trip: action.to_mjai() can be mapped back via select_action_from_mjai()
 """
 import argparse
+import json
 from pathlib import Path
 
 from riichienv import MjaiReplay
@@ -245,9 +247,9 @@ def validate_action_in_legals(obs: Observation | Observation3P, action: Action |
 
     assert len(legals) > 0, f"{ctx}: legal_actions is empty"
 
-    action_k = _action_key(action)
-    legal_keys = {_action_key(a) for a in legals}
-    assert action_k in legal_keys, (
+    action_id = action.encode()
+    legal_ids = {a.encode() for a in legals}
+    assert action_id in legal_ids, (
         f"{ctx}: action {action.to_mjai()} not in legal_actions "
         f"({len(legals)} legals: {[a.to_mjai() for a in legals[:10]]}...)"
     )
@@ -264,10 +266,16 @@ def validate_mask_consistency_3p(obs: Observation3P, action: Action3P, *, ctx: s
         f"{ctx}: mask length {len(mask)} != action_space_size {action_space}"
     )
 
-    # Number of 1-bits in mask should equal number of legal actions
+    # legal_actions may contain duplicates that encode to the same action id
+    # (e.g. duplicate discard choices for identical tiles). Compare against the
+    # number of distinct encoded actions rather than raw list length.
+    legal_ids = {a.encode() for a in legals}
+
+    # Number of 1-bits in mask should equal number of distinct legal actions
     mask_count = int(mask.sum())
-    assert mask_count == len(legals), (
-        f"{ctx}: mask has {mask_count} bits set but {len(legals)} legal actions"
+    assert mask_count == len(legal_ids), (
+        f"{ctx}: mask has {mask_count} bits set but {len(legal_ids)} distinct "
+        f"legal actions ({len(legals)} entries)"
     )
 
     # Every legal action should be findable by its encoded id
@@ -279,10 +287,10 @@ def validate_mask_consistency_3p(obs: Observation3P, action: Action3P, *, ctx: s
         assert mask[aid] == 1, (
             f"{ctx}: mask bit for legal action {legal_action.to_mjai()} (id={aid}) is 0"
         )
+
+    for aid in legal_ids:
         found = obs.find_action(aid)
-        assert found is not None, (
-            f"{ctx}: legal action {legal_action.to_mjai()} not found via find_action({aid})"
-        )
+        assert found is not None, f"{ctx}: legal action id {aid} not found via find_action({aid})"
 
     # The replayed action should have its mask bit set
     action_id = action.encode()
@@ -291,6 +299,21 @@ def validate_mask_consistency_3p(obs: Observation3P, action: Action3P, *, ctx: s
     )
     assert mask[action_id] == 1, (
         f"{ctx}: mask bit for replayed action {action.to_mjai()} (id={action_id}) is 0"
+    )
+
+
+def validate_mjai_roundtrip(obs: Observation | Observation3P, action: Action | Action3P,
+                            *, ctx: str) -> None:
+    """Assert action.to_mjai() round-trips through select_action_from_mjai()."""
+    mjai_action = json.loads(action.to_mjai())
+    selected = obs.select_action_from_mjai(mjai_action)
+
+    assert selected is not None, (
+        f"{ctx}: select_action_from_mjai returned None for {mjai_action}"
+    )
+    assert selected.encode() == action.encode(), (
+        f"{ctx}: MJAI round-trip mismatch: original={action.to_mjai()} "
+        f"selected={selected.to_mjai()}"
     )
 
 
@@ -315,14 +338,14 @@ def validate_score_continuity(kyokus: list, *, log_name: str) -> None:
             f"{ctx}: end_scores length {len(kyoku.end_scores)} != num_players {np_}"
         )
 
-        # Score conservation: delta_sum + riichi stick change = 0
-        # Riichi sticks deposited during this kyoku reduce the score pool;
-        # sticks collected by the winner increase it.
-        delta = [e - s for s, e in zip(kyoku.scores, kyoku.end_scores)]
-        delta_sum = sum(delta)
-
         if ki < len(kyokus) - 1:
             next_kyoku = kyokus[ki + 1]
+
+            # Score conservation: delta_sum + riichi stick change = 0
+            # Riichi sticks deposited during this kyoku reduce the score pool;
+            # sticks collected by the winner increase it.
+            delta = [e - s for s, e in zip(kyoku.scores, kyoku.end_scores)]
+            delta_sum = sum(delta)
 
             # Score continuity: this kyoku's end == next kyoku's start
             assert list(kyoku.end_scores) == list(next_kyoku.scores), (
@@ -337,11 +360,6 @@ def validate_score_continuity(kyokus: list, *, log_name: str) -> None:
                 f"{kyoku.liqibang}->{next_kyoku.liqibang} expects "
                 f"{-liqibang_change * 1000}"
             )
-        else:
-            # Last kyoku: no next kyoku to compare, but delta_sum should
-            # account for any remaining supply sticks being awarded.
-            # Just verify total scores are consistent (sum == initial total).
-            pass
 
 
 def validate_first_obs_scores(kyoku, first_obs: Observation | Observation3P,
@@ -370,6 +388,7 @@ def validate_tenhou_log(log_path: Path, *, rule: str | None = None) -> None:
       - Feature encodings produce valid (finite, in-range) tensors
       - The replayed action is in legal_actions at every step
       - Mask / legal_actions consistency (3P)
+      - MJAI round-trip via select_action_from_mjai()
       - Score continuity and conservation across kyokus
       - First obs scores match kyoku metadata
 
@@ -404,6 +423,7 @@ def validate_tenhou_log(log_path: Path, *, rule: str | None = None) -> None:
                 validate_obs_encoding_4p(obs)
                 validate_action_in_legals(obs, action, ctx=ctx)
 
+            validate_mjai_roundtrip(obs, action, ctx=ctx)
             validate_win_action(obs, action, seat, ctx=ctx)
 
             step_count += 1
@@ -419,7 +439,7 @@ def main() -> None:
     )
     parser.add_argument("paths", nargs="*", help="Log file paths or directories to validate")
     parser.add_argument("--rule", default="tenhou",
-                        choices=["tenhou", "mjsoul", "tenhou_sanma", "mjsoul_sanma"],
+                        choices=["tenhou", "mjsoul"],
                         help="Game rule to use for parsing")
     parser.add_argument("--glob", default="*.mjson", help="Glob pattern for log files (default: *.mjson)")
     parser.add_argument("--limit", type=int, default=0, help="Max number of files to validate (0=all)")

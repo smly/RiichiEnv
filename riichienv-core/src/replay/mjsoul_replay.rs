@@ -239,7 +239,7 @@ impl MjSoulReplay {
             })
             .unwrap_or(false);
         let rule = if is_3p {
-            crate::rule::GameRule::default_mjsoul_sanma()
+            crate::rule::GameRule::default_mjsoul()
         } else {
             _rule
         };
