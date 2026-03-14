@@ -7,10 +7,25 @@ use super::GameState3P;
 
 impl GameState3P {
     pub fn handle_kita(&mut self, pid: u8, act: &Action) {
-        let tile = act
-            .tile
-            .unwrap_or_else(|| act.consume_tiles.first().copied().unwrap_or(0));
         let p_idx = pid as usize;
+
+        // Resolve the actual North tile to remove from hand.
+        // The action's tile field *should* contain the specific tile ID (120-123),
+        // but when tile is None (e.g. the agent sent a generic Kita action without
+        // specifying a tile), falling back to 0 would silently corrupt the hand by
+        // failing to remove any tile.  Instead, look up a North tile from the hand.
+        let tile = match act.tile {
+            Some(t) if t / 4 == 30 => t,
+            _ => self.players[p_idx]
+                .hand
+                .iter()
+                .find(|&&t| t / 4 == 30)
+                .copied()
+                .unwrap_or_else(|| {
+                    act.tile
+                        .unwrap_or_else(|| act.consume_tiles.first().copied().unwrap_or(0))
+                }),
+        };
 
         // Remove North tile from hand
         if let Some(idx) = self.players[p_idx].hand.iter().position(|&t| t == tile) {

@@ -1779,4 +1779,324 @@ mod unit_tests {
         assert_eq!(discarder_amt, 48000, "Discarder pays remainder (48000)");
         assert_eq!(deltas[w_pid], 64000, "Winner receives 64000");
     }
+
+    /// When handle_kita receives an Action with tile=None, it must still
+    /// find and remove the correct North tile from the hand instead of
+    /// defaulting to tile 0 (1m).
+    #[test]
+    fn test_kita_tile_none_removes_north_from_hand() {
+        use crate::action::{Action, ActionType};
+
+        let mut state = create_sanma_test_state(5);
+        state._initialize_round(0, 0, 0, 0, None, None);
+        // Fix rinshan draw to a non-North tile so the assertion is deterministic.
+        state.wall.tiles = (36u8..56).collect(); // 1p-5p: all sanma-legal
+
+        // Hand: 1p(36) 2p(40) 3p(44) 4p(48) 5p(52) 6p(56) 7p(60) 8p(64) 9p(68)
+        //       1s(72) 2s(76) 3s(80) N(120)
+        // drawn_tile = N(120) — player just drew North
+        state.players[0].hand = vec![36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 120];
+        state.drawn_tile = Some(120);
+        state.current_player = 0;
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![0];
+        state.needs_tsumo = false;
+
+        let hand_size_before = state.players[0].hand.len();
+        let has_north_before = state.players[0].hand.iter().any(|&t| t / 4 == 30);
+        assert!(
+            has_north_before,
+            "Hand should contain North tile before kita"
+        );
+
+        // Create a Kita action with tile=None (the bug scenario from issue #179)
+        let kita_action = Action::new(ActionType::Kita, None, vec![], Some(0));
+        state.handle_kita(0, &kita_action);
+
+        // After kita, the North tile must be removed from the hand
+        let has_north_after = state.players[0].hand.iter().any(|&t| t / 4 == 30);
+        assert!(
+            !has_north_after,
+            "North tile must be removed from hand after kita, \
+             even when the action has tile=None"
+        );
+
+        // The North tile must be in kita_tiles
+        assert_eq!(
+            state.players[0].kita_tiles.len(),
+            1,
+            "Kita tiles should contain exactly one tile"
+        );
+        assert_eq!(
+            state.players[0].kita_tiles[0] / 4,
+            30,
+            "Kita tile must be a North tile"
+        );
+
+        // After rinshan draw, hand size should be same as before
+        // (removed 1 North + gained 1 rinshan = net 0 change)
+        assert_eq!(
+            state.players[0].hand.len(),
+            hand_size_before,
+            "Hand size must remain the same after kita + rinshan draw"
+        );
+    }
+
+    /// After kita with tile=None during riichi, ankan must still appear
+    /// in legal_actions on the subsequent turn.
+    #[test]
+    fn test_sanma_ankan_available_after_kita_in_riichi() {
+        use crate::action::{Action, ActionType};
+        use crate::state_3p::legal_actions::GameState3PLegalActions;
+        use std::collections::HashMap;
+
+        let mut state = create_sanma_test_state(5);
+        state._initialize_round(0, 0, 0, 0, None, None);
+        // Keep rinshan deterministic and leave enough wall for post-kita legal actions.
+        state.wall.tiles = (36u8..56).collect(); // 1p-5p: all sanma-legal
+
+        // Player 1 hand: 2p(40,41) 4p(48,49,50) 5p(52) 6p(56) 7p(60)
+        //                 1s(72,73,74) 8s(100) 9s(104)
+        // 13 tiles, player is in riichi
+        state.players[1].hand = vec![40, 41, 48, 49, 50, 52, 56, 60, 72, 73, 74, 100, 104];
+        state.players[1].riichi_declared = true;
+        state.players[1].riichi_declaration_index = Some(0);
+        state.players[1].discards.push(131); // F discarded for riichi
+        state.players[1].discard_from_hand.push(true);
+        state.players[1].discard_is_riichi.push(true);
+
+        // Simulate: player 1 draws North tile
+        let north_tile: u8 = 121;
+        state.players[1].hand.push(north_tile);
+        state.drawn_tile = Some(north_tile);
+        state.current_player = 1;
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![1];
+        state.needs_tsumo = false;
+
+        // Player 1 does kita with tile=None (the bug scenario)
+        let kita_action = Action::new(ActionType::Kita, None, vec![], Some(1));
+        state.handle_kita(1, &kita_action);
+
+        // After kita + rinshan draw, verify North was removed
+        assert!(
+            !state.players[1].hand.iter().any(|&t| t / 4 == 30),
+            "North must be removed from hand after kita (tile=None)"
+        );
+        // Hand should have 14 tiles (had 14, removed N, gained rinshan = 14)
+        assert_eq!(
+            state.players[1].hand.len(),
+            14,
+            "Hand should have 14 tiles after kita rinshan draw (before discard)"
+        );
+
+        // Now player 1 discards the rinshan tile (tsumogiri)
+        let rinshan_tile = state.drawn_tile.unwrap();
+        let discard = Action::new(ActionType::Discard, Some(rinshan_tile), vec![], Some(1));
+        let mut actions = HashMap::new();
+        actions.insert(1u8, discard);
+        state.step(&actions);
+
+        // Hand should be 13 tiles after discard (14 - 1 discard = 13)
+        assert_eq!(
+            state.players[1].hand.len(),
+            13,
+            "Hand should have 13 tiles after discard"
+        );
+
+        // Simulate: eventually player 1 draws 4p (the 4th copy)
+        let fourth_4p: u8 = 51; // tile 51 = 4p
+        state.players[1].hand.push(fourth_4p);
+        state.drawn_tile = Some(fourth_4p);
+        state.current_player = 1;
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![1];
+        state.needs_tsumo = false;
+
+        // Verify hand has 4x 4p
+        let count_4p = state.players[1]
+            .hand
+            .iter()
+            .filter(|&&t| t / 4 == 12)
+            .count();
+        assert_eq!(count_4p, 4, "Player 1 should have 4 copies of 4p");
+
+        // Verify legal_actions includes Ankan
+        let legal = state._get_legal_actions_internal(1);
+        let has_ankan = legal.iter().any(|a| a.action_type == ActionType::Ankan);
+        assert!(
+            has_ankan,
+            "Ankan should be available after riichi when holding 4 copies of drawn tile. \
+             Legal actions: {:?}",
+            legal
+                .iter()
+                .map(|a| format!("{:?}(tile={:?})", a.action_type, a.tile))
+                .collect::<Vec<_>>()
+        );
+
+        // Verify Kita is NOT available (no North tiles in hand)
+        let has_kita = legal.iter().any(|a| a.action_type == ActionType::Kita);
+        assert!(
+            !has_kita,
+            "Kita should NOT be available when no North tiles are in hand"
+        );
+    }
+
+    /// Verify that kita with a correct tile (Some(120)) still works.
+    #[test]
+    fn test_kita_with_correct_tile_still_works() {
+        use crate::action::{Action, ActionType};
+
+        let mut state = create_sanma_test_state(5);
+        state._initialize_round(0, 0, 0, 0, None, None);
+        state.wall.tiles = (36u8..56).collect(); // 1p-5p: all sanma-legal
+
+        state.players[0].hand = vec![36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 120];
+        state.drawn_tile = Some(120);
+        state.current_player = 0;
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![0];
+        state.needs_tsumo = false;
+
+        // Kita with correct tile=Some(120) — should work as before
+        let kita_action = Action::new(ActionType::Kita, Some(120), vec![], Some(0));
+        state.handle_kita(0, &kita_action);
+
+        assert!(
+            !state.players[0].hand.contains(&120),
+            "Tile 120 must be removed from hand"
+        );
+        assert_eq!(state.players[0].kita_tiles, vec![120]);
+        assert_eq!(
+            state.players[0].hand.len(),
+            13,
+            "Hand should have 13 tiles after kita + rinshan"
+        );
+    }
+
+    /// After kita with tile=None, reach must remain available on subsequent turns.
+    #[test]
+    fn test_sanma_reach_available_after_kita() {
+        use crate::action::{Action, ActionType};
+        use crate::state_3p::legal_actions::GameState3PLegalActions;
+        use std::collections::HashMap;
+
+        let mut state = create_sanma_test_state(5);
+        state._initialize_round(0, 0, 0, 0, None, None);
+        // Riichi remains legal only while wall.tiles.len() > 14, so use a fixed long wall.
+        state.wall.tiles = (36u8..56).collect(); // 1p-5p: all sanma-legal
+
+        // Player 1: hand in tenpai (waiting on 7s)
+        // 2p(40) 3p(44) 4p(48) 5p(52) 6p(56) 7p(60)
+        // 2s(76) 3s(80) 4s(84) 5s(88) 6s(92) 7s(96) 8s(100)
+        state.players[1].hand = vec![40, 44, 48, 52, 56, 60, 76, 80, 84, 88, 92, 96, 100];
+        state.players[1].score = 35000;
+        state.current_player = 1;
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![1];
+        state.needs_tsumo = false;
+
+        // Player 1 draws North
+        let north_tile: u8 = 122;
+        state.players[1].hand.push(north_tile);
+        state.drawn_tile = Some(north_tile);
+
+        // Player 1 does kita with tile=None
+        let kita_action = Action::new(ActionType::Kita, None, vec![], Some(1));
+        state.handle_kita(1, &kita_action);
+
+        // Discard rinshan tile
+        let rinshan_tile = state.drawn_tile.unwrap();
+        let discard = Action::new(ActionType::Discard, Some(rinshan_tile), vec![], Some(1));
+        let mut actions = HashMap::new();
+        actions.insert(1u8, discard);
+        state.step(&actions);
+
+        // Now player 1 draws a tile that maintains tenpai — say 9p(68)
+        state.players[1].hand.push(68);
+        state.drawn_tile = Some(68);
+        state.current_player = 1;
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![1];
+        state.needs_tsumo = false;
+
+        let legal = state._get_legal_actions_internal(1);
+        let has_reach = legal.iter().any(|a| a.action_type == ActionType::Riichi);
+        assert!(
+            has_reach,
+            "Reach should be available when hand is tenpai. \
+             Hand size: {}, Legal actions: {:?}",
+            state.players[1].hand.len(),
+            legal
+                .iter()
+                .map(|a| format!("{:?}(tile={:?})", a.action_type, a.tile))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// After kita with tile=None, tsumo must remain available on subsequent turns.
+    #[test]
+    fn test_sanma_tsumo_available_after_kita() {
+        use crate::action::{Action, ActionType};
+        use crate::state_3p::legal_actions::GameState3PLegalActions;
+
+        let mut state = create_sanma_test_state(5);
+        state._initialize_round(0, 0, 0, 0, None, None);
+        state.wall.tiles = (36u8..56).collect(); // 1p-5p: all sanma-legal
+
+        // Player 2: tenpai hand (tanki wait on E)
+        // 2p(40) 3p(44) 4p(48)  5p(52) 6p(56) 7p(60)
+        // 2s(76) 3s(80) 4s(84)  5s(88) 6s(92) 7s(96)
+        // E(108)
+        // Winning tile: E(109) → 4 sequences + E pair = menzen tsumo
+        state.players[2].hand = vec![40, 44, 48, 52, 56, 60, 76, 80, 84, 88, 92, 96, 108];
+        state.current_player = 2;
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![2];
+        state.needs_tsumo = false;
+
+        // Player 2 draws North
+        let north_tile: u8 = 123;
+        state.players[2].hand.push(north_tile);
+        state.drawn_tile = Some(north_tile);
+
+        // Player 2 does kita with tile=None
+        let kita_action = Action::new(ActionType::Kita, None, vec![], Some(2));
+        state.handle_kita(2, &kita_action);
+
+        // After kita, hand should have 14 tiles (had 14, -N, +rinshan = 14)
+        assert_eq!(state.players[2].hand.len(), 14);
+
+        // Discard the rinshan tile, then draw the winning tile
+        let rinshan_tile = state.drawn_tile.unwrap();
+        if let Some(idx) = state.players[2]
+            .hand
+            .iter()
+            .position(|&t| t == rinshan_tile)
+        {
+            state.players[2].hand.remove(idx);
+        }
+        state.players[2].discards.push(rinshan_tile);
+        state.drawn_tile = None;
+
+        // Draw winning tile E(109) → completes E pair
+        state.players[2].hand.push(109);
+        state.drawn_tile = Some(109);
+        state.current_player = 2;
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![2];
+
+        let legal = state._get_legal_actions_internal(2);
+        let has_tsumo = legal.iter().any(|a| a.action_type == ActionType::Tsumo);
+        assert!(
+            has_tsumo,
+            "Tsumo should be available when hand is a winning hand. \
+             Hand size: {}, Legal actions: {:?}",
+            state.players[2].hand.len(),
+            legal
+                .iter()
+                .map(|a| format!("{:?}(tile={:?})", a.action_type, a.tile))
+                .collect::<Vec<_>>()
+        );
+    }
 }
