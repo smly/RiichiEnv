@@ -434,7 +434,8 @@ impl KyokuStepIterator {
                         crate::action::ActionType::Ankan => {
                             let t34 = tiles[0] / 4;
                             let lowest = t34 * 4;
-                            EnvAction::new(atype, Some(lowest), tiles.to_vec(), None)
+                            let consume = vec![lowest, lowest + 1, lowest + 2, lowest + 3];
+                            EnvAction::new(atype, Some(lowest), consume, None)
                         }
                         crate::action::ActionType::Kakan => {
                             let t34 = tiles[0] / 4;
@@ -900,7 +901,8 @@ impl KyokuStepIterator3P {
                         crate::action::ActionType::Ankan => {
                             let t34 = tiles[0] / 4;
                             let lowest = t34 * 4;
-                            EnvAction::new(atype, Some(lowest), tiles.to_vec(), None)
+                            let consume = vec![lowest, lowest + 1, lowest + 2, lowest + 3];
+                            EnvAction::new(atype, Some(lowest), consume, None)
                         }
                         crate::action::ActionType::Kakan => {
                             let t34 = tiles[0] / 4;
