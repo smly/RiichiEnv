@@ -271,9 +271,17 @@ pub fn calculate_effective_tiles(hand_tiles: &[u32]) -> u32 {
     let current_shanten = calculate_shanten(hand_tiles);
     let mut effective_count = 0;
 
-    for tile_type in 0..34 {
-        let count_in_hand = hand_tiles.iter().filter(|&&t| (t / 4) == tile_type).count();
-        if count_in_hand >= 4 {
+    let mut hand_counts = [0u8; TILE_MAX];
+    for &tile in hand_tiles {
+        let tile_type = (tile / 4) as usize;
+        if tile_type < TILE_MAX {
+            hand_counts[tile_type] += 1;
+        }
+    }
+
+    for tile_type in 0..34u32 {
+        // skip: already holding all 4 copies
+        if hand_counts[tile_type as usize] >= 4 {
             continue;
         }
 
@@ -328,6 +336,14 @@ pub fn calculate_best_ukeire(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
 
     let current_shanten = calculate_shanten(hand_tiles);
 
+    let mut base_counts = [0u8; TILE_MAX];
+    for &tile in hand_tiles {
+        let tile_type = (tile / 4) as usize;
+        if tile_type < TILE_MAX {
+            base_counts[tile_type] += 1;
+        }
+    }
+
     for (idx, _) in hand_tiles.iter().enumerate() {
         let new_hand: Vec<u32> = hand_tiles
             .iter()
@@ -335,12 +351,10 @@ pub fn calculate_best_ukeire(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
             .filter(|(i, _)| *i != idx)
             .map(|(_, &t)| t)
             .collect();
-        let mut new_hand_counts = [0u8; TILE_MAX];
-        for &tile in &new_hand {
-            let tile_type = (tile / 4) as usize;
-            if tile_type < TILE_MAX {
-                new_hand_counts[tile_type] += 1;
-            }
+        let removed_type = (hand_tiles[idx] / 4) as usize;
+        let mut new_hand_counts = base_counts;
+        if removed_type < TILE_MAX {
+            new_hand_counts[removed_type] -= 1;
         }
 
         let new_shanten = calculate_shanten(&new_hand);
@@ -349,7 +363,8 @@ pub fn calculate_best_ukeire(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
         }
 
         let mut ukeire = 0;
-        for tile_type in 0..34 {
+        for tile_type in 0..34u32 {
+            // skip: already holding all 4 copies
             if new_hand_counts[tile_type as usize] >= 4 {
                 continue;
             }
@@ -359,7 +374,9 @@ pub fn calculate_best_ukeire(hand_tiles: &[u32], visible_tiles: &[u32]) -> u32 {
             let test_shanten = calculate_shanten(&test_hand);
 
             if test_shanten < new_shanten {
-                ukeire += 4 - visible_counts[tile_type as usize];
+                ukeire += 4
+                    - visible_counts[tile_type as usize]
+                    - new_hand_counts[tile_type as usize] as u32;
             }
         }
 
@@ -471,9 +488,17 @@ pub fn calculate_effective_tiles_3p(hand_tiles: &[u32]) -> u32 {
     let current_shanten = calculate_shanten_3p(hand_tiles);
     let mut effective_count = 0;
 
+    let mut hand_counts = [0u8; TILE_MAX];
+    for &tile in hand_tiles {
+        let tile_type = (tile / 4) as usize;
+        if tile_type < TILE_MAX {
+            hand_counts[tile_type] += 1;
+        }
+    }
+
     for &tile_type in &SANMA_VALID_TILE_TYPES {
-        let count_in_hand = hand_tiles.iter().filter(|&&t| (t / 4) == tile_type).count();
-        if count_in_hand >= 4 {
+        // skip: already holding all 4 copies
+        if hand_counts[tile_type as usize] >= 4 {
             continue;
         }
 
@@ -526,6 +551,14 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
 
     let current_shanten = calculate_shanten_3p(hand_tiles);
 
+    let mut base_counts = [0u8; TILE_MAX];
+    for &tile in hand_tiles {
+        let tile_type = (tile / 4) as usize;
+        if tile_type < TILE_MAX {
+            base_counts[tile_type] += 1;
+        }
+    }
+
     for (idx, _) in hand_tiles.iter().enumerate() {
         let new_hand: Vec<u32> = hand_tiles
             .iter()
@@ -533,12 +566,10 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
             .filter(|(i, _)| *i != idx)
             .map(|(_, &t)| t)
             .collect();
-        let mut new_hand_counts = [0u8; TILE_MAX];
-        for &tile in &new_hand {
-            let tile_type = (tile / 4) as usize;
-            if tile_type < TILE_MAX {
-                new_hand_counts[tile_type] += 1;
-            }
+        let removed_type = (hand_tiles[idx] / 4) as usize;
+        let mut new_hand_counts = base_counts;
+        if removed_type < TILE_MAX {
+            new_hand_counts[removed_type] -= 1;
         }
 
         let new_shanten = calculate_shanten_3p(&new_hand);
@@ -548,6 +579,7 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
 
         let mut ukeire = 0;
         for &tile_type in &SANMA_VALID_TILE_TYPES {
+            // skip: already holding all 4 copies
             if new_hand_counts[tile_type as usize] >= 4 {
                 continue;
             }
@@ -557,7 +589,9 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
             let test_shanten = calculate_shanten_3p(&test_hand);
 
             if test_shanten < new_shanten {
-                ukeire += 4 - visible_counts[tile_type as usize];
+                ukeire += 4
+                    - visible_counts[tile_type as usize]
+                    - new_hand_counts[tile_type as usize] as u32;
             }
         }
 
@@ -565,4 +599,91 @@ pub fn calculate_best_ukeire_3p(hand_tiles: &[u32], visible_tiles: &[u32]) -> u3
     }
 
     max_ukeire
+}
+
+#[cfg(all(test, feature = "python"))]
+mod tests {
+    use super::*;
+
+    /// Helper: build tile IDs from tile-type indices (each using instance 0).
+    fn tiles_from_types(types: &[u32]) -> Vec<u32> {
+        types.iter().map(|&t| t * 4).collect()
+    }
+
+    #[test]
+    fn test_best_ukeire_subtracts_hand_counts() {
+        // 123m 456m 789m 12p 112z (14 tiles, shanten=0).
+        // Best discard: 2z → 123m 456m 789m 12p 11z (tenpai, waiting 3p).
+        // Draw 3p: remaining = 4 - 0(visible) - 0(hand) = 4.
+        // Total ukeire = 4.
+        let hand = tiles_from_types(&[
+            0, 1, 2, // 123m
+            3, 4, 5, // 456m
+            6, 7, 8, // 789m
+            9, 10, // 12p
+            27, 27, 28, // 112z
+        ]);
+        let visible: Vec<u32> = vec![];
+
+        let ukeire = calculate_best_ukeire(&hand, &visible);
+        assert_eq!(ukeire, 4, "tenpai waiting on 3p should have ukeire=4");
+    }
+
+    #[test]
+    fn test_best_ukeire_3p_subtracts_hand_counts() {
+        // 123p 456p 789p 12s 112z (14 tiles, shanten=0).
+        // Best discard: 2z → 123p 456p 789p 12s 11z (tenpai, waiting 3s).
+        // Draw 3s: remaining = 4 - 0(visible) - 0(hand) = 4.
+        let hand = tiles_from_types(&[
+            9, 10, 11, // 123p
+            12, 13, 14, // 456p
+            15, 16, 17, // 789p
+            18, 19, // 12s
+            27, 27, 28, // 112z
+        ]);
+        let visible: Vec<u32> = vec![];
+
+        let ukeire = calculate_best_ukeire_3p(&hand, &visible);
+        assert_eq!(ukeire, 4, "tenpai waiting on 3s should have ukeire=4");
+    }
+
+    #[test]
+    fn test_best_ukeire_hand_copies_reduce_remaining() {
+        // 123m 456m 789m 33p 332z (14 tiles).
+        // Discard 2z → 123m 456m 789m 33p 33z (13 tiles, tenpai).
+        // Winning draw: 3p → 333p as koutsu, or 3z → 333z as koutsu.
+        //   3p in hand: 2 copies → remaining = 4 - 0 - 2 = 2
+        //   3z in hand: 2 copies → remaining = 4 - 0 - 2 = 2
+        // Total ukeire = 4 (not 8 as old code would compute).
+        let hand = tiles_from_types(&[
+            0, 1, 2, // 123m
+            3, 4, 5, // 456m
+            6, 7, 8, // 789m
+            11, 11, // 33p
+            29, 29, 28, // 332z
+        ]);
+        let visible: Vec<u32> = vec![];
+
+        let ukeire = calculate_best_ukeire(&hand, &visible);
+        assert_eq!(ukeire, 4, "hand copies should reduce remaining count");
+    }
+
+    #[test]
+    fn test_best_ukeire_visible_and_hand_both_subtracted() {
+        // 123m 456m 789m 33p 332z (14 tiles).
+        // 1 copy of 3p visible → 3p remaining = 4 - 1 - 2 = 1
+        // 3z remaining = 4 - 0 - 2 = 2
+        // Total ukeire = 3.
+        let hand = tiles_from_types(&[
+            0, 1, 2, // 123m
+            3, 4, 5, // 456m
+            6, 7, 8, // 789m
+            11, 11, // 33p
+            29, 29, 28, // 332z
+        ]);
+        let visible = vec![11 * 4 + 2]; // 3p instance 2
+
+        let ukeire = calculate_best_ukeire(&hand, &visible);
+        assert_eq!(ukeire, 3, "visible + hand copies should both reduce count");
+    }
 }
