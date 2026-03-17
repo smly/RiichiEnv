@@ -1178,6 +1178,7 @@ impl LogKyoku {
                 // push it back since the log will provide it as a DealTile event.
                 if let Some(dt) = state.drawn_tile {
                     state.wall.tiles.push(dt);
+                    state.wall.drawable_count += 1;
                 }
                 state.drawn_tile = None;
                 state.needs_tsumo = true;
@@ -1256,6 +1257,7 @@ impl LogKyoku {
                 // push it back since the log will provide it as a DealTile event.
                 if let Some(dt) = state.drawn_tile {
                     state.wall.tiles.push(dt);
+                    state.wall.drawable_count += 1;
                 }
                 state.drawn_tile = None;
                 state.needs_tsumo = true;
