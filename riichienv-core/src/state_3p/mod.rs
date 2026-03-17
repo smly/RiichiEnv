@@ -618,8 +618,7 @@ impl GameState3P {
                             riichi: self.players[pid as usize].riichi_declared,
                             double_riichi: self.players[pid as usize].double_riichi_declared,
                             ippatsu: self.players[pid as usize].ippatsu_cycle,
-                            haitei: self.wall.drawable_count == 0
-                                && !self.is_rinshan_flag,
+                            haitei: self.wall.drawable_count == 0 && !self.is_rinshan_flag,
                             rinshan: self.is_rinshan_flag,
                             tsumo_first_turn: self.is_first_turn
                                 && self.players.iter().all(|p| p.melds.is_empty()),
