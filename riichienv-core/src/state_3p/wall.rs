@@ -47,8 +47,6 @@ pub struct WallState3P {
     pub rinshan_draw_count: u8,
     pub pending_kan_dora_count: u8,
     pub drawable_count: u8,
-    /// Number of dedicated rinshan tiles at the front of the wall (8 for 3P).
-    num_rinshan_slots: u8,
     pub wall_digest: String,
     pub salt: String,
     pub seed: Option<u64>,
@@ -65,7 +63,6 @@ impl WallState3P {
             rinshan_draw_count: 0,
             pending_kan_dora_count: 0,
             drawable_count: 0,
-            num_rinshan_slots: 8,
             wall_digest: String::new(),
             salt: String::new(),
             seed,
@@ -114,31 +111,20 @@ impl WallState3P {
         self.rinshan_draw_count = 0;
         self.pending_kan_dora_count = 0;
         self.drawable_count = 0;
-        self.num_rinshan_slots = 8;
     }
 
     /// Draw a tile for rinshan (dead wall draw after kan or kita).
     ///
     /// Takes from the dedicated rinshan area (8 tiles) at the front of the
-    /// wall via `remove(0)`.  If all 8 slots are exhausted, falls back to
-    /// the live wall end (`pop`) so that dora/ura indicator tiles are never
-    /// consumed.
+    /// wall via `remove(0)`.  The maximum number of rinshan draws is 8
+    /// (4 kan + 4 kita), which exactly matches the 8 dedicated slots.
     pub fn draw_rinshan_tile(&mut self) -> Option<u8> {
-        let tile = if (self.rinshan_draw_count as usize) < self.num_rinshan_slots as usize {
-            if !self.tiles.is_empty() {
-                Some(self.tiles.remove(0))
-            } else {
-                None
-            }
-        } else {
-            // All dedicated rinshan slots exhausted (common in 3P due to kita).
-            // Fall back to the live wall end so dora/ura indicators stay intact.
-            self.tiles.pop()
-        };
-        if tile.is_some() {
-            self.drawable_count = self.drawable_count.saturating_sub(1);
+        if self.tiles.is_empty() {
+            return None;
         }
-        tile
+        let tile = self.tiles.remove(0);
+        self.drawable_count = self.drawable_count.saturating_sub(1);
+        Some(tile)
     }
 
     pub fn load_wall(&mut self, tiles: Vec<u8>) {
@@ -166,7 +152,6 @@ impl WallState3P {
         self.rinshan_draw_count = 0;
         self.pending_kan_dora_count = 0;
         self.drawable_count = 0;
-        self.num_rinshan_slots = 8;
     }
 }
 
