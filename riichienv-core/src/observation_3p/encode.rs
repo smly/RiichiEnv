@@ -650,6 +650,7 @@ mod tests {
             [None; 3],  // riichi_sutehais
             [None; 3],  // last_tedashis
             None,       // last_discard
+            None,       // drawn_tile
         )
     }
 

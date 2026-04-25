@@ -17,7 +17,7 @@ const TOTAL_TILES: u32 = 108;
 impl Observation3P {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (player_id, hands, melds, discards, dora_indicators, scores, riichi_declared, legal_actions, events, honba, riichi_sticks, round_wind, oya, kyoku_index, waits, is_tenpai, riichi_sutehais, last_tedashis, last_discard))]
+    #[pyo3(signature = (player_id, hands, melds, discards, dora_indicators, scores, riichi_declared, legal_actions, events, honba, riichi_sticks, round_wind, oya, kyoku_index, waits, is_tenpai, riichi_sutehais, last_tedashis, last_discard, drawn_tile=None))]
     pub fn py_new(
         player_id: u8,
         hands: Vec<Vec<u8>>,
@@ -38,6 +38,7 @@ impl Observation3P {
         riichi_sutehais: Vec<Option<u8>>,
         last_tedashis: Vec<Option<u8>>,
         last_discard: Option<u32>,
+        drawn_tile: Option<u8>,
     ) -> Self {
         let hands: [Vec<u8>; 3] = hands.try_into().expect("expected 3 hands");
         let melds: [Vec<Meld>; 3] = melds.try_into().expect("expected 3 melds");
@@ -71,6 +72,7 @@ impl Observation3P {
             riichi_sutehais,
             last_tedashis,
             last_discard,
+            drawn_tile,
         )
     }
 
@@ -122,101 +124,20 @@ impl Observation3P {
 
     #[pyo3(signature = (mjai_data))]
     pub fn select_action_from_mjai(&self, mjai_data: &Bound<'_, PyAny>) -> Option<Action3P> {
-        let (atype, tile_str) = if let Ok(s) = mjai_data.extract::<String>() {
-            let v: serde_json::Value = serde_json::from_str(&s).ok()?;
-            (
-                v["type"].as_str()?.to_string(),
-                v["pai"].as_str().unwrap_or("").to_string(),
-            )
-        } else if let Ok(dict) = mjai_data.cast::<PyDict>() {
-            let type_str: String = dict
-                .get_item("type")
-                .ok()
-                .flatten()
-                .and_then(|x| x.extract::<String>().ok())
-                .unwrap_or_default();
-            let _args_list: Vec<String> = dict
-                .get_item("args")
-                .ok()
-                .flatten()
-                .and_then(|x| x.extract::<Vec<String>>().ok())
-                .unwrap_or_default();
-            let _who: i8 = dict
-                .get_item("who")
-                .ok()
-                .flatten()
-                .and_then(|x| x.extract::<i8>().ok())
-                .unwrap_or(-1);
-            let tile_str: String = dict
-                .get_item("pai")
-                .ok()
-                .flatten()
-                .or_else(|| dict.get_item("tile").ok().flatten())
-                .and_then(|x| x.extract::<String>().ok())
-                .unwrap_or_default();
-            (type_str, tile_str)
-        } else {
-            return None;
-        };
-
-        let target_type = match atype.as_str() {
-            "dahai" => Some(crate::action::ActionType::Discard),
-            "chi" => Some(crate::action::ActionType::Chi),
-            "pon" => Some(crate::action::ActionType::Pon),
-            "kakan" => Some(crate::action::ActionType::Kakan),
-            "daiminkan" => Some(crate::action::ActionType::Daiminkan),
-            "ankan" => Some(crate::action::ActionType::Ankan),
-            "kita" => Some(crate::action::ActionType::Kita),
-            "reach" => Some(crate::action::ActionType::Riichi),
-            "hora" => None,
-            "ryukyoku" => Some(crate::action::ActionType::KyushuKyuhai),
-            _ => None,
-        };
-
-        if atype == "hora" {
-            return self
-                ._legal_actions
-                .iter()
-                .find(|a| {
-                    a.action_type == crate::action::ActionType::Tsumo
-                        || a.action_type == crate::action::ActionType::Ron
-                })
-                .cloned();
-        }
-
-        if let Some(tt) = target_type {
-            return self
-                ._legal_actions
-                .iter()
-                .find(|a| {
-                    if a.action_type != tt {
-                        return false;
-                    }
-                    if !tile_str.is_empty() {
-                        if let Some(t) = a.tile {
-                            let t_str = crate::parser::tid_to_mjai(t);
-                            if t_str == tile_str {
-                                return true;
-                            }
-                            return false;
-                        } else {
-                            return false;
-                        }
-                    }
-                    true
-                })
-                .cloned();
-        }
-
-        if atype == "none" {
-            return self
-                ._legal_actions
-                .iter()
-                .find(|a| a.action_type == crate::action::ActionType::Pass)
-                .cloned();
-        }
-
-        None
+        use crate::observation::mjai_select::{parse_mjai_message, select_action};
+        let parsed = parse_mjai_message(mjai_data)?;
+        let inner_actions: Vec<Action> =
+            self._legal_actions.iter().map(|a| (**a).clone()).collect();
+        let selected = select_action(&inner_actions, &parsed, self.drawn_tile, true)?;
+        // Re-find the corresponding Action3P instance to return.
+        self._legal_actions
+            .iter()
+            .find(|a| {
+                a.action_type == selected.action_type
+                    && a.tile == selected.tile
+                    && a.consume_tiles == selected.consume_tiles
+            })
+            .cloned()
     }
 
     #[pyo3(name = "new_events")]
