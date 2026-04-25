@@ -148,6 +148,56 @@ class TestMjaiProtocol:
         assert sel_plain.action_type == ActionType.PON
         assert 16 not in sel_plain.consume_tiles  # no red 5m
 
+    def test_select_action_from_mjai_chi_consumed(self):
+        # When a 5m is discarded, the shimocha may be able to chi with three
+        # distinct shapes: (3m,4m), (4m,6m), or (6m,7m). The `consumed`
+        # field is the only way to disambiguate among them since they all
+        # share the same called tile (`pai="5m"`).
+        env = helper_setup_env(
+            seed=42,
+            hands=[
+                # P0: discards 5m (tid 17). 13 tiles + drawn=108 → 14.
+                [0, 4, 28, 32, 52, 56, 60, 64, 68, 92, 96, 100, 17],
+                # P1: shimocha, has 3m, 4m, 6m, 7m to enable all 3 chi shapes.
+                [8, 12, 20, 24, 36, 40, 44, 48, 72, 76, 80, 84, 109],
+                [],
+                [],
+            ],
+            current_player=0,
+            active_players=[0],
+            drawn_tile=108,
+            wall=list(range(136)),
+        )
+
+        # P0 discards 5m → P1 sees three chi options.
+        obs_dict = env.step({0: Action(ActionType.DISCARD, tile=17)})
+        obs1 = obs_dict[1]
+
+        chi_acts = [a for a in obs1.legal_actions() if a.action_type == ActionType.CHI]
+        assert len(chi_acts) == 3, [a.consume_tiles for a in chi_acts]
+
+        cases = [
+            (["3m", "4m"], {8, 12}),  # 3-4-5 (low)
+            (["4m", "6m"], {12, 20}),  # 4-5-6 (mid)
+            (["6m", "7m"], {20, 24}),  # 5-6-7 (high)
+        ]
+        for consumed_strs, expected_tiles in cases:
+            selected = obs1.select_action_from_mjai(
+                {
+                    "type": "chi",
+                    "actor": 1,
+                    "target": 0,
+                    "pai": "5m",
+                    "consumed": consumed_strs,
+                }
+            )
+            assert selected is not None, consumed_strs
+            assert selected.action_type == ActionType.CHI
+            assert set(selected.consume_tiles) == expected_tiles, (
+                consumed_strs,
+                set(selected.consume_tiles),
+            )
+
     def test_select_action_from_mjai_none(self):
         env = helper_setup_env(
             seed=42,
