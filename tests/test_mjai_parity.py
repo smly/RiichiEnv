@@ -85,17 +85,13 @@ class TestMjaiProtocol:
         obs = env.get_observation(0)
 
         # Tsumogiri=True must select the action whose tile is the drawn tile (19).
-        selected_t = obs.select_action_from_mjai(
-            {"type": "dahai", "actor": 0, "pai": "5m", "tsumogiri": True}
-        )
+        selected_t = obs.select_action_from_mjai({"type": "dahai", "actor": 0, "pai": "5m", "tsumogiri": True})
         assert selected_t is not None
         assert selected_t.action_type == ActionType.DISCARD
         assert selected_t.tile == 19
 
         # Tsumogiri=False must select an action whose tile is NOT the drawn tile.
-        selected_f = obs.select_action_from_mjai(
-            {"type": "dahai", "actor": 0, "pai": "5m", "tsumogiri": False}
-        )
+        selected_f = obs.select_action_from_mjai({"type": "dahai", "actor": 0, "pai": "5m", "tsumogiri": False})
         assert selected_f is not None
         assert selected_f.action_type == ActionType.DISCARD
         assert selected_f.tile != 19
@@ -121,9 +117,7 @@ class TestMjaiProtocol:
         env.step({1: Action(ActionType.DISCARD, tile=19)})
         obs0 = env.get_observation(0)
 
-        pon_acts = [
-            a for a in obs0.legal_actions() if a.action_type == ActionType.PON
-        ]
+        pon_acts = [a for a in obs0.legal_actions() if a.action_type == ActionType.PON]
         assert len(pon_acts) >= 2  # both with and without aka
 
         # With red 5m in consumed
