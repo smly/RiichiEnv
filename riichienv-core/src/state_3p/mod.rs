@@ -218,6 +218,7 @@ impl GameState3P {
             self.riichi_sutehais,
             self.last_tedashis,
             self.last_discard.map(|(tile, _pid)| tile as u32),
+            self.drawn_tile,
         )
     }
 

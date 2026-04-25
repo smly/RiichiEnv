@@ -41,6 +41,8 @@ pub struct Observation3P {
     pub riichi_sutehais: [Option<u8>; 3],
     pub last_tedashis: [Option<u8>; 3],
     pub last_discard: Option<u32>,
+    #[serde(default)]
+    pub drawn_tile: Option<u8>,
 }
 
 /// Pure Rust methods (no PyO3 dependency).
@@ -66,6 +68,7 @@ impl Observation3P {
         riichi_sutehais: [Option<u8>; 3],
         last_tedashis: [Option<u8>; 3],
         last_discard: Option<u32>,
+        drawn_tile: Option<u8>,
     ) -> Self {
         let hands_u32 = hands.map(|h| h.into_iter().map(|x| x as u32).collect());
         let discards_u32 = discards.map(|d| d.into_iter().map(|x| x as u32).collect());
@@ -95,6 +98,7 @@ impl Observation3P {
             riichi_sutehais,
             last_tedashis,
             last_discard,
+            drawn_tile,
         }
     }
 
