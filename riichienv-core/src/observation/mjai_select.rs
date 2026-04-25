@@ -119,13 +119,21 @@ pub(crate) fn select_action<'a>(
 
     let tt = target_type?;
 
-    // Special-case Discard: filter by mjai pai then disambiguate via tsumogiri.
+    // Special-case Discard: filter by mjai pai (or any Discard if pai is
+    // omitted) then disambiguate via tsumogiri.
+    //
+    // NOTE: An mjai `dahai` message without a `pai` field is malformed per
+    // the protocol, but we still return a non-empty Action (the first
+    // legal Discard) instead of `None` to preserve backward compatibility
+    // with the previous implementation; bailing out here would silently
+    // break callers that rely on the old lenient behavior.
     if tt == ActionType::Discard {
         let candidates: Vec<&Action> = legal_actions
             .iter()
             .filter(|a| {
                 a.action_type == ActionType::Discard
-                    && a.tile.is_some_and(|t| tid_to_mjai(t) == parsed.tile_str)
+                    && (parsed.tile_str.is_empty()
+                        || a.tile.is_some_and(|t| tid_to_mjai(t) == parsed.tile_str))
             })
             .collect();
 
