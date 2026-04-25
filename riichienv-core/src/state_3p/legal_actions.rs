@@ -67,17 +67,41 @@ impl GameState3PLegalActions for GameState3P {
             }
 
             // 2. Discard / Riichi
-            let declaration_turn = if self.players[pid_us].riichi_declared {
-                if let Some(idx) = self.players[pid_us].riichi_declaration_index {
-                    self.players[pid_us].discards.len() <= idx
-                } else {
-                    false
+            if self.players[pid_us].riichi_declared {
+                // Post-riichi: only tsumogiri is allowed.
+                if let Some(dt) = self.drawn_tile {
+                    legals.push(Action::new(
+                        ActionType::Discard,
+                        Some(dt),
+                        vec![],
+                        Some(pid),
+                    ));
+                }
+            } else if self.players[pid_us].riichi_stage {
+                // Riichi declared this turn but not yet committed (the Riichi
+                // action came in without a tile, e.g. from an mjai `reach`
+                // event). The follow-up discard must keep the hand tenpai.
+                for &t in self.players[pid_us].hand.iter() {
+                    let is_forbidden = self.players[pid_us]
+                        .forbidden_discards
+                        .iter()
+                        .any(|&f| f / 4 == t / 4);
+                    if is_forbidden {
+                        continue;
+                    }
+                    let mut temp_hand = self.players[pid_us].hand.clone();
+                    if let Some(idx) = temp_hand.iter().position(|&x| x == t) {
+                        temp_hand.remove(idx);
+                    }
+                    let calc = crate::hand_evaluator_3p::HandEvaluator3P::new(
+                        temp_hand,
+                        self.players[pid_us].melds.clone(),
+                    );
+                    if calc.is_tenpai() {
+                        legals.push(Action::new(ActionType::Discard, Some(t), vec![], Some(pid)));
+                    }
                 }
             } else {
-                false
-            };
-
-            if !self.players[pid_us].riichi_declared || declaration_turn {
                 for &t in self.players[pid_us].hand.iter() {
                     let is_forbidden = self.players[pid_us]
                         .forbidden_discards
@@ -88,17 +112,12 @@ impl GameState3PLegalActions for GameState3P {
                     }
                 }
 
-                // Riichi check
-                if !self.players[pid_us].riichi_declared
-                    && self.players[pid_us].score >= 1000
+                if self.players[pid_us].score >= 1000
                     && self.wall.drawable_count > 0
                     && self.players[pid_us].melds.iter().all(|m| !m.opened)
-                    && !self.players[pid_us].riichi_stage
                 {
-                    let indices: Vec<usize> = (0..self.players[pid_us].hand.len()).collect();
                     let mut can_riichi = false;
-
-                    for &skip_idx in &indices {
+                    for skip_idx in 0..self.players[pid_us].hand.len() {
                         let mut temp_hand = self.players[pid_us].hand.clone();
                         temp_hand.remove(skip_idx);
                         let calc = crate::hand_evaluator_3p::HandEvaluator3P::new(
@@ -114,13 +133,6 @@ impl GameState3PLegalActions for GameState3P {
                         legals.push(Action::new(ActionType::Riichi, None, vec![], Some(pid)));
                     }
                 }
-            } else if let Some(dt) = self.drawn_tile {
-                legals.push(Action::new(
-                    ActionType::Discard,
-                    Some(dt),
-                    vec![],
-                    Some(pid),
-                ));
             }
 
             // 3. Kan (Ankan / Kakan)
