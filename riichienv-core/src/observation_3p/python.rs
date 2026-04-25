@@ -126,11 +126,8 @@ impl Observation3P {
     pub fn select_action_from_mjai(&self, mjai_data: &Bound<'_, PyAny>) -> Option<Action3P> {
         use crate::observation::mjai_select::{parse_mjai_message, select_action};
         let parsed = parse_mjai_message(mjai_data)?;
-        let inner_actions: Vec<Action> = self
-            ._legal_actions
-            .iter()
-            .map(|a| (**a).clone())
-            .collect();
+        let inner_actions: Vec<Action> =
+            self._legal_actions.iter().map(|a| (**a).clone()).collect();
         let selected = select_action(&inner_actions, &parsed, self.drawn_tile, true)?;
         // Re-find the corresponding Action3P instance to return.
         self._legal_actions

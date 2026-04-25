@@ -160,10 +160,7 @@ pub(crate) fn select_action<'a>(
             if !parsed.tile_str.is_empty()
                 && matches!(
                     tt,
-                    ActionType::Chi
-                        | ActionType::Pon
-                        | ActionType::Daiminkan
-                        | ActionType::Kakan
+                    ActionType::Chi | ActionType::Pon | ActionType::Daiminkan | ActionType::Kakan
                 )
             {
                 if let Some(t) = a.tile {
