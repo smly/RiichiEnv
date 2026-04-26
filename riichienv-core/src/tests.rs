@@ -606,6 +606,10 @@ mod unit_tests {
             84,
             "start_kyoku should rewind to pre-tsumo"
         );
+        assert_eq!(
+            state.wall.drawable_count, 70,
+            "start_kyoku should reset drawable_count to wall.tiles.len() - 14",
+        );
         assert!(state.needs_tsumo, "dealer draw should still be pending");
         assert!(state.drawn_tile.is_none(), "no tile should be drawn yet");
 
@@ -618,6 +622,84 @@ mod unit_tests {
             state.wall.tiles.len(),
             83,
             "first tsumo should consume exactly one tile"
+        );
+        assert_eq!(
+            state.wall.drawable_count, 69,
+            "first tsumo should decrement drawable_count by one",
+        );
+    }
+
+    #[test]
+    fn test_apply_mjai_event_start_kyoku_drawable_count_reinit_across_rounds_4p() {
+        use crate::replay::MjaiEvent;
+
+        let mut state =
+            crate::state::GameState::new(2, true, None, 0, crate::rule::GameRule::default());
+
+        // Drive drawable_count well below the riichi threshold to simulate
+        // a long round of replay before the next StartKyoku.
+        state.wall.drawable_count = 1;
+
+        state.apply_mjai_event(MjaiEvent::StartKyoku {
+            bakaze: "E".to_string(),
+            kyoku: 2,
+            honba: 0,
+            kyoutaku: 0,
+            oya: 1,
+            scores: vec![25000, 25000, 25000, 25000],
+            dora_marker: "1m".to_string(),
+            tehais: vec![
+                vec!["1m".to_string(); 13],
+                vec!["2m".to_string(); 13],
+                vec!["3m".to_string(); 13],
+                vec!["4m".to_string(); 13],
+            ],
+        });
+
+        assert_eq!(
+            state.wall.drawable_count, 70,
+            "subsequent start_kyoku must reinitialize drawable_count, not inherit prior value",
+        );
+    }
+
+    /// Surface-level regression for issue #198: with the wall rewound by
+    /// StartKyoku but `drawable_count` left at a stale low value, a
+    /// reach-eligible tenpai must still expose Riichi in legal_actions.
+    #[test]
+    fn test_replay_start_kyoku_offers_reach_in_legal_actions_4p() {
+        use crate::action::ActionType;
+        use crate::replay::MjaiEvent;
+        use crate::state::legal_actions::GameStateLegalActions;
+
+        let mut state =
+            crate::state::GameState::new(2, true, None, 0, crate::rule::GameRule::default());
+        state.wall.drawable_count = 1; // simulate depleted prior round
+
+        // 123m 456m 789m 123p 1s — discarding the tsumo'd East keeps tenpai.
+        let tehai = [
+            "1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "1p", "2p", "3p", "1s",
+        ]
+        .map(String::from)
+        .to_vec();
+        state.apply_mjai_event(MjaiEvent::StartKyoku {
+            bakaze: "E".to_string(),
+            kyoku: 2,
+            honba: 0,
+            kyoutaku: 0,
+            oya: 0,
+            scores: vec![25000, 25000, 25000, 25000],
+            dora_marker: "9m".to_string(),
+            tehais: vec![tehai, vec![], vec![], vec![]],
+        });
+        state.apply_mjai_event(MjaiEvent::Tsumo {
+            actor: 0,
+            pai: "E".to_string(),
+        });
+
+        let legal = state._get_legal_actions_internal(0);
+        assert!(
+            legal.iter().any(|a| a.action_type == ActionType::Riichi),
+            "Riichi missing for reach-eligible tenpai after StartKyoku replay",
         );
     }
 
@@ -654,6 +736,10 @@ mod unit_tests {
             69,
             "sanma start_kyoku should rewind to pre-tsumo"
         );
+        assert_eq!(
+            state.wall.drawable_count, 55,
+            "sanma start_kyoku should reset drawable_count to wall.tiles.len() - 14",
+        );
         assert!(state.needs_tsumo, "dealer draw should still be pending");
         assert!(state.drawn_tile.is_none(), "no tile should be drawn yet");
 
@@ -666,6 +752,82 @@ mod unit_tests {
             state.wall.tiles.len(),
             68,
             "first tsumo should consume exactly one tile"
+        );
+        assert_eq!(
+            state.wall.drawable_count, 54,
+            "first tsumo should decrement drawable_count by one",
+        );
+    }
+
+    #[test]
+    fn test_apply_mjai_event_start_kyoku_drawable_count_reinit_across_rounds_3p() {
+        use crate::replay::MjaiEvent;
+
+        let mut state =
+            crate::state_3p::GameState3P::new(5, true, None, 0, crate::rule::GameRule::default());
+
+        state.wall.drawable_count = 1;
+
+        state.apply_mjai_event(MjaiEvent::StartKyoku {
+            bakaze: "E".to_string(),
+            kyoku: 2,
+            honba: 0,
+            kyoutaku: 0,
+            oya: 1,
+            scores: vec![35000, 35000, 35000],
+            dora_marker: "1p".to_string(),
+            tehais: vec![
+                vec!["1p".to_string(); 13],
+                vec!["2p".to_string(); 13],
+                vec!["3p".to_string(); 13],
+            ],
+        });
+
+        assert_eq!(
+            state.wall.drawable_count, 55,
+            "sanma subsequent start_kyoku must reinitialize drawable_count",
+        );
+    }
+
+    /// Sanma counterpart of #198 surface regression. Sanma's Riichi gate is
+    /// `drawable_count > 0`, so a fully exhausted prior round would suppress
+    /// reach without the StartKyoku reset.
+    #[test]
+    fn test_replay_start_kyoku_offers_reach_in_legal_actions_3p() {
+        use crate::action::ActionType;
+        use crate::replay::MjaiEvent;
+        use crate::state_3p::legal_actions::GameState3PLegalActions;
+
+        let mut state =
+            crate::state_3p::GameState3P::new(5, true, None, 0, crate::rule::GameRule::default());
+        state.wall.drawable_count = 0; // simulate exhausted prior round
+
+        // 123p 456p 789p 123s E — discarding the tsumo'd South keeps tenpai
+        // (sanma uses only 1m/9m, so all manzu are excluded).
+        let tehai = [
+            "1p", "2p", "3p", "4p", "5p", "6p", "7p", "8p", "9p", "1s", "2s", "3s", "E",
+        ]
+        .map(String::from)
+        .to_vec();
+        state.apply_mjai_event(MjaiEvent::StartKyoku {
+            bakaze: "E".to_string(),
+            kyoku: 2,
+            honba: 0,
+            kyoutaku: 0,
+            oya: 0,
+            scores: vec![35000, 35000, 35000],
+            dora_marker: "9p".to_string(),
+            tehais: vec![tehai, vec![], vec![]],
+        });
+        state.apply_mjai_event(MjaiEvent::Tsumo {
+            actor: 0,
+            pai: "S".to_string(),
+        });
+
+        let legal = state._get_legal_actions_internal(0);
+        assert!(
+            legal.iter().any(|a| a.action_type == ActionType::Riichi),
+            "Riichi missing for reach-eligible tenpai after sanma StartKyoku replay",
         );
     }
 
