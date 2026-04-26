@@ -606,6 +606,10 @@ mod unit_tests {
             84,
             "start_kyoku should rewind to pre-tsumo"
         );
+        assert_eq!(
+            state.wall.drawable_count, 70,
+            "start_kyoku should reset drawable_count to wall.tiles.len() - 14",
+        );
         assert!(state.needs_tsumo, "dealer draw should still be pending");
         assert!(state.drawn_tile.is_none(), "no tile should be drawn yet");
 
@@ -618,6 +622,47 @@ mod unit_tests {
             state.wall.tiles.len(),
             83,
             "first tsumo should consume exactly one tile"
+        );
+        assert_eq!(
+            state.wall.drawable_count, 69,
+            "first tsumo should decrement drawable_count by one",
+        );
+    }
+
+    #[test]
+    fn test_apply_mjai_event_start_kyoku_drawable_count_reinit_across_rounds_4p() {
+        // Regression for issue #198: when replaying multi-round logs,
+        // drawable_count must be re-initialized at every StartKyoku, otherwise
+        // it carries over from the prior round and can fall below the riichi
+        // threshold (>= 4), suppressing valid reach actions.
+        use crate::replay::MjaiEvent;
+
+        let mut state =
+            crate::state::GameState::new(2, true, None, 0, crate::rule::GameRule::default());
+
+        // Drive drawable_count well below the riichi threshold to simulate
+        // a long round of replay before the next StartKyoku.
+        state.wall.drawable_count = 1;
+
+        state.apply_mjai_event(MjaiEvent::StartKyoku {
+            bakaze: "E".to_string(),
+            kyoku: 2,
+            honba: 0,
+            kyoutaku: 0,
+            oya: 1,
+            scores: vec![25000, 25000, 25000, 25000],
+            dora_marker: "1m".to_string(),
+            tehais: vec![
+                vec!["1m".to_string(); 13],
+                vec!["2m".to_string(); 13],
+                vec!["3m".to_string(); 13],
+                vec!["4m".to_string(); 13],
+            ],
+        });
+
+        assert_eq!(
+            state.wall.drawable_count, 70,
+            "subsequent start_kyoku must reinitialize drawable_count, not inherit prior value",
         );
     }
 
@@ -654,6 +699,10 @@ mod unit_tests {
             69,
             "sanma start_kyoku should rewind to pre-tsumo"
         );
+        assert_eq!(
+            state.wall.drawable_count, 55,
+            "sanma start_kyoku should reset drawable_count to wall.tiles.len() - 14",
+        );
         assert!(state.needs_tsumo, "dealer draw should still be pending");
         assert!(state.drawn_tile.is_none(), "no tile should be drawn yet");
 
@@ -666,6 +715,41 @@ mod unit_tests {
             state.wall.tiles.len(),
             68,
             "first tsumo should consume exactly one tile"
+        );
+        assert_eq!(
+            state.wall.drawable_count, 54,
+            "first tsumo should decrement drawable_count by one",
+        );
+    }
+
+    #[test]
+    fn test_apply_mjai_event_start_kyoku_drawable_count_reinit_across_rounds_3p() {
+        // Regression for issue #198 (sanma path).
+        use crate::replay::MjaiEvent;
+
+        let mut state =
+            crate::state_3p::GameState3P::new(5, true, None, 0, crate::rule::GameRule::default());
+
+        state.wall.drawable_count = 1;
+
+        state.apply_mjai_event(MjaiEvent::StartKyoku {
+            bakaze: "E".to_string(),
+            kyoku: 2,
+            honba: 0,
+            kyoutaku: 0,
+            oya: 1,
+            scores: vec![35000, 35000, 35000],
+            dora_marker: "1p".to_string(),
+            tehais: vec![
+                vec!["1p".to_string(); 13],
+                vec!["2p".to_string(); 13],
+                vec!["3p".to_string(); 13],
+            ],
+        });
+
+        assert_eq!(
+            state.wall.drawable_count, 55,
+            "sanma subsequent start_kyoku must reinitialize drawable_count",
         );
     }
 

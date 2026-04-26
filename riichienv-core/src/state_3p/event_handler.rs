@@ -75,6 +75,10 @@ impl GameState3PEventHandler for GameState3P {
                 self.wall.dora_indicators = vec![parse_mjai_tile(&dora_marker)];
                 self.wall.rinshan_draw_count = 0;
                 self.wall.pending_kan_dora_count = 0;
+                // Match _initialize_round: 14 = dead wall (rinshan + dora stacks).
+                // Without this reset, drawable_count carries over from prior rounds
+                // and can fall below riichi/kan thresholds (e.g. >= 4) on replay.
+                self.wall.drawable_count = (self.wall.tiles.len() as u8) - 14;
                 self.wall.wall_digest.clear();
                 self.wall.salt.clear();
 
