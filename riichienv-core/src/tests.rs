@@ -766,6 +766,81 @@ mod unit_tests {
         assert!(state.riichi_pending_acceptance.is_none());
     }
 
+    /// Regression test for #196: when a Riichi action arrives with `tile = None`
+    /// (e.g. converted from an mjai `reach` event), `riichi_stage = true` but
+    /// `riichi_declared = false`. The follow-up discard must be restricted to
+    /// tiles that keep the hand tenpai.
+    #[test]
+    fn test_riichi_stage_only_tenpai_maintaining_discards() {
+        use crate::action::{Action, ActionType};
+        use crate::state::legal_actions::GameStateLegalActions;
+
+        let mut state = create_test_state(2);
+        let pid: u8 = state.current_player;
+        let pid_us = pid as usize;
+
+        // 14-tile tenpai fixture: 123m 456m 789m 12p 11s + drawn 5sr (88).
+        // For this hand, discarding 5sr (88) is the intended tenpai-maintaining
+        // discard. Other candidate discards are verified below and must not be
+        // offered unless they also keep the hand in tenpai.
+        state.players[pid_us].hand = vec![0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 72, 73, 88];
+        state.players[pid_us].hand.sort();
+        state.players[pid_us].melds.clear();
+        state.players[pid_us].score = 25000;
+        state.players[pid_us].riichi_declared = false;
+        state.players[pid_us].riichi_stage = false;
+        state.players[pid_us].forbidden_discards.clear();
+        state.drawn_tile = Some(88);
+        state.phase = Phase::WaitAct;
+        state.active_players = vec![pid];
+
+        // Step 1: declare Riichi with tile = None (mjai-style).
+        let mut actions = std::collections::HashMap::new();
+        actions.insert(pid, Action::new(ActionType::Riichi, None, vec![], None));
+        state.step(&actions);
+
+        // After step 1: riichi_stage = true, riichi_declared = false.
+        assert!(state.players[pid_us].riichi_stage);
+        assert!(!state.players[pid_us].riichi_declared);
+
+        // Legal actions must only contain discards that keep the hand tenpai.
+        let legal = state._get_legal_actions_internal(pid);
+        let discard_tiles: Vec<u8> = legal
+            .iter()
+            .filter(|a| a.action_type == ActionType::Discard)
+            .filter_map(|a| a.tile)
+            .collect();
+
+        assert!(
+            !discard_tiles.is_empty(),
+            "At least one tenpai-maintaining discard must be offered"
+        );
+        for &t in &discard_tiles {
+            let mut temp = state.players[pid_us].hand.clone();
+            if let Some(idx) = temp.iter().position(|&x| x == t) {
+                temp.remove(idx);
+            }
+            let calc = crate::hand_evaluator::HandEvaluator::new(
+                temp,
+                state.players[pid_us].melds.clone(),
+            );
+            assert!(
+                calc.is_tenpai(),
+                "Discarding tile {} during riichi_stage must keep the hand tenpai. \
+                 Offered discards: {:?}",
+                t,
+                discard_tiles
+            );
+        }
+
+        // No new Riichi action should be offered while riichi_stage is on.
+        let has_reach = legal.iter().any(|a| a.action_type == ActionType::Riichi);
+        assert!(
+            !has_reach,
+            "Riichi must not be offered again while riichi_stage is true"
+        );
+    }
+
     #[test]
     fn test_no_tobi_with_positive_scores() {
         let mut state = create_test_state(2);

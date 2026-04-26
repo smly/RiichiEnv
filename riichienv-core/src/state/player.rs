@@ -12,8 +12,21 @@ pub struct PlayerState {
     pub riichi_declaration_index: Option<usize>,
     pub score: i32,
     pub score_delta: i32,
+
+    /// True after the riichi-declaration discard has been committed (i.e. the
+    /// player is in riichi for the rest of the hand). Mutually exclusive with
+    /// [`Self::riichi_stage`].
     pub riichi_declared: bool,
+
+    /// True only between the `Riichi` action arriving with `tile = None`
+    /// (e.g. an mjai `reach` event) and its follow-up `Discard`. While this
+    /// flag is set, legal actions must restrict discards to tenpai-maintaining
+    /// tiles and must not offer Riichi/Tsumo/Kan/KyushuKyuhai again. The flag
+    /// is cleared (and `riichi_declared` set) when the discard that commits
+    /// the riichi declaration is processed, whether via normal discard
+    /// resolution or replay/log ingestion.
     pub riichi_stage: bool,
+
     pub double_riichi_declared: bool,
     pub missed_agari_riichi: bool,
     pub missed_agari_doujun: bool,

@@ -439,10 +439,14 @@ impl GameState {
                         self._trigger_ryukyoku("kyushu_kyuhai");
                     }
                     ActionType::Riichi => {
-                        // Declare Riichi
+                        // Declare Riichi. `!riichi_stage` guards against a
+                        // second Riichi action arriving while the previous
+                        // one is still mid-declaration (between the reach
+                        // event and its committing discard).
                         if self.players[pid as usize].score >= 1000
                             && self.wall.drawable_count >= 4
                             && !self.players[pid as usize].riichi_declared
+                            && !self.players[pid as usize].riichi_stage
                         {
                             self.players[pid as usize].riichi_stage = true;
                             if !self.skip_mjai_logging {
