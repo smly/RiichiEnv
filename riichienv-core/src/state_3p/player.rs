@@ -22,7 +22,9 @@ pub struct PlayerState3P {
     /// (e.g. an mjai `reach` event) and its follow-up `Discard`. While this
     /// flag is set, legal actions must restrict discards to tenpai-maintaining
     /// tiles and must not offer Riichi/Tsumo/Kan/KyushuKyuhai again. The flag
-    /// is cleared (and `riichi_declared` set) inside `_resolve_discard`.
+    /// is cleared (and `riichi_declared` set) when the discard that commits
+    /// the riichi declaration is processed, whether via normal discard
+    /// resolution or replay/log ingestion.
     pub riichi_stage: bool,
 
     pub double_riichi_declared: bool,

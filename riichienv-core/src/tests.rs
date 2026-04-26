@@ -779,12 +779,10 @@ mod unit_tests {
         let pid: u8 = state.current_player;
         let pid_us = pid as usize;
 
-        // 14 tiles, tenpai shape: 123m 456m 789m 12p 11s + drawn 5sr(88)
-        // Discarding 5sr (88) keeps 123456789m 12p 11s tenpai (waits on 3p).
-        // Discarding any of {0,4,8,12,16,20,24,28,32,72,73} would break tenpai.
-        // 36 (1p) keeps tenpai (waits on 1p kanchan? no — keep simple).
-        // Note: removing 36 (1p) leaves 123456789m 2p 11s -> not tenpai.
-        // Only 5sr (88) and 40 (2p) keep tenpai... actually only 88.
+        // 14-tile tenpai fixture: 123m 456m 789m 12p 11s + drawn 5sr (88).
+        // For this hand, discarding 5sr (88) is the intended tenpai-maintaining
+        // discard. Other candidate discards are verified below and must not be
+        // offered unless they also keep the hand in tenpai.
         state.players[pid_us].hand = vec![0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 72, 73, 88];
         state.players[pid_us].hand.sort();
         state.players[pid_us].melds.clear();
