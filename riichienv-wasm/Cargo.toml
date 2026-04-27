@@ -1,6 +1,6 @@
 [package]
 name = "riichienv-wasm"
-version = "0.4.7"
+version = "0.4.8"
 edition = "2024"
 license = "Apache-2.0"
 description = "WASM bindings for RiichiEnv mahjong game engine"
