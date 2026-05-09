@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
 
 use crate::action::ActionType;
@@ -526,6 +527,44 @@ const SHANTEN_THRES: i8 = 3;
 /// 13枚の手牌と、自摸可能な残り牌の最大合計枚数 (= 34*4 - 13 - 1).
 const MAX_TILES_LEFT: usize = TILE_MAX * 4 - 1 - 13;
 
+/// SP内DPキャッシュ専用の FxHash 実装。`[u8; 34]` 等のキーを SipHash より大幅に高速にハッシュする。
+/// 依存ゼロで wasm バイナリサイズへの影響もない。
+#[derive(Default, Clone, Copy)]
+struct FxHasher64 {
+    hash: u64,
+}
+
+const FX_SEED: u64 = 0x517c_c1b7_2722_0a95;
+
+impl Hasher for FxHasher64 {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut h = self.hash;
+        let mut chunks = bytes.chunks_exact(8);
+        for chunk in &mut chunks {
+            // SAFETY: chunks_exact yields exactly 8-byte slices.
+            let v = u64::from_ne_bytes(unsafe { *(chunk.as_ptr() as *const [u8; 8]) });
+            h = h.rotate_left(5) ^ v;
+            h = h.wrapping_mul(FX_SEED);
+        }
+        for &b in chunks.remainder() {
+            h = h.rotate_left(5) ^ (b as u64);
+            h = h.wrapping_mul(FX_SEED);
+        }
+        self.hash = h;
+    }
+    #[inline]
+    fn write_u8(&mut self, b: u8) {
+        self.hash = (self.hash.rotate_left(5) ^ (b as u64)).wrapping_mul(FX_SEED);
+    }
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.hash
+    }
+}
+
+type FxHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher64>>;
+
 /// 各「絶対巡目 i」に対するDP値ベクトル。
 /// `i` は「DPホライズンの先頭 (turn 0) から数えた現在巡目」で、
 /// `Values.tenpai[i]` などは「i 巡目以降にこの状態から到達する各事象の確率/期待値」。
@@ -614,16 +653,16 @@ struct DpContext<'a> {
     not_tsumo_prob: Vec<[f32; SP_MAX_TURNS]>,
 
     /// shanten ごとの DP キャッシュ (0..=SHANTEN_THRES).
-    discard_cache: [HashMap<DpKey, Rc<Values>>; (SHANTEN_THRES + 1) as usize],
-    draw_cache: [HashMap<DpKey, Rc<Values>>; (SHANTEN_THRES + 1) as usize],
+    discard_cache: [FxHashMap<DpKey, Rc<Values>>; (SHANTEN_THRES + 1) as usize],
+    draw_cache: [FxHashMap<DpKey, Rc<Values>>; (SHANTEN_THRES + 1) as usize],
 
     /// leaf (tenpai) 時の点数表 (timing-han 0..=3).
-    score_vec_cache: HashMap<ScoreVecKey, Option<[f32; 4]>>,
+    score_vec_cache: FxHashMap<ScoreVecKey, Option<[f32; 4]>>,
 
-    shanten_cache: HashMap<[u8; TILE_MAX], i8>,
-    score_cache: HashMap<ScoreKey, Option<u32>>,
-    base_score_cache: HashMap<BaseScoreKey, Option<BaseScore>>,
-    yaku_tenpai_cache: HashMap<YakuTenpaiKey, bool>,
+    shanten_cache: FxHashMap<[u8; TILE_MAX], i8>,
+    score_cache: FxHashMap<ScoreKey, Option<u32>>,
+    base_score_cache: FxHashMap<BaseScoreKey, Option<BaseScore>>,
+    yaku_tenpai_cache: FxHashMap<YakuTenpaiKey, bool>,
 }
 
 impl<'a> DpContext<'a> {
@@ -641,11 +680,11 @@ impl<'a> DpContext<'a> {
             not_tsumo_prob,
             discard_cache: Default::default(),
             draw_cache: Default::default(),
-            score_vec_cache: HashMap::new(),
-            shanten_cache: HashMap::new(),
-            score_cache: HashMap::new(),
-            base_score_cache: HashMap::new(),
-            yaku_tenpai_cache: HashMap::new(),
+            score_vec_cache: FxHashMap::default(),
+            shanten_cache: FxHashMap::default(),
+            score_cache: FxHashMap::default(),
+            base_score_cache: FxHashMap::default(),
+            yaku_tenpai_cache: FxHashMap::default(),
         }
     }
 
