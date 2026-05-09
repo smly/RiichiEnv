@@ -31,6 +31,10 @@ criterion = { version = "0.5", features = ["html_reports"] }
 name = "agari_bench"
 harness = false
 
+[[bench]]
+name = "sp_bench"
+harness = false
+
 [features]
 default = ["dep:flate2"]
 python = ["dep:pyo3", "dep:flate2"]

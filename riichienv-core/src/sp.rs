@@ -148,9 +148,9 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
         let required_tiles = required_tiles(&after_discard, &remaining, shanten_after);
         let num_required_tiles = required_tiles.iter().sum::<f32>();
 
-        let mut scoring = score_waits(input, &after_discard, &remaining);
+        let mut scoring = score_waits(&mut dp, &after_discard, &remaining);
         let yaku_progress_tiles =
-            yaku_progress_tiles(input, &after_discard, &remaining, shanten_after);
+            yaku_progress_tiles(&mut dp, &after_discard, &remaining, shanten_after);
         let num_yaku_progress_tiles = yaku_progress_tiles.iter().sum::<f32>();
 
         if scoring.mean_point <= 0.0 {
@@ -333,19 +333,23 @@ fn required_tiles(
 }
 
 fn yaku_progress_tiles(
-    input: &SpInput,
+    dp: &mut DpContext<'_>,
     counts: &[u8; TILE_MAX],
     remaining: &[u8; TILE_MAX],
     current_shanten: i8,
 ) -> [f32; TILE_MAX] {
     let mut out = [0.0; TILE_MAX];
+    if current_shanten > 3 {
+        return out;
+    }
+
     for tile in 0..TILE_MAX {
         if remaining[tile] == 0 || counts[tile] >= 4 {
             continue;
         }
 
         if current_shanten == 0 {
-            if score_tsumo(input, counts, tile as u8).is_some() {
+            if dp.score_tsumo(counts, tile as u8).is_some() {
                 out[tile] = remaining[tile] as f32;
             }
             continue;
@@ -356,7 +360,7 @@ fn yaku_progress_tiles(
         if shanten_of_counts(&drawn) >= current_shanten {
             continue;
         }
-        if has_yaku_tenpai_after_best_discard(input, &drawn) {
+        if has_yaku_tenpai_after_best_discard(dp, &drawn) {
             out[tile] = remaining[tile] as f32;
         }
     }
@@ -364,7 +368,7 @@ fn yaku_progress_tiles(
 }
 
 fn score_waits(
-    input: &SpInput,
+    dp: &mut DpContext<'_>,
     counts: &[u8; TILE_MAX],
     remaining: &[u8; TILE_MAX],
 ) -> ScoringSummary {
@@ -382,7 +386,7 @@ fn score_waits(
         if remaining[tile] == 0 || counts[tile] >= 4 {
             continue;
         }
-        if let Some(point) = score_tsumo(input, counts, tile as u8) {
+        if let Some(point) = dp.score_tsumo(counts, tile as u8) {
             let weight = remaining[tile] as f32;
             merge_point(&mut scoring, point, weight);
         }
@@ -402,7 +406,11 @@ fn merge_point(scoring: &mut ScoringSummary, point: f32, weight: f32) {
     }
 }
 
-fn has_yaku_tenpai_after_best_discard(input: &SpInput, counts_14: &[u8; TILE_MAX]) -> bool {
+fn has_yaku_tenpai_after_best_discard(dp: &mut DpContext<'_>, counts_14: &[u8; TILE_MAX]) -> bool {
+    if let Some(&cached) = dp.yaku_tenpai_cache.get(counts_14) {
+        return cached;
+    }
+
     let mut best_shanten = i8::MAX;
     let mut tenpai_counts = Vec::new();
     for discard in 0..TILE_MAX {
@@ -421,9 +429,11 @@ fn has_yaku_tenpai_after_best_discard(input: &SpInput, counts_14: &[u8; TILE_MAX
         }
     }
 
-    tenpai_counts
+    let result = tenpai_counts
         .iter()
-        .any(|counts| (0..TILE_MAX).any(|tile| score_tsumo(input, counts, tile as u8).is_some()))
+        .any(|counts| (0..TILE_MAX).any(|tile| dp.score_tsumo(counts, tile as u8).is_some()));
+    dp.yaku_tenpai_cache.insert(*counts_14, result);
+    result
 }
 
 fn probability_series(
@@ -502,9 +512,17 @@ struct DpKey {
     turns_left: u8,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ScoreKey {
+    counts: [u8; TILE_MAX],
+    win_tile: u8,
+}
+
 struct DpContext<'a> {
     input: &'a SpInput,
     memo: HashMap<DpKey, DpOutcome>,
+    score_cache: HashMap<ScoreKey, Option<u32>>,
+    yaku_tenpai_cache: HashMap<[u8; TILE_MAX], bool>,
 }
 
 impl<'a> DpContext<'a> {
@@ -512,7 +530,23 @@ impl<'a> DpContext<'a> {
         Self {
             input,
             memo: HashMap::new(),
+            score_cache: HashMap::new(),
+            yaku_tenpai_cache: HashMap::new(),
         }
+    }
+
+    fn score_tsumo(&mut self, counts: &[u8; TILE_MAX], win_tile: u8) -> Option<f32> {
+        let key = ScoreKey {
+            counts: *counts,
+            win_tile,
+        };
+        if let Some(&cached) = self.score_cache.get(&key) {
+            return cached.map(|point| point as f32);
+        }
+
+        let score = score_tsumo(self.input, counts, win_tile).map(|point| point as u32);
+        self.score_cache.insert(key, score);
+        score.map(|point| point as f32)
     }
 
     fn series(
@@ -554,7 +588,7 @@ impl<'a> DpContext<'a> {
         }
 
         let current = DpOutcome {
-            tenpai_prob: if has_yaku_wait(self.input, counts, remaining) {
+            tenpai_prob: if self.has_yaku_wait(counts, remaining) {
                 1.0
             } else {
                 0.0
@@ -567,7 +601,7 @@ impl<'a> DpContext<'a> {
             return current;
         }
 
-        if has_yaku_wait(self.input, counts, remaining) {
+        if self.has_yaku_wait(counts, remaining) {
             let outcome = self.tenpai_wait_outcome(counts, remaining, turns_left);
             self.memo.insert(key, outcome);
             return outcome;
@@ -633,7 +667,7 @@ impl<'a> DpContext<'a> {
     }
 
     fn tenpai_wait_outcome(
-        &self,
+        &mut self,
         counts: &[u8; TILE_MAX],
         remaining: &[u8; TILE_MAX],
         turns_left: u8,
@@ -644,7 +678,7 @@ impl<'a> DpContext<'a> {
             if remaining[tile] == 0 || counts[tile] >= 4 {
                 continue;
             }
-            if let Some(point) = score_tsumo(self.input, counts, tile as u8) {
+            if let Some(point) = self.score_tsumo(counts, tile as u8) {
                 wait_points[tile] = point;
                 wait_total += remaining[tile] as f32;
             }
@@ -716,15 +750,17 @@ impl<'a> DpContext<'a> {
         }
         best.unwrap_or_default()
     }
-}
 
-fn has_yaku_wait(input: &SpInput, counts: &[u8; TILE_MAX], remaining: &[u8; TILE_MAX]) -> bool {
-    if shanten_of_counts(counts) != 0 {
-        return false;
+    fn has_yaku_wait(&mut self, counts: &[u8; TILE_MAX], remaining: &[u8; TILE_MAX]) -> bool {
+        if shanten_of_counts(counts) != 0 {
+            return false;
+        }
+        (0..TILE_MAX).any(|tile| {
+            remaining[tile] > 0
+                && counts[tile] < 4
+                && self.score_tsumo(counts, tile as u8).is_some()
+        })
     }
-    (0..TILE_MAX).any(|tile| {
-        remaining[tile] > 0 && counts[tile] < 4 && score_tsumo(input, counts, tile as u8).is_some()
-    })
 }
 
 fn is_better_dp(candidate: DpOutcome, current: DpOutcome) -> bool {
@@ -918,6 +954,10 @@ fn set(buf: &mut [f32], ch_offset: usize, ch: usize, tile: usize, val: f32) {
 mod tests {
     use super::*;
 
+    fn encoded_at(buf: &[f32], ch: usize, tile: usize) -> f32 {
+        buf[ch * TILE_MAX + tile]
+    }
+
     fn input_from_tiles(tile_types: &[u8], tsumos_left: u8) -> SpInput {
         let mut tehai = [0u8; TILE_MAX];
         let mut seen = [0u8; TILE_MAX];
@@ -940,10 +980,23 @@ mod tests {
         }
     }
 
+    fn tenpai_fixture(tsumos_left: u8) -> SpInput {
+        // 123456789m 12p 11s + extra 5s. Discarding 5s leaves a 3p wait.
+        input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 18, 22], tsumos_left)
+    }
+
+    fn assert_series_monotonic(series: &[f32; SP_MAX_TURNS], horizon: usize) {
+        for pair in series[..horizon.min(SP_MAX_TURNS)].windows(2) {
+            assert!(
+                pair[1] + 1e-6 >= pair[0],
+                "series must be non-decreasing: {series:?}"
+            );
+        }
+    }
+
     #[test]
     fn sp_generates_candidates_and_123_channels() {
-        // 123m 456m 789m 12p 11s + extra 5s.
-        let input = input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 18, 22], 10);
+        let input = tenpai_fixture(10);
         let result = calculate_sp(&input);
         assert!(!result.candidates.is_empty());
         let encoded = encode_sp(&result);
@@ -953,7 +1006,7 @@ mod tests {
     #[test]
     fn tenpai_candidate_has_win_probability() {
         // Discarding 5s leaves 123456789m 12p 11s, waiting 3p by riichi tsumo.
-        let input = input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 18, 22], 10);
+        let input = tenpai_fixture(10);
         let result = calculate_sp(&input);
         let candidate = result
             .candidates
@@ -963,6 +1016,181 @@ mod tests {
         assert!(candidate.tenpai_probs[0] > 0.0);
         assert!(candidate.win_probs[1] > 0.0);
         assert!(candidate.exp_values[1] > 0.0);
+    }
+
+    #[test]
+    fn encode_sp_layout_matches_candidate_data() {
+        let input = tenpai_fixture(10);
+        let result = calculate_sp(&input);
+        let encoded = encode_sp(&result);
+        let candidate = result
+            .candidates
+            .iter()
+            .find(|candidate| candidate.tile == 22)
+            .expect("5s discard candidate");
+
+        assert!(
+            candidate.required_tiles[11] > 0.0,
+            "discarding 5s should mark 3p as a required/winning tile"
+        );
+        assert_eq!(encoded_at(&encoded, 2 + 22, 11), 1.0);
+        assert_eq!(
+            encoded_at(&encoded, 36 + 22, 11),
+            if candidate.yaku_progress_tiles[11] > 0.0 {
+                1.0
+            } else {
+                0.0
+            }
+        );
+
+        let max_ev = result.candidates[0].exp_values[0].max(0.0);
+        let ev_scale = if max_ev >= 1.0 { 1.0 / max_ev } else { 0.0 };
+        for turn in 0..SP_MAX_TURNS {
+            assert_eq!(
+                encoded_at(&encoded, 72 + turn, 22),
+                candidate.tenpai_probs[turn]
+            );
+            assert_eq!(
+                encoded_at(&encoded, 89 + turn, 22),
+                candidate.win_probs[turn]
+            );
+            assert_eq!(
+                encoded_at(&encoded, 106 + turn, 22),
+                (candidate.exp_values[turn] * ev_scale).clamp(0.0, 1.0)
+            );
+        }
+
+        let expected_ch0 = max_ev.min(100_000.0) / 100_000.0;
+        let expected_ch1 = max_ev.min(30_000.0) / 30_000.0;
+        for tile in 0..TILE_MAX {
+            assert_eq!(encoded_at(&encoded, 0, tile), expected_ch0);
+            assert_eq!(encoded_at(&encoded, 1, tile), expected_ch1);
+        }
+
+        let best_required = result
+            .candidates
+            .iter()
+            .max_by(|a, b| {
+                a.num_required_tiles
+                    .partial_cmp(&b.num_required_tiles)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| b.tile.cmp(&a.tile))
+            })
+            .expect("best required candidate");
+        for tile in 0..TILE_MAX {
+            let expected = if tile == best_required.tile as usize {
+                1.0
+            } else {
+                0.0
+            };
+            assert_eq!(encoded_at(&encoded, 70, tile), expected);
+        }
+    }
+
+    #[test]
+    fn encoded_values_are_finite_bounded_and_monotonic() {
+        let input = tenpai_fixture(10);
+        let result = calculate_sp(&input);
+        let encoded = encode_sp(&result);
+
+        assert!(encoded.iter().all(|value| value.is_finite()));
+        for ch in 72..106 {
+            for tile in 0..TILE_MAX {
+                let value = encoded_at(&encoded, ch, tile);
+                assert!(
+                    (0.0..=1.0).contains(&value),
+                    "probability channel {ch}, tile {tile} out of range: {value}"
+                );
+            }
+        }
+        for ch in 106..123 {
+            for tile in 0..TILE_MAX {
+                let value = encoded_at(&encoded, ch, tile);
+                assert!(
+                    (0.0..=1.0).contains(&value),
+                    "EV channel {ch}, tile {tile} out of range: {value}"
+                );
+            }
+        }
+        for candidate in &result.candidates {
+            assert_series_monotonic(&candidate.tenpai_probs, input.tsumos_left as usize);
+            assert_series_monotonic(&candidate.win_probs, input.tsumos_left as usize);
+            assert_series_monotonic(&candidate.exp_values, input.tsumos_left as usize);
+        }
+    }
+
+    #[test]
+    fn encode_sp_is_deterministic() {
+        let input = tenpai_fixture(10);
+        let first = encode_sp(&calculate_sp(&input));
+        let second = encode_sp(&calculate_sp(&input));
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn visible_zero_tile_is_not_encoded_as_required_or_yaku_wait() {
+        let mut input = tenpai_fixture(10);
+        input.tiles_seen[11] = 4;
+        let result = calculate_sp(&input);
+        let encoded = encode_sp(&result);
+        let candidate = result
+            .candidates
+            .iter()
+            .find(|candidate| candidate.tile == 22)
+            .expect("5s discard candidate");
+
+        assert_eq!(candidate.required_tiles[11], 0.0);
+        assert_eq!(candidate.yaku_progress_tiles[11], 0.0);
+        assert_eq!(encoded_at(&encoded, 2 + 22, 11), 0.0);
+        assert_eq!(encoded_at(&encoded, 36 + 22, 11), 0.0);
+    }
+
+    #[test]
+    fn four_plus_shanten_skips_yaku_progress_map() {
+        let input = input_from_tiles(&[0, 2, 5, 8, 9, 12, 15, 18, 21, 24, 27, 29, 31, 33], 10);
+        let result = calculate_sp(&input);
+        let encoded = encode_sp(&result);
+
+        assert!(!result.candidates.is_empty());
+        assert!(
+            result
+                .candidates
+                .iter()
+                .all(|candidate| candidate.num_yaku_progress_tiles == 0.0)
+        );
+        for ch in 36..70 {
+            for tile in 0..TILE_MAX {
+                assert_eq!(encoded_at(&encoded, ch, tile), 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn dora_indicator_increases_tenpai_expected_value() {
+        let base_input = tenpai_fixture(10);
+        let mut dora_input = tenpai_fixture(10);
+        dora_input.dora_indicators = vec![40]; // 2p indicator makes 3p the dora.
+        dora_input.tiles_seen[10] += 1;
+
+        let base = calculate_sp(&base_input);
+        let with_dora = calculate_sp(&dora_input);
+        let base_candidate = base
+            .candidates
+            .iter()
+            .find(|candidate| candidate.tile == 22)
+            .expect("base 5s discard candidate");
+        let dora_candidate = with_dora
+            .candidates
+            .iter()
+            .find(|candidate| candidate.tile == 22)
+            .expect("dora 5s discard candidate");
+
+        assert!(
+            dora_candidate.exp_values[1] > base_candidate.exp_values[1],
+            "dora wait should increase EV: base={}, dora={}",
+            base_candidate.exp_values[1],
+            dora_candidate.exp_values[1]
+        );
     }
 
     #[test]

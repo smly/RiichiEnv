@@ -595,6 +595,8 @@ impl Observation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::action::{Action, ActionType};
+    use crate::sp::SP_CHANNELS;
     use crate::types::Meld;
 
     /// Build a minimal Observation via the public constructor.
@@ -632,9 +634,83 @@ mod tests {
         [vec![], vec![], vec![], vec![]]
     }
 
+    fn tile_type_to_136(tile_type: u8, copy: u8) -> u8 {
+        tile_type * 4 + copy
+    }
+
+    fn sp_obs() -> Observation {
+        // 123456789m 12p 11s + extra 5s. Discarding 5s leaves a 3p wait.
+        let hand = vec![
+            tile_type_to_136(0, 0),
+            tile_type_to_136(1, 0),
+            tile_type_to_136(2, 0),
+            tile_type_to_136(3, 0),
+            tile_type_to_136(4, 1),
+            tile_type_to_136(5, 0),
+            tile_type_to_136(6, 0),
+            tile_type_to_136(7, 0),
+            tile_type_to_136(8, 0),
+            tile_type_to_136(9, 0),
+            tile_type_to_136(10, 0),
+            tile_type_to_136(18, 0),
+            tile_type_to_136(18, 1),
+            tile_type_to_136(22, 1),
+        ];
+        let legal_actions = hand
+            .iter()
+            .map(|&tile| Action::new(ActionType::Discard, Some(tile), vec![], Some(0)))
+            .collect();
+
+        Observation::new(
+            0,
+            [hand, vec![], vec![], vec![]],
+            empty_melds(),
+            Default::default(),
+            vec![],
+            [25000; 4],
+            [false; 4],
+            legal_actions,
+            vec![],
+            0,
+            0,
+            27,
+            0,
+            0,
+            vec![],
+            false,
+            [None; 4],
+            [None; 4],
+            None,
+            None,
+        )
+    }
+
     /// Helper: read a single value from the flat buffer at (ch, tile).
     fn read_val(buf: &[f32], ch: usize, tile: usize) -> f32 {
         buf[ch * 34 + tile]
+    }
+
+    #[test]
+    fn sp_tail_matches_standalone_encoding() {
+        let obs = sp_obs();
+        let mut sp_only = vec![0.0f32; SP_CHANNELS * 34];
+        obs.encode_sp_into(&mut sp_only, 0);
+
+        let total_channels = 215 + SP_CHANNELS;
+        let mut extended = vec![0.0f32; total_channels * 34];
+        obs.encode_base_into(&mut extended, 0);
+        obs.encode_discard_decay_into(&mut extended, 74);
+        obs.encode_shanten_into(&mut extended, 78);
+        obs.encode_ankan_into(&mut extended, 94);
+        obs.encode_fuuro_into(&mut extended, 98);
+        obs.encode_action_avail_into(&mut extended, 178);
+        obs.encode_discard_cand_into(&mut extended, 189);
+        obs.encode_pass_ctx_into(&mut extended, 194);
+        obs.encode_last_ted_into(&mut extended, 197);
+        obs.encode_riichi_sute_into(&mut extended, 206);
+        obs.encode_sp_into(&mut extended, 215);
+
+        assert_eq!(sp_only, extended[215 * 34..total_channels * 34]);
     }
 
     #[test]
