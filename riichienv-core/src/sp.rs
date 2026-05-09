@@ -5,7 +5,6 @@ use std::rc::Rc;
 use crate::action::ActionType;
 use crate::hand_evaluator::HandEvaluator;
 use crate::observation::Observation;
-use crate::score;
 use crate::shanten;
 use crate::types::{Conditions, Meld, MeldType, TILE_MAX, Wind};
 
@@ -71,9 +70,6 @@ pub struct SpCandidate {
     pub exp_values: [f32; SP_MAX_TURNS],
     pub required_tiles: [f32; TILE_MAX],
     pub yaku_progress_tiles: [f32; TILE_MAX],
-    pub min_point: f32,
-    pub mean_point: f32,
-    pub high_point: f32,
     pub num_required_tiles: f32,
     pub num_yaku_progress_tiles: f32,
 }
@@ -356,7 +352,11 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
         let num_required_tiles = required_tiles.iter().sum::<f32>();
         let num_yaku_progress_tiles = yaku_progress_tiles.iter().sum::<f32>();
 
-        if scoring.mean_point <= 0.0 {
+        // `mean_point` is consumed only by `series_for_candidate_approx`
+        // (shanten-down or shanten ≥ 4 paths). Tenpai+optimal and shanten
+        // 1..=3+optimal both ignore it, so skip the fallback in those cases.
+        let needs_mean_point = !is_optimal || shanten_after > SHANTEN_THRES;
+        if needs_mean_point && scoring.mean_point <= 0.0 {
             scoring.mean_point = rough_point_estimate(input, &after_discard);
         }
 
@@ -399,9 +399,6 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
             exp_values,
             required_tiles,
             yaku_progress_tiles,
-            min_point: scoring.min_point,
-            mean_point: scoring.mean_point,
-            high_point: scoring.high_point,
             num_required_tiles,
             num_yaku_progress_tiles,
         });
@@ -501,12 +498,13 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct ScoringSummary {
     wait_count: f32,
-    min_point: f32,
+    /// Wait-count-weighted mean point (used by `series_for_candidate_approx`
+    /// for shanten-down/high-shanten paths). Tenpai+optimal candidates do NOT
+    /// consume this — `tenpai_series_from_waits` ignores it.
     mean_point: f32,
-    high_point: f32,
 }
 
 fn add_seen(tiles_seen: &mut [u8; TILE_MAX], tile: u32) {
@@ -547,6 +545,9 @@ fn required_tiles(
         if remaining[tile] == 0 || counts[tile] >= 4 {
             continue;
         }
+        if !potentially_effective_for_draw(counts, tile) {
+            continue;
+        }
         let mut next = *counts;
         next[tile] += 1;
         if shanten_of_counts(&next) < current_shanten {
@@ -570,15 +571,21 @@ fn fused_tenpai_pass(
 ) -> ([f32; TILE_MAX], ScoringSummary, [f32; TILE_MAX]) {
     let mut required = [0.0f32; TILE_MAX];
     let mut yaku_progress = [0.0f32; TILE_MAX];
-    let mut scoring = ScoringSummary {
-        wait_count: 0.0,
-        min_point: 0.0,
-        mean_point: 0.0,
-        high_point: 0.0,
-    };
+    let mut scoring = ScoringSummary::default();
+    // Riichi guarantees a yaku, so under the assumed-riichi path we can skip
+    // the per-wait `score_tsumo` lookup entirely (yaku_progress = required).
+    // Mean point is also dead computation at tenpai+optimal — the consumer
+    // (`tenpai_series_from_waits`) computes its own per-wait score vector.
+    let assume_riichi = dp.input.is_menzen && dp.input.can_riichi;
     let mut next = *counts;
     for tile in 0..TILE_MAX {
         if remaining[tile] == 0 || counts[tile] >= 4 {
+            continue;
+        }
+        // A tile completes the 13-tile hand only if it sits adjacent to or
+        // matches an existing tile. Skip the (cached) shanten lookup entirely
+        // for isolated tiles.
+        if !potentially_effective_for_draw(counts, tile) {
             continue;
         }
         next[tile] += 1;
@@ -589,6 +596,10 @@ fn fused_tenpai_pass(
             continue;
         }
         required[tile] = remaining[tile] as f32;
+        if assume_riichi {
+            yaku_progress[tile] = remaining[tile] as f32;
+            continue;
+        }
         if let Some(point) =
             dp.score_tsumo(counts, remaining, tile as u8, ScoreMods::default())
         {
@@ -612,6 +623,9 @@ fn yaku_progress_tiles(
 
     for tile in 0..TILE_MAX {
         if remaining[tile] == 0 || counts[tile] >= 4 {
+            continue;
+        }
+        if !potentially_effective_for_draw(counts, tile) {
             continue;
         }
 
@@ -644,18 +658,16 @@ fn score_waits(
     counts: &[u8; TILE_MAX],
     remaining: &[u8; TILE_MAX],
 ) -> ScoringSummary {
-    let mut scoring = ScoringSummary {
-        wait_count: 0.0,
-        min_point: 0.0,
-        mean_point: 0.0,
-        high_point: 0.0,
-    };
+    let mut scoring = ScoringSummary::default();
     if shanten_of_counts(counts) != 0 {
         return scoring;
     }
 
     for tile in 0..TILE_MAX {
         if remaining[tile] == 0 || counts[tile] >= 4 {
+            continue;
+        }
+        if !potentially_effective_for_draw(counts, tile) {
             continue;
         }
         if let Some(point) = dp.score_tsumo(counts, remaining, tile as u8, ScoreMods::default()) {
@@ -668,10 +680,6 @@ fn score_waits(
 
 fn merge_point(scoring: &mut ScoringSummary, point: f32, weight: f32) {
     let old_weighted_sum = scoring.mean_point * scoring.wait_count;
-    if scoring.min_point == 0.0 || point < scoring.min_point {
-        scoring.min_point = point;
-    }
-    scoring.high_point = scoring.high_point.max(point);
     scoring.wait_count += weight;
     if scoring.wait_count > 0.0 {
         scoring.mean_point = (old_weighted_sum + point * weight) / scoring.wait_count;
@@ -1216,12 +1224,12 @@ impl<'a> DpContext<'a> {
         let mut win_abs = [0.0f32; SP_MAX_TURNS];
         let mut exp_abs = [0.0f32; SP_MAX_TURNS];
 
-        let mut accumulate = |dp: &mut Self,
-                              tile: u8,
-                              sub_count: u32,
-                              scoring_akas: [bool; 3],
-                              win_abs: &mut [f32; SP_MAX_TURNS],
-                              exp_abs: &mut [f32; SP_MAX_TURNS]| {
+        let accumulate = |dp: &mut Self,
+                          tile: u8,
+                          sub_count: u32,
+                          scoring_akas: [bool; 3],
+                          win_abs: &mut [f32; SP_MAX_TURNS],
+                          exp_abs: &mut [f32; SP_MAX_TURNS]| {
             if sub_count == 0 {
                 return;
             }
@@ -1229,24 +1237,59 @@ impl<'a> DpContext<'a> {
             let Some(scores) = scores else { return };
             let tsumo_row: [f32; SP_MAX_TURNS] =
                 dp.tsumo_prob[(sub_count as usize - 1).min(3)];
+            // Per-i: sum the (i, j) probabilities once with the BASE han
+            // contribution, then add correction terms only at the special
+            // positions (ippatsu when j==i, haitei when j==last). This
+            // restructure removes per-iteration branches inside the j loop,
+            // letting LLVM vectorize the inner sum and trims ~5ns/iter.
             for i in 0..horizon {
                 let m = not_tsumo[i];
                 if m == 0.0 {
                     break;
                 }
                 let m_inv = 1.0 / m;
-                let dbl_at_i = if calc_double_riichi && i == 0 { 1 } else { 0 };
+                let dbl_at_i = if calc_double_riichi && i == 0 { 1usize } else { 0 };
+                let s_base = scores[dbl_at_i.min(3)];
+
+                // Tight inner loop: branch-free per-iteration.
+                let mut sum_prob = 0.0f32;
+                let mut sum_exp = 0.0f32;
+                let mut max_j_seen = i;
                 for j in i..horizon {
                     let n = not_tsumo[j];
                     if n == 0.0 {
                         break;
                     }
                     let prob = tsumo_row[j] * n * m_inv;
-                    let ipp = if assume_riichi && j == i { 1 } else { 0 };
-                    let hai = if j == last_turn_idx { 1 } else { 0 };
-                    let han_plus = (dbl_at_i + ipp + hai).min(3);
-                    win_abs[i] += prob;
-                    exp_abs[i] += prob * scores[han_plus];
+                    sum_prob += prob;
+                    sum_exp += prob;
+                    max_j_seen = j;
+                }
+                win_abs[i] += sum_prob;
+                exp_abs[i] += sum_exp * s_base;
+
+                // Corrections at special positions. The base loop assigned
+                // s_base = scores[dbl_at_i] to every (i, j); these patches
+                // upgrade to higher han_plus where ippatsu (j == i AND
+                // assume_riichi) or haitei (j == last_turn_idx) applies.
+                let n_at_i = not_tsumo[i];
+                if n_at_i != 0.0 && i <= max_j_seen {
+                    let ipp = assume_riichi as usize;
+                    let hai = (i == last_turn_idx) as usize;
+                    let bonus = ipp + hai;
+                    if bonus > 0 {
+                        let prob = tsumo_row[i] * n_at_i * m_inv;
+                        let han_plus = (dbl_at_i + bonus).min(3);
+                        exp_abs[i] += prob * (scores[han_plus] - s_base);
+                    }
+                }
+                if last_turn_idx > i && last_turn_idx <= max_j_seen {
+                    let n_last = not_tsumo[last_turn_idx];
+                    if n_last != 0.0 {
+                        let prob = tsumo_row[last_turn_idx] * n_last * m_inv;
+                        let han_plus = (dbl_at_i + 1).min(3);
+                        exp_abs[i] += prob * (scores[han_plus] - s_base);
+                    }
                 }
             }
         };
@@ -1388,6 +1431,13 @@ impl<'a> DpContext<'a> {
             if count == 0 || key.counts[tile] >= 4 {
                 continue;
             }
+            // Pre-filter: a tile cannot reduce shanten unless it's adjacent to
+            // an existing hand tile. For honors, "adjacent" means count >= 1.
+            // For numbered tiles, anywhere within ±2 in the same suit. This
+            // filters ~50% of tiles before paying the (cached) shanten lookup.
+            if !potentially_effective_for_draw(&key.counts, tile) {
+                continue;
+            }
             let mut next_counts = key.counts;
             next_counts[tile] += 1;
             let s_after = self.shanten(&next_counts);
@@ -1468,6 +1518,9 @@ impl<'a> DpContext<'a> {
             } else {
                 // shanten == 0: leaf. Score the agari with the post-draw aka
                 // state so a "drew red 5x" branch picks up the extra dora.
+                // Branch-free inner loop with post-hoc corrections at the
+                // ippatsu/haitei boundary positions (mirrors the same pattern
+                // in `tenpai_series_from_waits`).
                 let scores =
                     dp.score_vector_for_win(&key.counts, &key.remaining, tile, next_in_hand);
                 let Some(scores) = scores else {
@@ -1479,18 +1532,43 @@ impl<'a> DpContext<'a> {
                         break;
                     }
                     let m_inv = 1.0 / m;
-                    let dbl_at_i = if calc_double_riichi && i == 0 { 1 } else { 0 };
+                    let dbl_at_i = if calc_double_riichi && i == 0 { 1usize } else { 0 };
+                    let s_base = scores[dbl_at_i.min(3)];
+
+                    let mut sum_prob = 0.0f32;
+                    let mut sum_exp = 0.0f32;
+                    let mut max_j_seen = i;
                     for j in i..horizon {
                         let n = not_tsumo[j];
                         if n == 0.0 {
                             break;
                         }
                         let prob = tsumo_row[j] * n * m_inv;
-                        let ipp = if assume_riichi && j == i { 1 } else { 0 };
-                        let hai = if j == last_turn_idx { 1 } else { 0 };
-                        let han_plus = (dbl_at_i + ipp + hai).min(3);
-                        win[i] += prob;
-                        exp[i] += prob * scores[han_plus];
+                        sum_prob += prob;
+                        sum_exp += prob;
+                        max_j_seen = j;
+                    }
+                    win[i] += sum_prob;
+                    exp[i] += sum_exp * s_base;
+
+                    let n_at_i = not_tsumo[i];
+                    if n_at_i != 0.0 && i <= max_j_seen {
+                        let ipp = assume_riichi as usize;
+                        let hai = (i == last_turn_idx) as usize;
+                        let bonus = ipp + hai;
+                        if bonus > 0 {
+                            let prob = tsumo_row[i] * n_at_i * m_inv;
+                            let han_plus = (dbl_at_i + bonus).min(3);
+                            exp[i] += prob * (scores[han_plus] - s_base);
+                        }
+                    }
+                    if last_turn_idx > i && last_turn_idx <= max_j_seen {
+                        let n_last = not_tsumo[last_turn_idx];
+                        if n_last != 0.0 {
+                            let prob = tsumo_row[last_turn_idx] * n_last * m_inv;
+                            let han_plus = (dbl_at_i + 1).min(3);
+                            exp[i] += prob * (scores[han_plus] - s_base);
+                        }
                     }
                 }
             }
@@ -1609,10 +1687,14 @@ impl<'a> DpContext<'a> {
             counts_13, win_tile, akas_in_hand, base.han, base.fu, base.total,
         );
 
+        // SP DP always builds `BaseScore` with `honba=0` (both lean and legacy
+        // paths bake this in), so we can use the inlined `sp_tsumo_total_fast`
+        // instead of going through `score::calculate_score` + the `Score`
+        // struct allocation.
+        debug_assert_eq!(base.honba, 0, "SP base score must have honba=0");
         let calc_with_han = |delta: u32| -> f32 {
-            let han = (base.han + delta).min(13) as u8;
-            let s = score::calculate_score(han, base.fu as u8, base.is_oya, true, base.honba, 4);
-            tsumo_total_for_sp(s.pay_tsumo_oya, s.pay_tsumo_ko) as f32
+            let han = (base.han + delta).min(13);
+            sp_tsumo_total_fast(han, base.fu, base.is_oya) as f32
         };
 
         let mut out = [0.0f32; 4];
@@ -1814,6 +1896,33 @@ pub mod base_score_calls {
     }
 }
 
+/// Pre-filter for `draw_dp_slow`: returns true if drawing `tile` could possibly
+/// reduce shanten. Honor tiles can only help if already in the hand. Numbered
+/// tiles must have a neighbor (or self) within ±2 in the same suit. Filters out
+/// truly isolated tiles before paying even the cached shanten lookup.
+#[inline]
+fn potentially_effective_for_draw(counts: &[u8; TILE_MAX], tile: usize) -> bool {
+    if tile >= 27 {
+        return counts[tile] >= 1;
+    }
+    if counts[tile] >= 1 {
+        return true;
+    }
+    let suit_base = (tile / 9) * 9;
+    let pos = tile - suit_base;
+    let lo = pos.saturating_sub(2);
+    let hi = (pos + 2).min(8);
+    for p in lo..=hi {
+        if p == pos {
+            continue;
+        }
+        if counts[suit_base + p] >= 1 {
+            return true;
+        }
+    }
+    false
+}
+
 /// Fast inline equivalent of `score::calculate_score(han, fu, is_oya, tsumo=true,
 /// honba=0, 4-player) → tsumo_total_for_sp(...)`. Avoids the `Score` struct
 /// allocation and the honba/ron branches.
@@ -1937,12 +2046,12 @@ fn score_from_base(
     mods: ScoreMods,
 ) -> f32 {
     let extra_han = timing_extra_han(base, mods);
+    debug_assert_eq!(base.honba, 0, "SP base score must have honba=0");
     let base_total = if extra_han == 0 {
         base.total as f32
     } else {
-        let han = base.han.saturating_add(extra_han).min(13) as u8;
-        let score = score::calculate_score(han, base.fu as u8, base.is_oya, true, base.honba, 4);
-        tsumo_total_for_sp(score.pay_tsumo_oya, score.pay_tsumo_ko) as f32
+        let han = base.han.saturating_add(extra_han).min(13);
+        sp_tsumo_total_fast(han, base.fu, base.is_oya) as f32
     };
     if !base.apply_ura {
         return base_total;
@@ -1976,9 +2085,8 @@ fn score_from_base(
             .han
             .saturating_add(extra_han)
             .saturating_add(ura_count as u32)
-            .min(13) as u8;
-        let score = score::calculate_score(han, base.fu as u8, base.is_oya, true, base.honba, 4);
-        expected += prob * tsumo_total_for_sp(score.pay_tsumo_oya, score.pay_tsumo_ko) as f32;
+            .min(13);
+        expected += prob * sp_tsumo_total_fast(han, base.fu, base.is_oya) as f32;
     }
     expected.max(base_total)
 }
