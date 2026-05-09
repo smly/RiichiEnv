@@ -71,6 +71,36 @@ pub fn is_agari(hand: &mut Hand) -> bool {
 }
 
 pub fn find_divisions(hand: &Hand) -> Vec<Division> {
+    // Fast path: 14-tile standard hands → precomputed table lookup. The table
+    // returns canonical Divisions; we rebuild as `Vec<agari::Division>` for
+    // backward-compat callers (yaku::calculate_yaku, yaku_3p).
+    let total: u32 = hand.counts.iter().map(|&c| c as u32).sum();
+    if total == 14 {
+        let table_divs = crate::agari_table::lookup(&hand.counts);
+        if !table_divs.is_empty() {
+            return table_divs
+                .into_iter()
+                .map(|d| {
+                    let mut body = Vec::with_capacity((d.n_kotsu + d.n_shuntsu) as usize);
+                    for k in 0..d.n_kotsu as usize {
+                        body.push(Mentsu::Koutsu(d.kotsu_tiles[k]));
+                    }
+                    for s in 0..d.n_shuntsu as usize {
+                        body.push(Mentsu::Shuntsu(d.shuntsu_starts[s]));
+                    }
+                    Division {
+                        head: d.pair_tile,
+                        body,
+                    }
+                })
+                .collect();
+        }
+    }
+    // Fallback (non-14-tile, kokushi, chitoitsu, or table miss): recursive enum.
+    find_divisions_recursive(hand)
+}
+
+fn find_divisions_recursive(hand: &Hand) -> Vec<Division> {
     let mut divisions = Vec::new();
     for i in 0..TILE_MAX {
         if hand.counts[i] >= 2 {

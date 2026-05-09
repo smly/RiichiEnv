@@ -1294,6 +1294,16 @@ impl Observation {
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
+    /// Dump the SpInput derived from this observation as a JSON string. Used
+    /// by the Mortal numerical-comparison harness to feed identical inputs
+    /// into both implementations.
+    #[pyo3(name = "sp_input_json")]
+    pub fn sp_input_json_py(&self) -> PyResult<String> {
+        let input = crate::sp::SpInput::from_observation(self);
+        serde_json::to_string(&input)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
     /// Encode SP features as 123 channels.
     #[pyo3(name = "encode_sp")]
     pub fn encode_sp_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {

@@ -22,22 +22,28 @@ impl HandEvaluator {
     }
 
     pub fn new(tiles_136: Vec<u8>, melds: Vec<Meld>) -> Self {
-        let mut aka_dora_count = 0;
-        let mut tiles_34 = Vec::with_capacity(tiles_136.len());
+        Self::new_borrowed(&tiles_136, &melds)
+    }
 
-        for &t in &tiles_136 {
+    /// Like `new` but takes slices, avoiding the caller-side `clone()` in hot
+    /// paths (notably `sp::base_score_tsumo`, called ~250×/`calculate_sp` at
+    /// tenpai).
+    pub fn new_borrowed(tiles_136: &[u8], melds: &[Meld]) -> Self {
+        let mut aka_dora_count = 0;
+        // Write directly into Hand counters, skipping the intermediate tiles_34 Vec
+        // that the legacy `new` path used to allocate.
+        let mut full_hand = Hand::default();
+        for &t in tiles_136 {
             if t == 16 || t == 52 || t == 88 {
                 aka_dora_count += 1;
             }
-            tiles_34.push(t / 4);
+            full_hand.add(t / 4);
         }
-
-        let mut full_hand = Hand::new(Some(tiles_34));
         let mut hand = full_hand.clone();
 
         let mut internal_melds = Vec::with_capacity(melds.len());
 
-        for meld in &melds {
+        for meld in melds {
             let mut new_meld = meld.clone();
 
             if new_meld.meld_type == MeldType::Daiminkan
@@ -81,6 +87,18 @@ impl HandEvaluator {
         ura_indicators: Vec<u8>,
         conditions: Option<Conditions>,
     ) -> WinResult {
+        self.calc_borrowed(win_tile, &dora_indicators, &ura_indicators, conditions)
+    }
+
+    /// Like `calc` but takes slices for the indicator vectors. Used by SP's
+    /// hot path to avoid per-call `Vec<u8>` allocations.
+    pub fn calc_borrowed(
+        &self,
+        win_tile: u8,
+        dora_indicators: &[u8],
+        ura_indicators: &[u8],
+        conditions: Option<Conditions>,
+    ) -> WinResult {
         let win_tile_136 = win_tile;
         let conditions = conditions.unwrap_or_default();
         let win_tile_34 = win_tile_136 / 4;
@@ -102,13 +120,13 @@ impl HandEvaluator {
         }
 
         let mut dora_count = 0;
-        for &indicator_136 in &dora_indicators {
+        for &indicator_136 in dora_indicators {
             let next_tile_34 = get_next_tile(indicator_136 / 4);
             dora_count += full_hand_14.counts[next_tile_34 as usize];
         }
 
         let mut ura_dora_count = 0;
-        for &indicator_136 in &ura_indicators {
+        for &indicator_136 in ura_indicators {
             let next_tile_34 = get_next_tile(indicator_136 / 4);
             ura_dora_count += full_hand_14.counts[next_tile_34 as usize];
         }
@@ -136,7 +154,6 @@ impl HandEvaluator {
             is_menzen: self.melds.iter().all(|m| !m.opened),
         };
 
-        let _divisions = agari::find_divisions(&hand_14);
         let yaku_res = yaku::calculate_yaku(&hand_14, &self.melds, &ctx, win_tile_34);
 
         let is_oya = conditions.player_wind == Wind::East;

@@ -12,7 +12,8 @@ categories = ["game-engines", "simulation"]
 crate-type = ["rlib"]
 
 [dependencies]
-pyo3 = { version = "0.28", optional = true }
+# DEBUG-ONLY: pyo3 dep temporarily disabled to avoid links="python" conflict.
+# pyo3 = { version = "0.28", optional = true }
 thiserror = "2.0"
 derive_more = { version = "2.0", features = ["deref", "deref_mut", "into"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -23,6 +24,7 @@ sha2 = "0.10"
 hex = "0.4"
 ndarray = "0.17"
 base64 = "0.22"
+riichi = { path = "../../../Equim-chan/Mortal/libriichi", package = "libriichi", optional = true, default-features = false }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -37,5 +39,6 @@ harness = false
 
 [features]
 default = ["dep:flate2"]
-python = ["dep:pyo3", "dep:flate2"]
+python = []  # DEBUG-ONLY: pyo3 dep disabled, stub kept for #[cfg(...)] resolution
 wasm = []
+debug_mortal_sp = ["dep:riichi"]

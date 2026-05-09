@@ -1,3 +1,5 @@
 [workspace]
 resolver = "2"
-members = ["riichienv-core", "riichienv-python", "riichienv-wasm"]
+# DEBUG-ONLY: riichienv-python excluded for the debug_mortal_sp comparison.
+members = ["riichienv-core", "riichienv-wasm"]
+exclude = ["riichienv-python"]

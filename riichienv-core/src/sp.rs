@@ -7,16 +7,25 @@ use crate::hand_evaluator::HandEvaluator;
 use crate::observation::Observation;
 use crate::score;
 use crate::shanten;
-use crate::types::{Conditions, Meld, TILE_MAX, Wind};
+use crate::types::{Conditions, Meld, MeldType, TILE_MAX, Wind};
 
 pub const SP_MAX_TURNS: usize = 17;
 pub const SP_CHANNELS: usize = 123;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SpInput {
+    #[serde(with = "serde_arrays")]
     pub tehai: [u8; TILE_MAX],
     pub akas_in_hand: [bool; 3],
+    #[serde(with = "serde_arrays")]
     pub tiles_seen: [u8; TILE_MAX],
+    /// `[5mr, 5pr, 5sr]` — true if the corresponding red 5 is already visible
+    /// (own hand, any player's melds, dora indicators, any player's discards).
+    /// `false` means the red could still be in the wall and the DP will branch
+    /// draw events into "drew normal 5x" vs "drew the red 5x" sub-paths
+    /// (matching Mortal's `akas_in_wall` semantics).
+    #[serde(default)]
+    pub akas_seen: [bool; 3],
     pub dora_indicators: Vec<u8>,
     pub melds: Vec<Meld>,
     pub bakaze: u8,
@@ -26,6 +35,32 @@ pub struct SpInput {
     pub can_double_riichi: bool,
     pub tsumos_left: u8,
     pub discard_candidates: Vec<u8>,
+}
+
+mod serde_arrays {
+    //! [u8; 34] doesn't have built-in serde support; emit/parse as Vec<u8> with
+    //! a length check.
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::TILE_MAX;
+
+    pub fn serialize<S: Serializer>(v: &[u8; TILE_MAX], s: S) -> Result<S::Ok, S::Error> {
+        v.as_slice().serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; TILE_MAX], D::Error> {
+        let v: Vec<u8> = Vec::deserialize(d)?;
+        if v.len() != TILE_MAX {
+            return Err(serde::de::Error::custom(format!(
+                "expected {} elements, got {}",
+                TILE_MAX,
+                v.len()
+            )));
+        }
+        let mut out = [0u8; TILE_MAX];
+        out.copy_from_slice(&v);
+        Ok(out)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +102,13 @@ impl SpInput {
         }
 
         let mut tiles_seen = [0u8; TILE_MAX];
+        let mut akas_seen = akas_in_hand;
+        let mut mark_aka = |t: u32| match t {
+            16 => akas_seen[0] = true,
+            52 => akas_seen[1] = true,
+            88 => akas_seen[2] = true,
+            _ => {}
+        };
         for &tile in &obs.hands[player_idx] {
             add_seen(&mut tiles_seen, tile);
         }
@@ -74,17 +116,21 @@ impl SpInput {
             for meld in melds {
                 for &tile in &meld.tiles {
                     add_seen(&mut tiles_seen, tile as u32);
+                    mark_aka(tile as u32);
                 }
             }
         }
         for discards in &obs.discards {
             for &tile in discards {
                 add_seen(&mut tiles_seen, tile);
+                mark_aka(tile);
             }
         }
         for &tile in &obs.dora_indicators {
             add_seen(&mut tiles_seen, tile);
+            mark_aka(tile);
         }
+        drop(mark_aka);
 
         let mut discard_candidates = Vec::new();
         for action in &obs._legal_actions {
@@ -109,6 +155,7 @@ impl SpInput {
             tehai,
             akas_in_hand,
             tiles_seen,
+            akas_seen,
             dora_indicators: obs.dora_indicators.iter().map(|&x| x as u8).collect(),
             melds: obs.melds[player_idx].clone(),
             bakaze: obs.round_wind,
@@ -122,9 +169,141 @@ impl SpInput {
     }
 }
 
+/// DEBUG-ONLY: expose the leaf scoring path so the Mortal-comparison harness
+/// can localize EV interpretation differences. Returns (han, fu, total) for a
+/// menzen-tsumo or open-tsumo win on `win_tile` from the 13-tile `tehai_13`.
+#[doc(hidden)]
+pub fn __debug_score_for_win(
+    input: &SpInput,
+    tehai_13: &[u8; TILE_MAX],
+    win_tile: u8,
+) -> Option<(u32, u32, u32)> {
+    let base = base_score_tsumo(input, tehai_13, win_tile, input.akas_in_hand)?;
+    Some((base.han, base.fu, base.total))
+}
+
+/// Initial `akas_in_wall` from the input. Mortal's convention:
+///   `akas_in_wall = !akas_seen` (after `akas_seen` is OR-ed with `akas_in_hand`,
+///   since own akas are trivially "seen" by the player).
+fn initial_akas_in_wall(input: &SpInput) -> [bool; 3] {
+    let mut wall = [true; 3];
+    for i in 0..3 {
+        if input.akas_seen[i] || input.akas_in_hand[i] {
+            wall[i] = false;
+        }
+    }
+    wall
+}
+
+/// Update `akas_in_hand` to reflect discarding `tile` from `counts` (pre-discard).
+/// Mortal's convention: when only one copy of a 5x is in hand and the red is in
+/// hand, the discarded tile *is* the red. Otherwise the discard removes a
+/// regular and aka stays.
+fn aka_after_discard(
+    akas: [bool; 3],
+    counts: &[u8; TILE_MAX],
+    tile: u8,
+) -> [bool; 3] {
+    let red_idx = match tile {
+        4 => 0,
+        13 => 1,
+        22 => 2,
+        _ => return akas,
+    };
+    if akas[red_idx] && counts[tile as usize] == 1 {
+        let mut next = akas;
+        next[red_idx] = false;
+        #[cfg(feature = "debug_mortal_sp")]
+        debug_aka_log::record_aka_drop(tile, red_idx);
+        next
+    } else {
+        akas
+    }
+}
+
+#[cfg(feature = "debug_mortal_sp")]
+pub mod debug_aka_log {
+    use std::cell::Cell;
+    thread_local! {
+        static DROPS: Cell<u32> = const { Cell::new(0) };
+    }
+    pub fn record_aka_drop(_tile: u8, _red_idx: usize) {
+        DROPS.with(|c| c.set(c.get() + 1));
+    }
+    pub fn drain_drops() -> u32 {
+        DROPS.with(|c| {
+            let v = c.get();
+            c.set(0);
+            v
+        })
+    }
+}
+
+/// DEBUG-ONLY: thread-local log of all (counts_13, win_tile, han, fu, total)
+/// triples observed at DP leaves during a single calculate_sp call. The
+/// Mortal-comparison harness drains this to localize EV diffs.
+#[cfg(feature = "debug_mortal_sp")]
+pub mod debug_leaf_log {
+    use super::TILE_MAX;
+    use std::cell::RefCell;
+
+    #[derive(Clone)]
+    pub struct LeafEntry {
+        pub counts_13: [u8; TILE_MAX],
+        pub win_tile: u8,
+        pub han: u32,
+        pub fu: u32,
+        pub total: u32,
+    }
+
+    thread_local! {
+        static LOG: RefCell<Vec<LeafEntry>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub fn record(
+        counts_13: &[u8; TILE_MAX],
+        win_tile: u8,
+        han: u32,
+        fu: u32,
+        total: u32,
+    ) {
+        LOG.with(|l| {
+            l.borrow_mut().push(LeafEntry {
+                counts_13: *counts_13,
+                win_tile,
+                han,
+                fu,
+                total,
+            })
+        });
+    }
+
+    thread_local! {
+        static AKA_LOG: RefCell<Vec<([u8; TILE_MAX], u8, [bool; 3])>> =
+            const { RefCell::new(Vec::new()) };
+    }
+    pub fn record_with_akas(
+        counts_13: &[u8; TILE_MAX],
+        win_tile: u8,
+        akas: [bool; 3],
+        han: u32,
+        fu: u32,
+        total: u32,
+    ) {
+        AKA_LOG.with(|l| l.borrow_mut().push((*counts_13, win_tile, akas)));
+        record(counts_13, win_tile, han, fu, total);
+    }
+    pub fn drain_akas() -> Vec<([u8; TILE_MAX], u8, [bool; 3])> {
+        AKA_LOG.with(|l| std::mem::take(&mut *l.borrow_mut()))
+    }
+
+    pub fn drain() -> Vec<LeafEntry> {
+        LOG.with(|l| std::mem::take(&mut *l.borrow_mut()))
+    }
+}
+
 pub fn calculate_sp(input: &SpInput) -> SpResult {
-    let mut candidates = Vec::new();
-    let discard_tiles = if input.discard_candidates.is_empty() {
+    let raw_discard_tiles: Vec<u8> = if input.discard_candidates.is_empty() {
         input
             .tehai
             .iter()
@@ -140,37 +319,78 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
 
     let mut dp = DpContext::new(input);
 
-    for tile in discard_tiles {
+    // First pass: compute the post-discard shanten for every candidate so we
+    // know which discards are "shanten-maintaining" (= optimal). Mortal-style
+    // pre-filtering: only the optimal-shanten discards run the full DP; the
+    // shanten-down ones use the cheap probability_series approximation.
+    let mut prepared: Vec<(u8, [u8; TILE_MAX], i8)> =
+        Vec::with_capacity(raw_discard_tiles.len());
+    let mut best_shanten = i8::MAX;
+    for tile in raw_discard_tiles {
         let tile_idx = tile as usize;
         if tile_idx >= TILE_MAX || input.tehai[tile_idx] == 0 {
             continue;
         }
-
         let mut after_discard = input.tehai;
         after_discard[tile_idx] -= 1;
-        let shanten_after = shanten_of_counts(&after_discard);
-        let required_tiles = required_tiles(&after_discard, &remaining, shanten_after);
-        let num_required_tiles = required_tiles.iter().sum::<f32>();
+        let s = dp.shanten(&after_discard);
+        best_shanten = best_shanten.min(s);
+        prepared.push((tile, after_discard, s));
+    }
 
-        let mut scoring = score_waits(&mut dp, &after_discard, &remaining);
-        let yaku_progress_tiles =
-            yaku_progress_tiles(&mut dp, &after_discard, &remaining, shanten_after);
+    let mut candidates = Vec::with_capacity(prepared.len());
+    for (tile, after_discard, shanten_after) in prepared {
+        let is_optimal = shanten_after == best_shanten;
+
+        // At tenpai (the hot per-candidate case), `required_tiles`,
+        // `score_waits`, and `yaku_progress_tiles` all enumerate the same wait
+        // set; fuse them into one 34-tile pass with cached shanten lookups.
+        let (required_tiles, mut scoring, yaku_progress_tiles) = if shanten_after == 0 {
+            fused_tenpai_pass(&mut dp, &after_discard, &remaining)
+        } else {
+            let req = required_tiles(&after_discard, &remaining, shanten_after);
+            let sc = score_waits(&mut dp, &after_discard, &remaining);
+            let yp = yaku_progress_tiles(&mut dp, &after_discard, &remaining, shanten_after);
+            (req, sc, yp)
+        };
+        let num_required_tiles = required_tiles.iter().sum::<f32>();
         let num_yaku_progress_tiles = yaku_progress_tiles.iter().sum::<f32>();
 
         if scoring.mean_point <= 0.0 {
             scoring.mean_point = rough_point_estimate(input, &after_discard);
         }
 
-        let (tenpai_probs, win_probs, exp_values) = series_for_candidate(
-            &mut dp,
-            &after_discard,
-            &remaining,
-            shanten_after,
-            num_required_tiles,
-            scoring.wait_count,
-            scoring.mean_point,
-            total_remaining,
-        );
+        // Aka tracking through the outer-loop discard: if `tile` is a 5x and
+        // the only copy was the red one, the player no longer has it.
+        let post_discard_akas = aka_after_discard(input.akas_in_hand, &input.tehai, tile);
+
+        let (tenpai_probs, win_probs, exp_values) = if is_optimal {
+            let waits = (shanten_after == 0).then_some(&required_tiles);
+            series_for_candidate(
+                &mut dp,
+                &after_discard,
+                &remaining,
+                shanten_after,
+                num_required_tiles,
+                scoring.wait_count,
+                scoring.mean_point,
+                total_remaining,
+                post_discard_akas,
+                waits,
+            )
+        } else {
+            // Shanten-down discard: skip the expensive DP and use the
+            // closed-form probability_series approximation. Same code path the
+            // shanten ≥ 4 fallback already takes.
+            series_for_candidate_approx(
+                shanten_after,
+                num_required_tiles,
+                scoring.wait_count,
+                scoring.mean_point,
+                total_remaining,
+                (input.tsumos_left as usize).min(SP_MAX_TURNS),
+            )
+        };
 
         candidates.push(SpCandidate {
             tile,
@@ -336,6 +556,49 @@ fn required_tiles(
     out
 }
 
+/// Fused tenpai (`shanten == 0`) pass: in one 34-tile loop, compute
+/// `required_tiles`, the `ScoringSummary`, and `yaku_progress_tiles`. All three
+/// of these enumerate the same wait set and share the same `score_tsumo`
+/// evaluations, so doing them separately costs ~3× the wall-time at tenpai
+/// (which is the hottest per-discard case in real play). We use the cached
+/// `dp.shanten` / `dp.score_tsumo` paths so the inner shanten check and the
+/// per-wait point lookup are both hash-amortized.
+fn fused_tenpai_pass(
+    dp: &mut DpContext<'_>,
+    counts: &[u8; TILE_MAX],
+    remaining: &[u8; TILE_MAX],
+) -> ([f32; TILE_MAX], ScoringSummary, [f32; TILE_MAX]) {
+    let mut required = [0.0f32; TILE_MAX];
+    let mut yaku_progress = [0.0f32; TILE_MAX];
+    let mut scoring = ScoringSummary {
+        wait_count: 0.0,
+        min_point: 0.0,
+        mean_point: 0.0,
+        high_point: 0.0,
+    };
+    let mut next = *counts;
+    for tile in 0..TILE_MAX {
+        if remaining[tile] == 0 || counts[tile] >= 4 {
+            continue;
+        }
+        next[tile] += 1;
+        let s_after = dp.shanten(&next);
+        next[tile] -= 1;
+        if s_after >= 0 {
+            // Not a wait — drawing this tile does not complete the hand.
+            continue;
+        }
+        required[tile] = remaining[tile] as f32;
+        if let Some(point) =
+            dp.score_tsumo(counts, remaining, tile as u8, ScoreMods::default())
+        {
+            yaku_progress[tile] = remaining[tile] as f32;
+            merge_point(&mut scoring, point, remaining[tile] as f32);
+        }
+    }
+    (required, scoring, yaku_progress)
+}
+
 fn yaku_progress_tiles(
     dp: &mut DpContext<'_>,
     counts: &[u8; TILE_MAX],
@@ -499,16 +762,49 @@ fn series_for_candidate(
     wait_count: f32,
     mean_point: f32,
     total_remaining: f32,
+    akas_in_hand: [bool; 3],
+    waits_for_tenpai: Option<&[f32; TILE_MAX]>,
 ) -> (
     [f32; SP_MAX_TURNS],
     [f32; SP_MAX_TURNS],
     [f32; SP_MAX_TURNS],
 ) {
-    let horizon = dp.input.tsumos_left as usize;
-    if shanten_after_discard <= 3 {
-        return dp.series(counts, remaining, horizon);
+    let horizon = (dp.input.tsumos_left as usize).min(SP_MAX_TURNS);
+    // Fast path: at tenpai we already discovered the wait set during
+    // `fused_tenpai_pass`; reuse it instead of going through `draw_dp` (which
+    // would re-enumerate 34 tiles, hash a `DpKey`, and iterate the same waits).
+    if shanten_after_discard == 0
+        && let Some(waits) = waits_for_tenpai
+    {
+        return dp.tenpai_series_from_waits(counts, remaining, waits, akas_in_hand);
     }
+    if shanten_after_discard <= SHANTEN_THRES {
+        return dp.series_with_akas(counts, remaining, horizon, akas_in_hand);
+    }
+    series_for_candidate_approx(
+        shanten_after_discard,
+        required_count,
+        wait_count,
+        mean_point,
+        total_remaining,
+        horizon,
+    )
+}
 
+/// Cheap closed-form approximation used for non-optimal (shanten-down) discards
+/// and for hands at shanten ≥ 4 where running the full DP is wasteful.
+fn series_for_candidate_approx(
+    shanten_after_discard: i8,
+    required_count: f32,
+    wait_count: f32,
+    mean_point: f32,
+    total_remaining: f32,
+    horizon: usize,
+) -> (
+    [f32; SP_MAX_TURNS],
+    [f32; SP_MAX_TURNS],
+    [f32; SP_MAX_TURNS],
+) {
     let (tenpai, win) = probability_series(
         shanten_after_discard,
         required_count,
@@ -589,6 +885,14 @@ impl Default for Values {
 struct DpKey {
     counts: [u8; TILE_MAX],
     remaining: [u8; TILE_MAX],
+    /// `[5mr, 5pr, 5sr]` — true if the corresponding red 5 is still in the
+    /// player's in-hand portion. Updated by discard transitions.
+    akas_in_hand: [bool; 3],
+    /// `[5mr, 5pr, 5sr]` — true if the corresponding red 5 might still be in
+    /// the wall (= !seen so far). Drawing a 5x with the red still in the wall
+    /// branches into "drew normal 5x" vs "drew the red"; the red branch sets
+    /// `akas_in_hand[i] = true` and `akas_in_wall[i] = false`.
+    akas_in_wall: [bool; 3],
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -610,6 +914,7 @@ struct ScoreKey {
 struct BaseScoreKey {
     counts: [u8; TILE_MAX],
     win_tile: u8,
+    akas_in_hand: [bool; 3],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -617,6 +922,8 @@ struct ScoreVecKey {
     counts_14: [u8; TILE_MAX],
     remaining_after_win: [u8; TILE_MAX],
     win_tile: u8,
+    /// Aka state at the leaf — affects han via aka dora count.
+    akas_in_hand: [bool; 3],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -704,9 +1011,12 @@ impl<'a> DpContext<'a> {
         win_tile: u8,
         mods: ScoreMods,
     ) -> Option<f32> {
+        // Helpers used here (score_waits, yaku_progress) call us with the
+        // initial input.akas_in_hand state — they don't run inside the DP.
+        let akas = self.input.akas_in_hand;
         if self.input.dora_indicators.is_empty() {
             return self
-                .base_score_tsumo(counts, win_tile)
+                .base_score_tsumo(counts, win_tile, akas)
                 .map(|base| score_from_base(self.input, base, counts, remaining, win_tile, mods))
                 .or_else(|| {
                     mods.haitei
@@ -726,7 +1036,7 @@ impl<'a> DpContext<'a> {
         }
 
         let score = self
-            .base_score_tsumo(counts, win_tile)
+            .base_score_tsumo(counts, win_tile, akas)
             .map(|base| score_from_base(self.input, base, counts, remaining, win_tile, mods) as u32)
             .or_else(|| {
                 mods.haitei
@@ -738,16 +1048,22 @@ impl<'a> DpContext<'a> {
         score.map(|point| point as f32)
     }
 
-    fn base_score_tsumo(&mut self, counts: &[u8; TILE_MAX], win_tile: u8) -> Option<BaseScore> {
+    fn base_score_tsumo(
+        &mut self,
+        counts: &[u8; TILE_MAX],
+        win_tile: u8,
+        akas_in_hand: [bool; 3],
+    ) -> Option<BaseScore> {
         let key = BaseScoreKey {
             counts: *counts,
             win_tile,
+            akas_in_hand,
         };
         if let Some(&cached) = self.base_score_cache.get(&key) {
             return cached;
         }
 
-        let score = base_score_tsumo(self.input, counts, win_tile);
+        let score = base_score_tsumo(self.input, counts, win_tile, akas_in_hand);
         self.base_score_cache.insert(key, score);
         score
     }
@@ -785,6 +1101,23 @@ impl<'a> DpContext<'a> {
         [f32; SP_MAX_TURNS],
         [f32; SP_MAX_TURNS],
     ) {
+        // Default: use the input's initial aka state. Callers that already
+        // adjusted aka (e.g. discarded the red 5xr externally) should call
+        // `series_with_akas` directly.
+        self.series_with_akas(counts, remaining, tsumos_left, self.input.akas_in_hand)
+    }
+
+    fn series_with_akas(
+        &mut self,
+        counts: &[u8; TILE_MAX],
+        remaining: &[u8; TILE_MAX],
+        tsumos_left: usize,
+        akas_in_hand: [bool; 3],
+    ) -> (
+        [f32; SP_MAX_TURNS],
+        [f32; SP_MAX_TURNS],
+        [f32; SP_MAX_TURNS],
+    ) {
         let mut tenpai = [0.0; SP_MAX_TURNS];
         let mut win = [0.0; SP_MAX_TURNS];
         let mut ev = [0.0; SP_MAX_TURNS];
@@ -799,13 +1132,14 @@ impl<'a> DpContext<'a> {
 
         let s = self.shanten(counts);
         if s < 0 || s > SHANTEN_THRES {
-            // shanten > 3 は呼び出し側 (series_for_candidate) で別経路を使う想定。
             return (tenpai, win, ev);
         }
 
         let key = DpKey {
             counts: *counts,
             remaining: *remaining,
+            akas_in_hand,
+            akas_in_wall: initial_akas_in_wall(self.input),
         };
         let values = self.draw_dp(key, s);
 
@@ -823,6 +1157,136 @@ impl<'a> DpContext<'a> {
             }
         }
         (tenpai, win, ev)
+    }
+
+    /// Closed-form `series_with_akas` for the tenpai (`shanten==0`) case.
+    /// Skips the full `draw_dp` cache lookup + 34-tile re-enumeration by taking
+    /// the wait set as input. Wait tiles come from `fused_tenpai_pass`, so the
+    /// caller has already paid the shanten checks.
+    ///
+    /// Per-call this avoids: (a) `DpKey` hashing for the draw cache, (b) a
+    /// second full 34-tile loop in `draw_dp_slow`, (c) repeated cached-shanten
+    /// lookups that we just performed. The arithmetic (per-wait probability
+    /// series, aka draw branching, ippatsu/double-riichi/haitei bonuses) is
+    /// the same as `draw_dp_slow` at `shanten == 0`.
+    fn tenpai_series_from_waits(
+        &mut self,
+        counts_13: &[u8; TILE_MAX],
+        remaining: &[u8; TILE_MAX],
+        wait_tiles: &[f32; TILE_MAX],
+        akas_in_hand: [bool; 3],
+    ) -> (
+        [f32; SP_MAX_TURNS],
+        [f32; SP_MAX_TURNS],
+        [f32; SP_MAX_TURNS],
+    ) {
+        let mut tenpai_out = [0.0f32; SP_MAX_TURNS];
+        let mut win_out = [0.0f32; SP_MAX_TURNS];
+        let mut exp_out = [0.0f32; SP_MAX_TURNS];
+
+        let horizon = (self.input.tsumos_left as usize).min(SP_MAX_TURNS);
+        if horizon == 0 {
+            return (tenpai_out, win_out, exp_out);
+        }
+        for i in 0..horizon {
+            tenpai_out[i] = 1.0;
+        }
+
+        let n_left = remaining.iter().map(|&v| v as u32).sum::<u32>();
+        self.ensure_prob_tables(n_left, horizon);
+
+        let mut sum_required: u32 = 0;
+        for &c in wait_tiles {
+            sum_required += c as u32;
+        }
+        if sum_required == 0 {
+            return (tenpai_out, win_out, exp_out);
+        }
+
+        let assume_riichi = self.input.is_menzen && self.input.can_riichi;
+        let calc_double_riichi = assume_riichi && self.input.can_double_riichi;
+        let last_turn_idx = horizon - 1;
+        let akas_in_wall = initial_akas_in_wall(self.input);
+
+        let total_idx = (sum_required as usize).min(self.not_tsumo_prob.len() - 1);
+        let not_tsumo: [f32; SP_MAX_TURNS] = self.not_tsumo_prob[total_idx];
+
+        // Internal accumulators are absolute-turn indexed (matches `draw_dp_slow`'s
+        // `Values`); we reverse-map to horizon-distance at the end.
+        let mut win_abs = [0.0f32; SP_MAX_TURNS];
+        let mut exp_abs = [0.0f32; SP_MAX_TURNS];
+
+        let mut accumulate = |dp: &mut Self,
+                              tile: u8,
+                              sub_count: u32,
+                              scoring_akas: [bool; 3],
+                              win_abs: &mut [f32; SP_MAX_TURNS],
+                              exp_abs: &mut [f32; SP_MAX_TURNS]| {
+            if sub_count == 0 {
+                return;
+            }
+            let scores = dp.score_vector_for_win(counts_13, remaining, tile, scoring_akas);
+            let Some(scores) = scores else { return };
+            let tsumo_row: [f32; SP_MAX_TURNS] =
+                dp.tsumo_prob[(sub_count as usize - 1).min(3)];
+            for i in 0..horizon {
+                let m = not_tsumo[i];
+                if m == 0.0 {
+                    break;
+                }
+                let m_inv = 1.0 / m;
+                let dbl_at_i = if calc_double_riichi && i == 0 { 1 } else { 0 };
+                for j in i..horizon {
+                    let n = not_tsumo[j];
+                    if n == 0.0 {
+                        break;
+                    }
+                    let prob = tsumo_row[j] * n * m_inv;
+                    let ipp = if assume_riichi && j == i { 1 } else { 0 };
+                    let hai = if j == last_turn_idx { 1 } else { 0 };
+                    let han_plus = (dbl_at_i + ipp + hai).min(3);
+                    win_abs[i] += prob;
+                    exp_abs[i] += prob * scores[han_plus];
+                }
+            }
+        };
+
+        for tile_idx in 0..TILE_MAX {
+            let count = wait_tiles[tile_idx] as u32;
+            if count == 0 {
+                continue;
+            }
+            let tile = tile_idx as u8;
+            // Mortal-style aka draw branching for 5m/5p/5s waits.
+            let red_idx = match tile {
+                4 => Some(0),
+                13 => Some(1),
+                22 => Some(2),
+                _ => None,
+            };
+            let split = red_idx
+                .map(|i| akas_in_wall[i] && !akas_in_hand[i])
+                .unwrap_or(false);
+            if split {
+                let i = red_idx.unwrap();
+                let mut akas_red = akas_in_hand;
+                akas_red[i] = true;
+                if count >= 2 {
+                    accumulate(self, tile, count - 1, akas_in_hand, &mut win_abs, &mut exp_abs);
+                }
+                accumulate(self, tile, 1, akas_red, &mut win_abs, &mut exp_abs);
+            } else {
+                accumulate(self, tile, count, akas_in_hand, &mut win_abs, &mut exp_abs);
+            }
+        }
+
+        // Map absolute turn → horizon distance:  ours[i] = abs[N - 1 - i].
+        for i in 0..horizon {
+            let v_idx = horizon - 1 - i;
+            win_out[i] = win_abs[v_idx].clamp(0.0, 1.0);
+            exp_out[i] = exp_abs[v_idx].max(0.0);
+        }
+        (tenpai_out, win_out, exp_out)
     }
 
     fn draw_dp(&mut self, key: DpKey, shanten: i8) -> Rc<Values> {
@@ -864,9 +1328,14 @@ impl<'a> DpContext<'a> {
                 // 向聴維持のみ。向聴落としは現状サポートしない。
                 continue;
             }
+            // Aka tracking: when the only copy of a 5x in hand is discarded
+            // and the player is holding the red one, that red is now gone.
+            let next_akas = aka_after_discard(key.akas_in_hand, &key.counts, tile as u8);
             let next_key = DpKey {
                 counts: next_counts,
                 remaining: key.remaining,
+                akas_in_hand: next_akas,
+                akas_in_wall: key.akas_in_wall,
             };
             let v = self.draw_dp(next_key, shanten);
             for i in 0..horizon {
@@ -940,12 +1409,25 @@ impl<'a> DpContext<'a> {
         let total_idx = (sum_required as usize).min(self.not_tsumo_prob.len() - 1);
         let not_tsumo: [f32; SP_MAX_TURNS] = self.not_tsumo_prob[total_idx];
 
-        for k in 0..n_eff {
-            let (tile, count) = effective[k];
-            let tsumo_row: [f32; SP_MAX_TURNS] = self.tsumo_prob[(count as usize - 1).min(3)];
+        // Helper that processes a single (sub_count, akas_in_hand_after) draw
+        // sub-branch and accumulates into tenpai/win/exp. We invoke it once
+        // per sub-branch when splitting a 5x draw into normal/red.
+        #[allow(unused_mut)]
+        let process_branch = |dp: &mut Self,
+                                  tile: u8,
+                                  sub_count: u8,
+                                  next_in_hand: [bool; 3],
+                                  next_in_wall: [bool; 3],
+                                  tenpai: &mut [f32; SP_MAX_TURNS],
+                                  win: &mut [f32; SP_MAX_TURNS],
+                                  exp: &mut [f32; SP_MAX_TURNS]| {
+            if sub_count == 0 {
+                return;
+            }
+            let tsumo_row: [f32; SP_MAX_TURNS] =
+                dp.tsumo_prob[(sub_count as usize - 1).min(3)];
 
             if shanten > 0 {
-                // 有効牌を引いた次状態 (14 枚, shanten - 1) に対する打牌DPへ再帰
                 let mut next_counts = key.counts;
                 next_counts[tile as usize] += 1;
                 let mut next_remaining = key.remaining;
@@ -953,8 +1435,10 @@ impl<'a> DpContext<'a> {
                 let next_key = DpKey {
                     counts: next_counts,
                     remaining: next_remaining,
+                    akas_in_hand: next_in_hand,
+                    akas_in_wall: next_in_wall,
                 };
-                let next_v = self.discard_dp(next_key, shanten - 1);
+                let next_v = dp.discard_dp(next_key, shanten - 1);
 
                 for i in 0..horizon {
                     let m = not_tsumo[i];
@@ -982,10 +1466,12 @@ impl<'a> DpContext<'a> {
                     }
                 }
             } else {
-                // shanten == 0: 引いた牌が和了牌
-                let scores = self.score_vector_for_win(&key.counts, &key.remaining, tile);
+                // shanten == 0: leaf. Score the agari with the post-draw aka
+                // state so a "drew red 5x" branch picks up the extra dora.
+                let scores =
+                    dp.score_vector_for_win(&key.counts, &key.remaining, tile, next_in_hand);
                 let Some(scores) = scores else {
-                    continue;
+                    return;
                 };
                 for i in 0..horizon {
                     let m = not_tsumo[i];
@@ -1008,6 +1494,63 @@ impl<'a> DpContext<'a> {
                     }
                 }
             }
+        };
+
+        for k in 0..n_eff {
+            let (tile, count) = effective[k];
+            // Mortal-style draw-side aka branching: when a 5m/5p/5s is drawn
+            // and the red is still in the wall, split into "drew normal" vs
+            // "drew red". The two branches re-converge at the same tile_type
+            // but differ in akas_in_hand for downstream scoring.
+            let red_idx = match tile {
+                4 => Some(0),
+                13 => Some(1),
+                22 => Some(2),
+                _ => None,
+            };
+            let split = red_idx
+                .map(|i| key.akas_in_wall[i] && !key.akas_in_hand[i])
+                .unwrap_or(false);
+            if split {
+                let i = red_idx.unwrap();
+                let mut next_in_hand_red = key.akas_in_hand;
+                next_in_hand_red[i] = true;
+                let mut next_in_wall_red = key.akas_in_wall;
+                next_in_wall_red[i] = false;
+                if count >= 2 {
+                    process_branch(
+                        self,
+                        tile,
+                        count - 1,
+                        key.akas_in_hand,
+                        key.akas_in_wall,
+                        &mut tenpai,
+                        &mut win,
+                        &mut exp,
+                    );
+                }
+                process_branch(
+                    self,
+                    tile,
+                    1,
+                    next_in_hand_red,
+                    next_in_wall_red,
+                    &mut tenpai,
+                    &mut win,
+                    &mut exp,
+                );
+            } else {
+                process_branch(
+                    self,
+                    tile,
+                    count,
+                    key.akas_in_hand,
+                    key.akas_in_wall,
+                    &mut tenpai,
+                    &mut win,
+                    &mut exp,
+                );
+            }
         }
 
         for i in 0..horizon {
@@ -1023,11 +1566,13 @@ impl<'a> DpContext<'a> {
 
     /// 和了牌 `win_tile` を引いて上がる場合の点数を、追加役 (timing han) 0..3 ごとに計算した配列。
     /// `counts_13` は引く前の手牌、`remaining_pre` は引く前の残り枚数。
+    /// `akas_in_hand` は DP path 上で更新済の赤 5 in-hand フラグ。
     fn score_vector_for_win(
         &mut self,
         counts_13: &[u8; TILE_MAX],
         remaining_pre: &[u8; TILE_MAX],
         win_tile: u8,
+        akas_in_hand: [bool; 3],
     ) -> Option<[f32; 4]> {
         let mut counts_14 = *counts_13;
         counts_14[win_tile as usize] += 1;
@@ -1039,12 +1584,14 @@ impl<'a> DpContext<'a> {
             counts_14,
             remaining_after_win,
             win_tile,
+            akas_in_hand,
         };
         if let Some(&cached) = self.score_vec_cache.get(&key) {
             return cached;
         }
 
-        let result = self.score_vector_for_win_compute(counts_13, remaining_pre, win_tile);
+        let result =
+            self.score_vector_for_win_compute(counts_13, remaining_pre, win_tile, akas_in_hand);
         self.score_vec_cache.insert(key, result);
         result
     }
@@ -1054,8 +1601,13 @@ impl<'a> DpContext<'a> {
         counts_13: &[u8; TILE_MAX],
         remaining_pre: &[u8; TILE_MAX],
         win_tile: u8,
+        akas_in_hand: [bool; 3],
     ) -> Option<[f32; 4]> {
-        let base = self.base_score_tsumo(counts_13, win_tile)?;
+        let base = self.base_score_tsumo(counts_13, win_tile, akas_in_hand)?;
+        #[cfg(feature = "debug_mortal_sp")]
+        debug_leaf_log::record_with_akas(
+            counts_13, win_tile, akas_in_hand, base.han, base.fu, base.total,
+        );
 
         let calc_with_han = |delta: u32| -> f32 {
             let han = (base.han + delta).min(13) as u8;
@@ -1235,7 +1787,7 @@ fn score_tsumo_with_mods(
     win_tile: u8,
     mods: ScoreMods,
 ) -> Option<f32> {
-    base_score_tsumo(input, counts_13, win_tile)
+    base_score_tsumo(input, counts_13, win_tile, input.akas_in_hand)
         .map(|base| score_from_base(input, base, counts_13, remaining, win_tile, mods))
         .or_else(|| {
             mods.haitei
@@ -1244,27 +1796,90 @@ fn score_tsumo_with_mods(
         })
 }
 
+#[cfg(feature = "debug_mortal_sp")]
+pub mod base_score_calls {
+    use std::cell::Cell;
+    thread_local! {
+        static N: Cell<u64> = const { Cell::new(0) };
+    }
+    pub fn bump() {
+        N.with(|c| c.set(c.get() + 1));
+    }
+    pub fn drain() -> u64 {
+        N.with(|c| {
+            let v = c.get();
+            c.set(0);
+            v
+        })
+    }
+}
+
 fn base_score_tsumo(
     input: &SpInput,
     counts_13: &[u8; TILE_MAX],
     win_tile: u8,
+    akas_in_hand: [bool; 3],
 ) -> Option<BaseScore> {
     if counts_13[win_tile as usize] >= 4 {
         return None;
     }
-    let tiles = counts_to_136(counts_13, input.akas_in_hand);
-    let evaluator = HandEvaluator::new(tiles, input.melds.clone());
+    #[cfg(feature = "debug_mortal_sp")]
+    base_score_calls::bump();
+
+    // Phase 3 lean fast path: bypasses HandEvaluator + yaku::calculate_yaku for
+    // standard 14-tile tsumo wins. Verified equivalent to the legacy path on
+    // every leaf of every real-replay sample. Falls back to the legacy path
+    // for shapes the lean path doesn't handle (yakuman, chitoitsu, kokushi,
+    // hands with kans).
+    let is_oya = wind_from_tile(input.jikaze) == Wind::East;
+    let assume_riichi = input.is_menzen && input.can_riichi;
+    // Skip the lean attempt entirely if the hand contains kans — lean rejects
+    // these and the failed attempt would just cost extra work.
+    let has_kan = input.melds.iter().any(|m| {
+        matches!(
+            m.meld_type,
+            MeldType::Daiminkan | MeldType::Ankan | MeldType::Kakan
+        )
+    });
+    if !has_kan
+        && let Some(lean) =
+            crate::sp_yaku::compute_for_sp_tsumo(input, counts_13, win_tile, akas_in_hand)
+        && lean.han > 0
+    {
+        let s = score::calculate_score(
+            lean.han.min(13) as u8,
+            lean.fu as u8,
+            is_oya,
+            true,
+            0,
+            4,
+        );
+        let base_total = tsumo_total_for_sp(s.pay_tsumo_oya, s.pay_tsumo_ko);
+        return Some(BaseScore {
+            total: base_total,
+            han: lean.han,
+            fu: lean.fu,
+            is_oya,
+            riichi: assume_riichi,
+            apply_ura: assume_riichi && !lean.yakuman && !input.dora_indicators.is_empty(),
+            honba: 0,
+        });
+    }
+
+    // Legacy fallback path (allocates HandEvaluator + Vec).
+    let (tiles, tlen) = counts_to_136_stack(counts_13, akas_in_hand);
+    let evaluator = HandEvaluator::new_borrowed(&tiles[..tlen], &input.melds);
     let conditions = Conditions {
         tsumo: true,
-        riichi: input.is_menzen && input.can_riichi,
+        riichi: assume_riichi,
         player_wind: wind_from_tile(input.jikaze),
         round_wind: wind_from_tile(input.bakaze),
         ..Conditions::default()
     };
-    let result = evaluator.calc(
+    let result = evaluator.calc_borrowed(
         tile_type_to_136(win_tile, false),
-        input.dora_indicators.clone(),
-        vec![],
+        &input.dora_indicators,
+        &[],
         Some(conditions.clone()),
     );
     if !result.is_win {
@@ -1363,8 +1978,8 @@ fn exact_score_tsumo(
     if counts_13[win_tile as usize] >= 4 {
         return None;
     }
-    let tiles = counts_to_136(counts_13, input.akas_in_hand);
-    let evaluator = HandEvaluator::new(tiles, input.melds.clone());
+    let (tiles, tlen) = counts_to_136_stack(counts_13, input.akas_in_hand);
+    let evaluator = HandEvaluator::new_borrowed(&tiles[..tlen], &input.melds);
     let conditions = Conditions {
         tsumo: true,
         riichi: input.is_menzen && input.can_riichi,
@@ -1375,10 +1990,10 @@ fn exact_score_tsumo(
         round_wind: wind_from_tile(input.bakaze),
         ..Conditions::default()
     };
-    let result = evaluator.calc(
+    let result = evaluator.calc_borrowed(
         tile_type_to_136(win_tile, false),
-        input.dora_indicators.clone(),
-        vec![],
+        &input.dora_indicators,
+        &[],
         Some(conditions),
     );
     result
@@ -1465,8 +2080,19 @@ fn combination_f64(n: usize, k: usize) -> f64 {
     out
 }
 
+/// Total points received by the winner on tsumo (4-player rules).
+///
+/// `Score::pay_tsumo_oya` / `pay_tsumo_ko` semantics from `score::calculate_score`:
+///   - ko (non-dealer) tsumo: oya pays `pay_tsumo_oya` (= 2x ko share), each ko pays `pay_tsumo_ko`,
+///     total = pay_oya + 2 * pay_ko.
+///   - oya (dealer)    tsumo: every ko pays `pay_tsumo_ko`, oya entry is 0,
+///     total = 3 * pay_ko.
 fn tsumo_total_for_sp(pay_tsumo_oya: u32, pay_tsumo_ko: u32) -> u32 {
-    pay_tsumo_oya + pay_tsumo_ko.saturating_mul(2)
+    if pay_tsumo_oya == 0 {
+        pay_tsumo_ko.saturating_mul(3)
+    } else {
+        pay_tsumo_oya + pay_tsumo_ko.saturating_mul(2)
+    }
 }
 
 fn rough_point_estimate(input: &SpInput, counts: &[u8; TILE_MAX]) -> f32 {
@@ -1483,8 +2109,13 @@ fn rough_point_estimate(input: &SpInput, counts: &[u8; TILE_MAX]) -> f32 {
     base + dora * 1000.0
 }
 
-fn counts_to_136(counts: &[u8; TILE_MAX], akas_in_hand: [bool; 3]) -> Vec<u8> {
-    let mut tiles = Vec::new();
+/// Stack-allocated 14-tile buffer (mahjong hands cap at 14 tiles).
+/// Returns `(tiles, len)` so the caller can pass `&tiles[..len]` to
+/// `HandEvaluator::new_borrowed` with zero heap allocation.
+#[inline]
+fn counts_to_136_stack(counts: &[u8; TILE_MAX], akas_in_hand: [bool; 3]) -> ([u8; 14], usize) {
+    let mut tiles = [0u8; 14];
+    let mut len = 0usize;
     for (tile, &count) in counts.iter().enumerate() {
         let red_index = match tile {
             4 => Some(0),
@@ -1497,14 +2128,16 @@ fn counts_to_136(counts: &[u8; TILE_MAX], akas_in_hand: [bool; 3]) -> Vec<u8> {
             && akas_in_hand[red_index]
             && count > 0
         {
-            tiles.push(tile_type_to_136(tile as u8, true));
+            tiles[len] = tile_type_to_136(tile as u8, true);
+            len += 1;
             emitted = 1;
         }
         for copy in emitted..count {
-            tiles.push((tile as u8) * 4 + copy + if red_index.is_some() { 1 } else { 0 });
+            tiles[len] = (tile as u8) * 4 + copy + if red_index.is_some() { 1 } else { 0 };
+            len += 1;
         }
     }
-    tiles
+    (tiles, len)
 }
 
 fn tile_type_to_136(tile: u8, red: bool) -> u8 {
@@ -1526,7 +2159,7 @@ fn wind_from_tile(tile: u8) -> Wind {
     Wind::from(wind)
 }
 
-fn next_dora_tile(tile_type: u8) -> u8 {
+pub(crate) fn next_dora_tile(tile_type: u8) -> u8 {
     match tile_type {
         0..=7 | 9..=16 | 18..=25 => tile_type + 1,
         8 => 0,
@@ -1568,6 +2201,7 @@ mod tests {
             tehai,
             akas_in_hand: [false; 3],
             tiles_seen: seen,
+            akas_seen: [false; 3],
             dora_indicators: vec![],
             melds: vec![],
             bakaze: 27,
