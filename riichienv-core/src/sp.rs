@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::action::ActionType;
 use crate::hand_evaluator::HandEvaluator;
 use crate::observation::Observation;
+use crate::score;
 use crate::shanten;
 use crate::types::{Conditions, Meld, TILE_MAX, Wind};
 
@@ -20,6 +22,7 @@ pub struct SpInput {
     pub jikaze: u8,
     pub is_menzen: bool,
     pub can_riichi: bool,
+    pub can_double_riichi: bool,
     pub tsumos_left: u8,
     pub discard_candidates: Vec<u8>,
 }
@@ -96,11 +99,10 @@ impl SpInput {
         discard_candidates.sort_unstable();
 
         let rel_seat = (obs.player_id + 4 - obs.oya) % 4;
-        let can_riichi = obs.riichi_declared[player_idx]
-            || obs
-                ._legal_actions
-                .iter()
-                .any(|a| matches!(a.action_type, ActionType::Riichi));
+        let can_riichi = obs.riichi_declared[player_idx] || obs.scores[player_idx] >= 1000;
+        let can_double_riichi = can_riichi
+            && obs.discards.iter().all(Vec::is_empty)
+            && obs.melds.iter().all(Vec::is_empty);
 
         Self {
             tehai,
@@ -112,6 +114,7 @@ impl SpInput {
             jikaze: 27 + rel_seat,
             is_menzen: obs.melds[player_idx].iter().all(|m| !m.opened),
             can_riichi,
+            can_double_riichi,
             tsumos_left: remaining_self_draws(obs),
             discard_candidates,
         }
@@ -339,7 +342,7 @@ fn yaku_progress_tiles(
     current_shanten: i8,
 ) -> [f32; TILE_MAX] {
     let mut out = [0.0; TILE_MAX];
-    if current_shanten > 3 {
+    if current_shanten > 1 {
         return out;
     }
 
@@ -349,7 +352,10 @@ fn yaku_progress_tiles(
         }
 
         if current_shanten == 0 {
-            if dp.score_tsumo(counts, tile as u8).is_some() {
+            if dp
+                .score_tsumo(counts, remaining, tile as u8, ScoreMods::default())
+                .is_some()
+            {
                 out[tile] = remaining[tile] as f32;
             }
             continue;
@@ -357,10 +363,12 @@ fn yaku_progress_tiles(
 
         let mut drawn = *counts;
         drawn[tile] += 1;
+        let mut next_remaining = *remaining;
+        next_remaining[tile] -= 1;
         if shanten_of_counts(&drawn) >= current_shanten {
             continue;
         }
-        if has_yaku_tenpai_after_best_discard(dp, &drawn) {
+        if has_yaku_tenpai_after_best_discard(dp, &drawn, &next_remaining) {
             out[tile] = remaining[tile] as f32;
         }
     }
@@ -386,7 +394,7 @@ fn score_waits(
         if remaining[tile] == 0 || counts[tile] >= 4 {
             continue;
         }
-        if let Some(point) = dp.score_tsumo(counts, tile as u8) {
+        if let Some(point) = dp.score_tsumo(counts, remaining, tile as u8, ScoreMods::default()) {
             let weight = remaining[tile] as f32;
             merge_point(&mut scoring, point, weight);
         }
@@ -406,8 +414,18 @@ fn merge_point(scoring: &mut ScoringSummary, point: f32, weight: f32) {
     }
 }
 
-fn has_yaku_tenpai_after_best_discard(dp: &mut DpContext<'_>, counts_14: &[u8; TILE_MAX]) -> bool {
-    if let Some(&cached) = dp.yaku_tenpai_cache.get(counts_14) {
+fn has_yaku_tenpai_after_best_discard(
+    dp: &mut DpContext<'_>,
+    counts_14: &[u8; TILE_MAX],
+    remaining: &[u8; TILE_MAX],
+) -> bool {
+    let key = YakuTenpaiKey {
+        counts: *counts_14,
+        remaining: *remaining,
+        elapsed_turns: 0,
+        turns_left: 0,
+    };
+    if let Some(&cached) = dp.yaku_tenpai_cache.get(&key) {
         return cached;
     }
 
@@ -429,10 +447,16 @@ fn has_yaku_tenpai_after_best_discard(dp: &mut DpContext<'_>, counts_14: &[u8; T
         }
     }
 
-    let result = tenpai_counts
-        .iter()
-        .any(|counts| (0..TILE_MAX).any(|tile| dp.score_tsumo(counts, tile as u8).is_some()));
-    dp.yaku_tenpai_cache.insert(*counts_14, result);
+    let result = tenpai_counts.iter().any(|counts| {
+        (0..TILE_MAX).any(|tile| {
+            remaining[tile] > 0
+                && counts[tile] < 4
+                && dp
+                    .score_tsumo(counts, remaining, tile as u8, ScoreMods::default())
+                    .is_some()
+        })
+    });
+    dp.yaku_tenpai_cache.insert(key, result);
     result
 }
 
@@ -498,57 +522,220 @@ fn series_for_candidate(
     (tenpai, win, ev)
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-struct DpOutcome {
-    tenpai_prob: f32,
-    win_prob: f32,
-    exp_value: f32,
+const SHANTEN_THRES: i8 = 3;
+/// 13枚の手牌と、自摸可能な残り牌の最大合計枚数 (= 34*4 - 13 - 1).
+const MAX_TILES_LEFT: usize = TILE_MAX * 4 - 1 - 13;
+
+/// 各「絶対巡目 i」に対するDP値ベクトル。
+/// `i` は「DPホライズンの先頭 (turn 0) から数えた現在巡目」で、
+/// `Values.tenpai[i]` などは「i 巡目以降にこの状態から到達する各事象の確率/期待値」。
+#[derive(Clone)]
+struct Values {
+    tenpai: [f32; SP_MAX_TURNS],
+    win: [f32; SP_MAX_TURNS],
+    exp: [f32; SP_MAX_TURNS],
+}
+
+impl Default for Values {
+    fn default() -> Self {
+        Self {
+            tenpai: [0.0; SP_MAX_TURNS],
+            win: [0.0; SP_MAX_TURNS],
+            exp: [0.0; SP_MAX_TURNS],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct DpKey {
     counts: [u8; TILE_MAX],
     remaining: [u8; TILE_MAX],
-    turns_left: u8,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+struct ScoreMods {
+    ippatsu: bool,
+    double_riichi: bool,
+    haitei: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ScoreKey {
     counts: [u8; TILE_MAX],
+    remaining: [u8; TILE_MAX],
     win_tile: u8,
+    mods: ScoreMods,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct BaseScoreKey {
+    counts: [u8; TILE_MAX],
+    win_tile: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ScoreVecKey {
+    counts_14: [u8; TILE_MAX],
+    remaining_after_win: [u8; TILE_MAX],
+    win_tile: u8,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BaseScore {
+    total: u32,
+    han: u32,
+    fu: u32,
+    is_oya: bool,
+    riichi: bool,
+    apply_ura: bool,
+    honba: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct YakuTenpaiKey {
+    counts: [u8; TILE_MAX],
+    remaining: [u8; TILE_MAX],
+    elapsed_turns: u8,
+    turns_left: u8,
 }
 
 struct DpContext<'a> {
     input: &'a SpInput,
-    memo: HashMap<DpKey, DpOutcome>,
+    /// 計算したいホライズン (= 入力 tsumos_left).
+    horizon: usize,
+    /// 山+他家手牌などの未公開牌合計枚数 (= sum(remaining)).
+    n_left_tiles: u32,
+
+    /// `tsumo_prob[c][j]`: 残り c+1 枚の特定種別を巡目 j で引く確率。
+    /// 内部で残り山枚数の減少 `(n_left_tiles - j)` を反映済み。
+    tsumo_prob: [[f32; SP_MAX_TURNS]; 4],
+    /// `not_tsumo_prob[total][j]`: 有効牌が合計 `total` 枚あるとき、巡目 j-1 までに
+    /// 一度も引けなかった確率。`[*][0] = 1.0`.
+    not_tsumo_prob: Vec<[f32; SP_MAX_TURNS]>,
+
+    /// shanten ごとの DP キャッシュ (0..=SHANTEN_THRES).
+    discard_cache: [HashMap<DpKey, Rc<Values>>; (SHANTEN_THRES + 1) as usize],
+    draw_cache: [HashMap<DpKey, Rc<Values>>; (SHANTEN_THRES + 1) as usize],
+
+    /// leaf (tenpai) 時の点数表 (timing-han 0..=3).
+    score_vec_cache: HashMap<ScoreVecKey, Option<[f32; 4]>>,
+
+    shanten_cache: HashMap<[u8; TILE_MAX], i8>,
     score_cache: HashMap<ScoreKey, Option<u32>>,
-    yaku_tenpai_cache: HashMap<[u8; TILE_MAX], bool>,
+    base_score_cache: HashMap<BaseScoreKey, Option<BaseScore>>,
+    yaku_tenpai_cache: HashMap<YakuTenpaiKey, bool>,
 }
 
 impl<'a> DpContext<'a> {
     fn new(input: &'a SpInput) -> Self {
+        let horizon = (input.tsumos_left as usize).min(SP_MAX_TURNS).max(1);
+        let remaining = remaining_counts(input);
+        let n_left_tiles = remaining.iter().map(|&v| v as u32).sum::<u32>();
+        let tsumo_prob = build_tsumo_prob_table(n_left_tiles, horizon);
+        let not_tsumo_prob = build_not_tsumo_prob_table(n_left_tiles, horizon);
         Self {
             input,
-            memo: HashMap::new(),
+            horizon,
+            n_left_tiles,
+            tsumo_prob,
+            not_tsumo_prob,
+            discard_cache: Default::default(),
+            draw_cache: Default::default(),
+            score_vec_cache: HashMap::new(),
+            shanten_cache: HashMap::new(),
             score_cache: HashMap::new(),
+            base_score_cache: HashMap::new(),
             yaku_tenpai_cache: HashMap::new(),
         }
     }
 
-    fn score_tsumo(&mut self, counts: &[u8; TILE_MAX], win_tile: u8) -> Option<f32> {
+    fn shanten(&mut self, counts: &[u8; TILE_MAX]) -> i8 {
+        if let Some(&cached) = self.shanten_cache.get(counts) {
+            return cached;
+        }
+        let shanten = shanten_of_counts(counts);
+        self.shanten_cache.insert(*counts, shanten);
+        shanten
+    }
+
+    fn score_tsumo(
+        &mut self,
+        counts: &[u8; TILE_MAX],
+        remaining: &[u8; TILE_MAX],
+        win_tile: u8,
+        mods: ScoreMods,
+    ) -> Option<f32> {
+        if self.input.dora_indicators.is_empty() {
+            return self
+                .base_score_tsumo(counts, win_tile)
+                .map(|base| score_from_base(self.input, base, counts, remaining, win_tile, mods))
+                .or_else(|| {
+                    mods.haitei
+                        .then(|| exact_score_tsumo(self.input, counts, win_tile, mods))
+                        .flatten()
+                });
+        }
+
         let key = ScoreKey {
             counts: *counts,
+            remaining: *remaining,
             win_tile,
+            mods,
         };
         if let Some(&cached) = self.score_cache.get(&key) {
             return cached.map(|point| point as f32);
         }
 
-        let score = score_tsumo(self.input, counts, win_tile).map(|point| point as u32);
+        let score = self
+            .base_score_tsumo(counts, win_tile)
+            .map(|base| score_from_base(self.input, base, counts, remaining, win_tile, mods) as u32)
+            .or_else(|| {
+                mods.haitei
+                    .then(|| exact_score_tsumo(self.input, counts, win_tile, mods))
+                    .flatten()
+                    .map(|point| point as u32)
+            });
         self.score_cache.insert(key, score);
         score.map(|point| point as f32)
     }
 
+    fn base_score_tsumo(&mut self, counts: &[u8; TILE_MAX], win_tile: u8) -> Option<BaseScore> {
+        let key = BaseScoreKey {
+            counts: *counts,
+            win_tile,
+        };
+        if let Some(&cached) = self.base_score_cache.get(&key) {
+            return cached;
+        }
+
+        let score = base_score_tsumo(self.input, counts, win_tile);
+        self.base_score_cache.insert(key, score);
+        score
+    }
+
+    /// 入力 `remaining` の合計枚数に応じて確率テーブルを構築/再構築する。
+    /// テーブル依存のキャッシュ (discard_cache, draw_cache, score_vec_cache) も同時に無効化する。
+    fn ensure_prob_tables(&mut self, n_left: u32, horizon: usize) {
+        if self.n_left_tiles == n_left && self.horizon == horizon {
+            return;
+        }
+        self.horizon = horizon.max(1);
+        self.n_left_tiles = n_left;
+        self.tsumo_prob = build_tsumo_prob_table(n_left, self.horizon);
+        self.not_tsumo_prob = build_not_tsumo_prob_table(n_left, self.horizon);
+        for c in &mut self.discard_cache {
+            c.clear();
+        }
+        for c in &mut self.draw_cache {
+            c.clear();
+        }
+        // score_vec_cache は (counts, remaining, win_tile) で識別され、
+        // 確率テーブルに依存しないので再利用可能。
+    }
+
+    /// `series[i]`: 「i+1 巡先までに到達する各事象の確率/期待値」を返す。
+    /// 内部では Mortal 流の「ターン位置 i に対する Values<MAX_TSUMOS>」を一回だけ計算し、
+    /// `series[i] = Values[N - 1 - i]` として読み出す。
     fn series(
         &mut self,
         counts: &[u8; TILE_MAX],
@@ -562,225 +749,370 @@ impl<'a> DpContext<'a> {
         let mut tenpai = [0.0; SP_MAX_TURNS];
         let mut win = [0.0; SP_MAX_TURNS];
         let mut ev = [0.0; SP_MAX_TURNS];
+
         let horizon = tsumos_left.min(SP_MAX_TURNS);
-        for turns in 1..=horizon {
-            let outcome = self.eval(counts, remaining, turns as u8);
-            tenpai[turns - 1] = outcome.tenpai_prob;
-            win[turns - 1] = outcome.win_prob;
-            ev[turns - 1] = outcome.exp_value;
+        if horizon == 0 {
+            return (tenpai, win, ev);
+        }
+
+        let n_left = remaining.iter().map(|&v| v as u32).sum::<u32>();
+        self.ensure_prob_tables(n_left, horizon);
+
+        let s = self.shanten(counts);
+        if s < 0 || s > SHANTEN_THRES {
+            // shanten > 3 は呼び出し側 (series_for_candidate) で別経路を使う想定。
+            return (tenpai, win, ev);
+        }
+
+        let key = DpKey {
+            counts: *counts,
+            remaining: *remaining,
+        };
+        let values = self.draw_dp(key, s);
+
+        // 「i+1 巡先 = 残り i+1 巡」を Values[N-1-i] に対応付ける。
+        for i in 0..horizon {
+            let v_idx = horizon - 1 - i;
+            tenpai[i] = values.tenpai[v_idx];
+            win[i] = values.win[v_idx];
+            ev[i] = values.exp[v_idx];
+        }
+        if s == 0 {
+            // すでに聴牌している場合は tenpai_probs を 1 で埋める
+            for i in 0..horizon {
+                tenpai[i] = 1.0;
+            }
         }
         (tenpai, win, ev)
     }
 
-    fn eval(
+    fn draw_dp(&mut self, key: DpKey, shanten: i8) -> Rc<Values> {
+        debug_assert!((0..=SHANTEN_THRES).contains(&shanten));
+        if let Some(v) = self.draw_cache[shanten as usize].get(&key) {
+            return Rc::clone(v);
+        }
+        let v = Rc::new(self.draw_dp_slow(&key, shanten));
+        self.draw_cache[shanten as usize].insert(key, Rc::clone(&v));
+        v
+    }
+
+    fn discard_dp(&mut self, key: DpKey, shanten: i8) -> Rc<Values> {
+        debug_assert!((0..=SHANTEN_THRES).contains(&shanten));
+        if let Some(v) = self.discard_cache[shanten as usize].get(&key) {
+            return Rc::clone(v);
+        }
+        let v = Rc::new(self.discard_dp_slow(&key, shanten));
+        self.discard_cache[shanten as usize].insert(key, Rc::clone(&v));
+        v
+    }
+
+    /// 14 枚の手牌から、現 shanten を維持する打牌のうち最善のものを選び、その Values を返す。
+    fn discard_dp_slow(&mut self, key: &DpKey, shanten: i8) -> Values {
+        let horizon = self.horizon;
+        let mut best_tenpai = [f32::MIN; SP_MAX_TURNS];
+        let mut best_win = [f32::MIN; SP_MAX_TURNS];
+        let mut best_exp = [f32::MIN; SP_MAX_TURNS];
+        let mut any_valid = false;
+
+        for tile in 0..TILE_MAX {
+            if key.counts[tile] == 0 {
+                continue;
+            }
+            let mut next_counts = key.counts;
+            next_counts[tile] -= 1;
+            let s = self.shanten(&next_counts);
+            if s != shanten {
+                // 向聴維持のみ。向聴落としは現状サポートしない。
+                continue;
+            }
+            let next_key = DpKey {
+                counts: next_counts,
+                remaining: key.remaining,
+            };
+            let v = self.draw_dp(next_key, shanten);
+            for i in 0..horizon {
+                if !any_valid || v.exp[i] > best_exp[i] {
+                    best_tenpai[i] = v.tenpai[i];
+                    best_win[i] = v.win[i];
+                    best_exp[i] = v.exp[i];
+                }
+            }
+            any_valid = true;
+        }
+
+        let mut out = Values::default();
+        if !any_valid {
+            return out;
+        }
+        for i in 0..horizon {
+            out.tenpai[i] = if best_tenpai[i] == f32::MIN {
+                0.0
+            } else {
+                best_tenpai[i]
+            };
+            out.win[i] = if best_win[i] == f32::MIN {
+                0.0
+            } else {
+                best_win[i]
+            };
+            out.exp[i] = if best_exp[i] == f32::MIN {
+                0.0
+            } else {
+                best_exp[i]
+            };
+        }
+        out
+    }
+
+    /// 13 枚の手牌から「自摸を1回引く」DP。shanten==0 ならその自摸が和了牌。
+    fn draw_dp_slow(&mut self, key: &DpKey, shanten: i8) -> Values {
+        let horizon = self.horizon;
+        let assume_riichi = self.input.is_menzen && self.input.can_riichi;
+        let calc_double_riichi = assume_riichi && self.input.can_double_riichi;
+        let last_turn_idx = horizon - 1;
+
+        // 有効牌を列挙し、合計枚数を計算する。
+        let mut effective: [(u8, u8); 34] = [(0, 0); 34];
+        let mut n_eff: usize = 0;
+        let mut sum_required: u32 = 0;
+        for tile in 0..TILE_MAX {
+            let count = key.remaining[tile];
+            if count == 0 || key.counts[tile] >= 4 {
+                continue;
+            }
+            let mut next_counts = key.counts;
+            next_counts[tile] += 1;
+            let s_after = self.shanten(&next_counts);
+            if s_after < shanten {
+                effective[n_eff] = (tile as u8, count);
+                n_eff += 1;
+                sum_required += count as u32;
+            }
+        }
+
+        let mut tenpai = [0.0f32; SP_MAX_TURNS];
+        let mut win = [0.0f32; SP_MAX_TURNS];
+        let mut exp = [0.0f32; SP_MAX_TURNS];
+        if n_eff == 0 {
+            return Values { tenpai, win, exp };
+        }
+
+        // 借用回避のため確率テーブル行を局所コピーする (各 [f32; 17] = 68 バイト).
+        let total_idx = (sum_required as usize).min(self.not_tsumo_prob.len() - 1);
+        let not_tsumo: [f32; SP_MAX_TURNS] = self.not_tsumo_prob[total_idx];
+
+        for k in 0..n_eff {
+            let (tile, count) = effective[k];
+            let tsumo_row: [f32; SP_MAX_TURNS] = self.tsumo_prob[(count as usize - 1).min(3)];
+
+            if shanten > 0 {
+                // 有効牌を引いた次状態 (14 枚, shanten - 1) に対する打牌DPへ再帰
+                let mut next_counts = key.counts;
+                next_counts[tile as usize] += 1;
+                let mut next_remaining = key.remaining;
+                next_remaining[tile as usize] -= 1;
+                let next_key = DpKey {
+                    counts: next_counts,
+                    remaining: next_remaining,
+                };
+                let next_v = self.discard_dp(next_key, shanten - 1);
+
+                for i in 0..horizon {
+                    let m = not_tsumo[i];
+                    if m == 0.0 {
+                        break;
+                    }
+                    let m_inv = 1.0 / m;
+                    for j in i..horizon {
+                        let n = not_tsumo[j];
+                        if n == 0.0 {
+                            break;
+                        }
+                        let prob = tsumo_row[j] * n * m_inv;
+                        if shanten == 1 {
+                            tenpai[i] += prob;
+                        }
+                        if j + 1 < horizon {
+                            let nj = j + 1;
+                            if shanten > 1 {
+                                tenpai[i] += prob * next_v.tenpai[nj];
+                            }
+                            win[i] += prob * next_v.win[nj];
+                            exp[i] += prob * next_v.exp[nj];
+                        }
+                    }
+                }
+            } else {
+                // shanten == 0: 引いた牌が和了牌
+                let scores = self.score_vector_for_win(&key.counts, &key.remaining, tile);
+                let Some(scores) = scores else {
+                    continue;
+                };
+                for i in 0..horizon {
+                    let m = not_tsumo[i];
+                    if m == 0.0 {
+                        break;
+                    }
+                    let m_inv = 1.0 / m;
+                    let dbl_at_i = if calc_double_riichi && i == 0 { 1 } else { 0 };
+                    for j in i..horizon {
+                        let n = not_tsumo[j];
+                        if n == 0.0 {
+                            break;
+                        }
+                        let prob = tsumo_row[j] * n * m_inv;
+                        let ipp = if assume_riichi && j == i { 1 } else { 0 };
+                        let hai = if j == last_turn_idx { 1 } else { 0 };
+                        let han_plus = (dbl_at_i + ipp + hai).min(3);
+                        win[i] += prob;
+                        exp[i] += prob * scores[han_plus];
+                    }
+                }
+            }
+        }
+
+        for i in 0..horizon {
+            tenpai[i] = tenpai[i].clamp(0.0, 1.0);
+            win[i] = win[i].clamp(0.0, 1.0);
+            if exp[i] < 0.0 {
+                exp[i] = 0.0;
+            }
+        }
+
+        Values { tenpai, win, exp }
+    }
+
+    /// 和了牌 `win_tile` を引いて上がる場合の点数を、追加役 (timing han) 0..3 ごとに計算した配列。
+    /// `counts_13` は引く前の手牌、`remaining_pre` は引く前の残り枚数。
+    fn score_vector_for_win(
         &mut self,
-        counts: &[u8; TILE_MAX],
-        remaining: &[u8; TILE_MAX],
-        turns_left: u8,
-    ) -> DpOutcome {
-        let key = DpKey {
-            counts: *counts,
-            remaining: *remaining,
-            turns_left,
+        counts_13: &[u8; TILE_MAX],
+        remaining_pre: &[u8; TILE_MAX],
+        win_tile: u8,
+    ) -> Option<[f32; 4]> {
+        let mut counts_14 = *counts_13;
+        counts_14[win_tile as usize] += 1;
+        let mut remaining_after_win = *remaining_pre;
+        remaining_after_win[win_tile as usize] =
+            remaining_after_win[win_tile as usize].saturating_sub(1);
+
+        let key = ScoreVecKey {
+            counts_14,
+            remaining_after_win,
+            win_tile,
         };
-        if let Some(&cached) = self.memo.get(&key) {
+        if let Some(&cached) = self.score_vec_cache.get(&key) {
             return cached;
         }
 
-        let current = DpOutcome {
-            tenpai_prob: if self.has_yaku_wait(counts, remaining) {
-                1.0
-            } else {
-                0.0
-            },
-            win_prob: 0.0,
-            exp_value: 0.0,
-        };
-        if turns_left == 0 {
-            self.memo.insert(key, current);
-            return current;
-        }
-
-        if self.has_yaku_wait(counts, remaining) {
-            let outcome = self.tenpai_wait_outcome(counts, remaining, turns_left);
-            self.memo.insert(key, outcome);
-            return outcome;
-        }
-
-        let current_shanten = shanten_of_counts(counts);
-        if !(1..=3).contains(&current_shanten) {
-            self.memo.insert(key, current);
-            return current;
-        }
-
-        let total = remaining.iter().map(|&x| x as f32).sum::<f32>();
-        if total <= 0.0 {
-            self.memo.insert(key, current);
-            return current;
-        }
-
-        let effective = required_tiles(counts, remaining, current_shanten);
-        let effective_total = effective.iter().sum::<f32>();
-        if effective_total <= 0.0 {
-            self.memo.insert(key, current);
-            return current;
-        }
-
-        let mut outcome = DpOutcome::default();
-        let mut no_effective_before = 1.0f32;
-        for first_effective_turn in 1..=turns_left {
-            let denom = total - (first_effective_turn - 1) as f32;
-            if denom <= 0.0 {
-                break;
-            }
-
-            for draw in 0..TILE_MAX {
-                if effective[draw] <= 0.0 {
-                    continue;
-                }
-                let p_draw = no_effective_before * (remaining[draw] as f32 / denom).clamp(0.0, 1.0);
-                if p_draw <= 0.0 {
-                    continue;
-                }
-
-                let mut next_remaining = *remaining;
-                next_remaining[draw] -= 1;
-                let mut counts_14 = *counts;
-                counts_14[draw] += 1;
-                let branch = self.best_after_discard(
-                    &counts_14,
-                    &next_remaining,
-                    turns_left - first_effective_turn,
-                );
-                outcome.tenpai_prob += p_draw * branch.tenpai_prob;
-                outcome.win_prob += p_draw * branch.win_prob;
-                outcome.exp_value += p_draw * branch.exp_value;
-            }
-
-            no_effective_before *= (1.0 - effective_total / denom).clamp(0.0, 1.0);
-        }
-
-        outcome.tenpai_prob = outcome.tenpai_prob.clamp(0.0, 1.0);
-        outcome.win_prob = outcome.win_prob.clamp(0.0, 1.0);
-        self.memo.insert(key, outcome);
-        outcome
+        let result = self.score_vector_for_win_compute(counts_13, remaining_pre, win_tile);
+        self.score_vec_cache.insert(key, result);
+        result
     }
 
-    fn tenpai_wait_outcome(
+    fn score_vector_for_win_compute(
         &mut self,
-        counts: &[u8; TILE_MAX],
-        remaining: &[u8; TILE_MAX],
-        turns_left: u8,
-    ) -> DpOutcome {
-        let mut wait_points = [0.0f32; TILE_MAX];
-        let mut wait_total = 0.0f32;
-        for tile in 0..TILE_MAX {
-            if remaining[tile] == 0 || counts[tile] >= 4 {
-                continue;
-            }
-            if let Some(point) = self.score_tsumo(counts, tile as u8) {
-                wait_points[tile] = point;
-                wait_total += remaining[tile] as f32;
-            }
-        }
+        counts_13: &[u8; TILE_MAX],
+        remaining_pre: &[u8; TILE_MAX],
+        win_tile: u8,
+    ) -> Option<[f32; 4]> {
+        let base = self.base_score_tsumo(counts_13, win_tile)?;
 
-        let total = remaining.iter().map(|&x| x as f32).sum::<f32>();
-        let mut outcome = DpOutcome {
-            tenpai_prob: 1.0,
-            ..DpOutcome::default()
+        let calc_with_han = |delta: u32| -> f32 {
+            let han = (base.han + delta).min(13) as u8;
+            let s = score::calculate_score(han, base.fu as u8, base.is_oya, true, base.honba, 4);
+            tsumo_total_for_sp(s.pay_tsumo_oya, s.pay_tsumo_ko) as f32
         };
-        if wait_total <= 0.0 || total <= 0.0 {
-            return outcome;
+
+        let mut out = [0.0f32; 4];
+        if !base.apply_ura {
+            for k in 0..4 {
+                out[k] = calc_with_han(k as u32);
+            }
+            return Some(out);
         }
 
-        let mut no_wait_before = 1.0f32;
-        for turn in 1..=turns_left {
-            let denom = total - (turn - 1) as f32;
-            if denom <= 0.0 {
-                break;
+        // 裏ドラ分布を一度だけ計算
+        let mut full_counts = *counts_13;
+        full_counts[win_tile as usize] += 1;
+        for meld in &self.input.melds {
+            for &tile in &meld.tiles {
+                let tt = (tile / 4) as usize;
+                if tt < TILE_MAX {
+                    full_counts[tt] += 1;
+                }
             }
-            for tile in 0..TILE_MAX {
-                if wait_points[tile] <= 0.0 {
+        }
+        let mut remaining_after_win = *remaining_pre;
+        remaining_after_win[win_tile as usize] =
+            remaining_after_win[win_tile as usize].saturating_sub(1);
+        let ura_dist = ura_distribution(
+            &full_counts,
+            &remaining_after_win,
+            self.input.dora_indicators.len(),
+        );
+
+        for k in 0..4 {
+            let mut expected = 0.0f32;
+            for (u, &p) in ura_dist.iter().enumerate() {
+                if p <= 0.0 {
                     continue;
                 }
-                let p = no_wait_before * (remaining[tile] as f32 / denom).clamp(0.0, 1.0);
-                outcome.win_prob += p;
-                outcome.exp_value += p * wait_points[tile];
+                expected += p * calc_with_han(k as u32 + u as u32);
             }
-            no_wait_before *= (1.0 - wait_total / denom).clamp(0.0, 1.0);
+            let no_bonus = calc_with_han(k as u32);
+            out[k] = expected.max(no_bonus);
         }
-
-        outcome.win_prob = outcome.win_prob.clamp(0.0, 1.0);
-        outcome
-    }
-
-    fn best_after_discard(
-        &mut self,
-        counts_14: &[u8; TILE_MAX],
-        remaining: &[u8; TILE_MAX],
-        turns_left: u8,
-    ) -> DpOutcome {
-        let best_shanten = (0..TILE_MAX)
-            .filter(|&discard| counts_14[discard] > 0)
-            .map(|discard| {
-                let mut next_counts = *counts_14;
-                next_counts[discard] -= 1;
-                shanten_of_counts(&next_counts)
-            })
-            .min();
-        let Some(best_shanten) = best_shanten else {
-            return DpOutcome::default();
-        };
-
-        let mut best: Option<DpOutcome> = None;
-        for discard in 0..TILE_MAX {
-            if counts_14[discard] == 0 {
-                continue;
-            }
-            let mut next_counts = *counts_14;
-            next_counts[discard] -= 1;
-            let shanten = shanten_of_counts(&next_counts);
-            if shanten != best_shanten || shanten > 3 {
-                continue;
-            }
-            let outcome = self.eval(&next_counts, remaining, turns_left);
-            if best.is_none_or(|current| is_better_dp(outcome, current)) {
-                best = Some(outcome);
-            }
-        }
-        best.unwrap_or_default()
-    }
-
-    fn has_yaku_wait(&mut self, counts: &[u8; TILE_MAX], remaining: &[u8; TILE_MAX]) -> bool {
-        if shanten_of_counts(counts) != 0 {
-            return false;
-        }
-        (0..TILE_MAX).any(|tile| {
-            remaining[tile] > 0
-                && counts[tile] < 4
-                && self.score_tsumo(counts, tile as u8).is_some()
-        })
+        Some(out)
     }
 }
 
-fn is_better_dp(candidate: DpOutcome, current: DpOutcome) -> bool {
-    candidate
-        .exp_value
-        .partial_cmp(&current.exp_value)
-        .unwrap_or(std::cmp::Ordering::Equal)
-        .then_with(|| {
-            candidate
-                .win_prob
-                .partial_cmp(&current.win_prob)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .then_with(|| {
-            candidate
-                .tenpai_prob
-                .partial_cmp(&current.tenpai_prob)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .is_gt()
+/// `tsumo_prob[c][j]`: 残り c+1 枚の特定種別を巡目 j で引く確率。
+/// 山の総枚数は巡目 j ごとに 1 ずつ減る前提 (denominator = n_left - j)。
+fn build_tsumo_prob_table(n_left: u32, horizon: usize) -> [[f32; SP_MAX_TURNS]; 4] {
+    let mut table = [[0.0f32; SP_MAX_TURNS]; 4];
+    if n_left == 0 {
+        return table;
+    }
+    let max_j = horizon.min(SP_MAX_TURNS);
+    for c in 0..4 {
+        let count = (c + 1) as f32;
+        for j in 0..max_j {
+            let denom = n_left as i64 - j as i64;
+            if denom <= 0 {
+                break;
+            }
+            table[c][j] = count / denom as f32;
+        }
+    }
+    table
+}
+
+/// `not_tsumo_prob[total][j]`: 有効牌が合計 `total` 枚あるとき、巡目 j-1 までに
+/// 一度も引けなかった確率。`[*][0] = 1.0`、`[total > n_left]` 行は `[0]` のみ 1.
+fn build_not_tsumo_prob_table(n_left: u32, horizon: usize) -> Vec<[f32; SP_MAX_TURNS]> {
+    let rows = MAX_TILES_LEFT + 1;
+    let mut table = vec![[0.0f32; SP_MAX_TURNS]; rows];
+    let max_j = horizon.min(SP_MAX_TURNS);
+    let n_left_i = n_left as i64;
+    for (i, row) in table.iter_mut().enumerate() {
+        if (i as u32) > n_left {
+            row[0] = 1.0;
+            continue;
+        }
+        row[0] = 1.0;
+        let useful = i as i64;
+        let last = (max_j - 1).min((n_left_i - useful).max(0) as usize);
+        for j in 0..last {
+            let useless_remaining = n_left_i - useful - j as i64;
+            let total_remaining = n_left_i - j as i64;
+            if useless_remaining <= 0 || total_remaining <= 0 {
+                break;
+            }
+            row[j + 1] = row[j] * (useless_remaining as f32 / total_remaining as f32);
+        }
+    }
+    table
 }
 
 fn at_least_one_prob(success_count: f32, total_count: f32, turns: usize) -> f32 {
@@ -846,7 +1178,38 @@ fn combination(n: usize, k: usize) -> f32 {
     out
 }
 
-fn score_tsumo(input: &SpInput, counts_13: &[u8; TILE_MAX], win_tile: u8) -> Option<f32> {
+#[cfg(test)]
+fn score_tsumo(
+    input: &SpInput,
+    counts_13: &[u8; TILE_MAX],
+    remaining: &[u8; TILE_MAX],
+    win_tile: u8,
+) -> Option<f32> {
+    score_tsumo_with_mods(input, counts_13, remaining, win_tile, ScoreMods::default())
+}
+
+#[cfg(test)]
+fn score_tsumo_with_mods(
+    input: &SpInput,
+    counts_13: &[u8; TILE_MAX],
+    remaining: &[u8; TILE_MAX],
+    win_tile: u8,
+    mods: ScoreMods,
+) -> Option<f32> {
+    base_score_tsumo(input, counts_13, win_tile)
+        .map(|base| score_from_base(input, base, counts_13, remaining, win_tile, mods))
+        .or_else(|| {
+            mods.haitei
+                .then(|| exact_score_tsumo(input, counts_13, win_tile, mods))
+                .flatten()
+        })
+}
+
+fn base_score_tsumo(
+    input: &SpInput,
+    counts_13: &[u8; TILE_MAX],
+    win_tile: u8,
+) -> Option<BaseScore> {
     if counts_13[win_tile as usize] >= 4 {
         return None;
     }
@@ -863,11 +1226,208 @@ fn score_tsumo(input: &SpInput, counts_13: &[u8; TILE_MAX], win_tile: u8) -> Opt
         tile_type_to_136(win_tile, false),
         input.dora_indicators.clone(),
         vec![],
+        Some(conditions.clone()),
+    );
+    if !result.is_win {
+        return None;
+    }
+
+    let base_total = tsumo_total_for_sp(result.tsumo_agari_oya, result.tsumo_agari_ko) as f32;
+    Some(BaseScore {
+        total: base_total as u32,
+        han: result.han,
+        fu: result.fu,
+        is_oya: conditions.player_wind == Wind::East,
+        riichi: conditions.riichi,
+        apply_ura: conditions.riichi && !result.yakuman && !input.dora_indicators.is_empty(),
+        honba: conditions.honba,
+    })
+}
+
+fn score_from_base(
+    input: &SpInput,
+    base: BaseScore,
+    counts_13: &[u8; TILE_MAX],
+    remaining: &[u8; TILE_MAX],
+    win_tile: u8,
+    mods: ScoreMods,
+) -> f32 {
+    let extra_han = timing_extra_han(base, mods);
+    let base_total = if extra_han == 0 {
+        base.total as f32
+    } else {
+        let han = base.han.saturating_add(extra_han).min(13) as u8;
+        let score = score::calculate_score(han, base.fu as u8, base.is_oya, true, base.honba, 4);
+        tsumo_total_for_sp(score.pay_tsumo_oya, score.pay_tsumo_ko) as f32
+    };
+    if !base.apply_ura {
+        return base_total;
+    }
+
+    let mut full_counts = *counts_13;
+    full_counts[win_tile as usize] += 1;
+    for meld in &input.melds {
+        for &tile in &meld.tiles {
+            let tile_type = (tile / 4) as usize;
+            if tile_type < TILE_MAX {
+                full_counts[tile_type] += 1;
+            }
+        }
+    }
+
+    let mut remaining_after_win = *remaining;
+    remaining_after_win[win_tile as usize] =
+        remaining_after_win[win_tile as usize].saturating_sub(1);
+    let ura_dist = ura_distribution(
+        &full_counts,
+        &remaining_after_win,
+        input.dora_indicators.len(),
+    );
+    let mut expected = 0.0f32;
+    for (ura_count, &prob) in ura_dist.iter().enumerate() {
+        if prob <= 0.0 {
+            continue;
+        }
+        let han = base
+            .han
+            .saturating_add(extra_han)
+            .saturating_add(ura_count as u32)
+            .min(13) as u8;
+        let score = score::calculate_score(han, base.fu as u8, base.is_oya, true, base.honba, 4);
+        expected += prob * tsumo_total_for_sp(score.pay_tsumo_oya, score.pay_tsumo_ko) as f32;
+    }
+    expected.max(base_total)
+}
+
+fn timing_extra_han(base: BaseScore, mods: ScoreMods) -> u32 {
+    let mut han = 0;
+    if base.riichi {
+        if mods.ippatsu {
+            han += 1;
+        }
+        if mods.double_riichi {
+            han += 1;
+        }
+    }
+    if mods.haitei {
+        han += 1;
+    }
+    han
+}
+
+fn exact_score_tsumo(
+    input: &SpInput,
+    counts_13: &[u8; TILE_MAX],
+    win_tile: u8,
+    mods: ScoreMods,
+) -> Option<f32> {
+    if counts_13[win_tile as usize] >= 4 {
+        return None;
+    }
+    let tiles = counts_to_136(counts_13, input.akas_in_hand);
+    let evaluator = HandEvaluator::new(tiles, input.melds.clone());
+    let conditions = Conditions {
+        tsumo: true,
+        riichi: input.is_menzen && input.can_riichi,
+        double_riichi: input.is_menzen && input.can_riichi && mods.double_riichi,
+        ippatsu: input.is_menzen && input.can_riichi && mods.ippatsu,
+        haitei: mods.haitei,
+        player_wind: wind_from_tile(input.jikaze),
+        round_wind: wind_from_tile(input.bakaze),
+        ..Conditions::default()
+    };
+    let result = evaluator.calc(
+        tile_type_to_136(win_tile, false),
+        input.dora_indicators.clone(),
+        vec![],
         Some(conditions),
     );
     result
         .is_win
-        .then_some((result.tsumo_agari_oya + result.tsumo_agari_ko.saturating_mul(2)) as f32)
+        .then_some(tsumo_total_for_sp(result.tsumo_agari_oya, result.tsumo_agari_ko) as f32)
+}
+
+fn ura_distribution(
+    full_counts: &[u8; TILE_MAX],
+    remaining: &[u8; TILE_MAX],
+    num_indicators: usize,
+) -> Vec<f32> {
+    let total_remaining = remaining.iter().map(|&count| count as usize).sum::<usize>();
+    let draws = num_indicators.min(5).min(total_remaining);
+    let max_ura = draws * 4;
+    let mut dist = vec![0.0f32; max_ura + 1];
+    if draws == 0 {
+        dist[0] = 1.0;
+        return dist;
+    }
+
+    let mut gain_counts = [0usize; 5];
+    for indicator in 0..TILE_MAX {
+        let dora_tile = next_dora_tile(indicator as u8) as usize;
+        let gain = full_counts[dora_tile] as usize;
+        gain_counts[gain] += remaining[indicator] as usize;
+    }
+
+    let denom = combination_f64(total_remaining, draws);
+    if denom <= 0.0 {
+        dist[0] = 1.0;
+        return dist;
+    }
+
+    fn visit(
+        gain: usize,
+        gain_counts: &[usize; 5],
+        draws_left: usize,
+        ura_sum: usize,
+        weight: f64,
+        denom: f64,
+        dist: &mut [f32],
+    ) {
+        if gain == gain_counts.len() {
+            if draws_left == 0 {
+                dist[ura_sum] += (weight / denom) as f32;
+            }
+            return;
+        }
+
+        let max_take = gain_counts[gain].min(draws_left);
+        for take in 0..=max_take {
+            visit(
+                gain + 1,
+                gain_counts,
+                draws_left - take,
+                ura_sum + gain * take,
+                weight * combination_f64(gain_counts[gain], take),
+                denom,
+                dist,
+            );
+        }
+    }
+
+    visit(0, &gain_counts, draws, 0, 1.0, denom, &mut dist);
+    let sum = dist.iter().sum::<f32>();
+    if sum > 0.0 {
+        for prob in &mut dist {
+            *prob /= sum;
+        }
+    }
+    dist
+}
+
+fn combination_f64(n: usize, k: usize) -> f64 {
+    if k > n {
+        return 0.0;
+    }
+    let k = k.min(n - k);
+    let mut out = 1.0f64;
+    for i in 0..k {
+        out *= (n - i) as f64 / (i + 1) as f64;
+    }
+    out
+}
+
+fn tsumo_total_for_sp(pay_tsumo_oya: u32, pay_tsumo_ko: u32) -> u32 {
+    pay_tsumo_oya + pay_tsumo_ko.saturating_mul(2)
 }
 
 fn rough_point_estimate(input: &SpInput, counts: &[u8; TILE_MAX]) -> f32 {
@@ -975,6 +1535,7 @@ mod tests {
             jikaze: 27,
             is_menzen: true,
             can_riichi: true,
+            can_double_riichi: false,
             tsumos_left,
             discard_candidates: vec![],
         }
@@ -1194,6 +1755,164 @@ mod tests {
     }
 
     #[test]
+    fn riichi_ura_dora_increases_expected_tsumo_score() {
+        let base_input = input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 18], 1);
+        let base_remaining = remaining_counts(&base_input);
+        let base_score = score_tsumo(&base_input, &base_input.tehai, &base_remaining, 11)
+            .expect("3p tsumo should win");
+
+        let mut ura_input = base_input.clone();
+        ura_input.dora_indicators = vec![132]; // C indicator makes P the dora, absent from hand.
+        ura_input.tiles_seen[33] += 1;
+        let ura_remaining = remaining_counts(&ura_input);
+        let ura_score = score_tsumo(&ura_input, &ura_input.tehai, &ura_remaining, 11)
+            .expect("3p tsumo should win with ura expectation");
+
+        assert!(
+            ura_score > base_score,
+            "riichi ura expectation should increase score: base={base_score}, ura={ura_score}"
+        );
+    }
+
+    #[test]
+    fn riichi_timing_yaku_increase_expected_tsumo_score() {
+        let input = input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 18], 3);
+        let remaining = remaining_counts(&input);
+        let base =
+            score_tsumo_with_mods(&input, &input.tehai, &remaining, 11, ScoreMods::default())
+                .expect("3p tsumo should win");
+        let ippatsu = score_tsumo_with_mods(
+            &input,
+            &input.tehai,
+            &remaining,
+            11,
+            ScoreMods {
+                ippatsu: true,
+                ..ScoreMods::default()
+            },
+        )
+        .expect("ippatsu 3p tsumo should win");
+        let haitei = score_tsumo_with_mods(
+            &input,
+            &input.tehai,
+            &remaining,
+            11,
+            ScoreMods {
+                haitei: true,
+                ..ScoreMods::default()
+            },
+        )
+        .expect("haitei 3p tsumo should win");
+
+        assert!(ippatsu > base, "ippatsu should increase score");
+        assert!(haitei > base, "haitei should increase score");
+    }
+
+    #[test]
+    fn double_riichi_increases_first_tenpai_score() {
+        let mut input = input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 18], 3);
+        input.can_double_riichi = true;
+        let remaining = remaining_counts(&input);
+        let regular_riichi =
+            score_tsumo_with_mods(&input, &input.tehai, &remaining, 11, ScoreMods::default())
+                .expect("regular riichi 3p tsumo should win");
+        let double_riichi = score_tsumo_with_mods(
+            &input,
+            &input.tehai,
+            &remaining,
+            11,
+            ScoreMods {
+                double_riichi: true,
+                ..ScoreMods::default()
+            },
+        )
+        .expect("double riichi 3p tsumo should win");
+
+        assert!(
+            double_riichi > regular_riichi,
+            "double riichi should increase score"
+        );
+    }
+
+    #[test]
+    fn ura_dora_is_ignored_without_riichi() {
+        let mut base_input = input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 18], 1);
+        base_input.can_riichi = false;
+        let base_remaining = remaining_counts(&base_input);
+        let base_score = score_tsumo(&base_input, &base_input.tehai, &base_remaining, 11)
+            .expect("3p tsumo should win without riichi");
+
+        let mut ura_input = base_input.clone();
+        ura_input.dora_indicators = vec![132]; // C indicator makes P the dora, absent from hand.
+        ura_input.tiles_seen[33] += 1;
+        let ura_remaining = remaining_counts(&ura_input);
+        let ura_score = score_tsumo(&ura_input, &ura_input.tehai, &ura_remaining, 11)
+            .expect("3p tsumo should win without riichi and without ura");
+
+        assert_eq!(ura_score, base_score);
+    }
+
+    #[test]
+    fn ura_distribution_for_multiple_indicators_is_normalized() {
+        let input = input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 18], 1);
+        let mut full_counts = input.tehai;
+        full_counts[11] += 1;
+        let mut remaining = remaining_counts(&input);
+        remaining[11] -= 1;
+
+        let dist = ura_distribution(&full_counts, &remaining, 3);
+        let sum = dist.iter().sum::<f32>();
+        assert!((sum - 1.0).abs() < 1e-5, "sum={sum}, dist={dist:?}");
+        assert!(
+            dist.iter()
+                .enumerate()
+                .any(|(ura, &prob)| ura > 0 && prob > 0.0),
+            "some positive ura count should be possible: {dist:?}"
+        );
+    }
+
+    #[test]
+    fn observation_input_allows_future_riichi_when_closed_and_has_points() {
+        let hand = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 18]
+            .into_iter()
+            .map(|tile| tile_type_to_136(tile, false))
+            .collect::<Vec<_>>();
+        let obs = Observation::new(
+            0,
+            [hand, vec![], vec![], vec![]],
+            [vec![], vec![], vec![], vec![]],
+            Default::default(),
+            vec![132],
+            [1000, 25000, 25000, 25000],
+            [false; 4],
+            vec![],
+            vec![],
+            0,
+            0,
+            27,
+            0,
+            0,
+            vec![],
+            false,
+            [None; 4],
+            [None; 4],
+            None,
+            None,
+        );
+
+        let input = SpInput::from_observation(&obs);
+        assert!(input.is_menzen);
+        assert!(
+            input.can_riichi,
+            "closed hands with at least 1000 points should evaluate future tenpai as riichi-capable"
+        );
+        assert!(
+            input.can_double_riichi,
+            "first-discard closed hands with at least 1000 points should allow double riichi"
+        );
+    }
+
+    #[test]
     fn tenpai_series_uses_actual_remaining_wait_count() {
         // 123456789m 12p 11s waits on 3p. If the only unknown tile is 3p,
         // the first draw wins with probability 1.
@@ -1219,6 +1938,10 @@ mod tests {
         let mut remaining = [0u8; TILE_MAX];
         remaining[10] = 1;
         remaining[11] = 1;
+        // 有効牌だけの山だと「2巡目開始 = 1巡目が必ず有効牌」という確率0条件付けが
+        // 発生して退化するため、無関係な牌を山に足して条件付きが定義されるようにする。
+        remaining[20] = 4;
+        remaining[21] = 4;
 
         let mut dp = DpContext::new(&input);
         let (tenpai, win, ev) = dp.series(&counts, &remaining, 2);

@@ -20,6 +20,7 @@ fn input_from_tiles(tile_types: &[u8], tsumos_left: u8) -> SpInput {
         jikaze: 27,
         is_menzen: true,
         can_riichi: true,
+        can_double_riichi: false,
         tsumos_left,
         discard_candidates: vec![],
     }
