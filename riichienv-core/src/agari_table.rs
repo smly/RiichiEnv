@@ -14,7 +14,48 @@
 //! `src/bin/build_agari_table.rs` (run once, checked in).
 
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::LazyLock;
+
+/// Lightweight FxHash implementation specialised for the u128 keys used by
+/// the agari table. SipHash (the std::collections::HashMap default) is
+/// gratuitous for our trusted in-process keys and adds ~30 ns/lookup; FxHash
+/// brings the hashing portion well under 10 ns.
+#[derive(Default, Clone, Copy)]
+pub struct FxHasher64 {
+    hash: u64,
+}
+
+const FX_SEED: u64 = 0x517c_c1b7_2722_0a95;
+
+impl Hasher for FxHasher64 {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut h = self.hash;
+        let mut chunks = bytes.chunks_exact(8);
+        for chunk in &mut chunks {
+            // SAFETY: chunks_exact yields exactly 8-byte slices.
+            let v = u64::from_ne_bytes(unsafe { *(chunk.as_ptr() as *const [u8; 8]) });
+            h = h.rotate_left(5) ^ v;
+            h = h.wrapping_mul(FX_SEED);
+        }
+        for &b in chunks.remainder() {
+            h = h.rotate_left(5) ^ (b as u64);
+            h = h.wrapping_mul(FX_SEED);
+        }
+        self.hash = h;
+    }
+    #[inline]
+    fn write_u8(&mut self, b: u8) {
+        self.hash = (self.hash.rotate_left(5) ^ (b as u64)).wrapping_mul(FX_SEED);
+    }
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.hash
+    }
+}
+
+type FxHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher64>>;
 
 /// Maximum mentsu in a standard hand: at most 4 (pair + 4 mentsu = 14 tiles).
 pub const MAX_MENTSU: usize = 4;
@@ -132,26 +173,51 @@ pub fn apply_offset(canonical_tile: u8, offsets: &[u8; 4]) -> u8 {
 #[inline]
 pub fn canonicalize_full(counts: &[u8; 34]) -> ([u8; 34], [u8; 4], [u8; 3], [u8; 7]) {
     let (shifted, offsets) = canonicalize(counts);
+
+    // Inline 3-element insertion sort over the suit slot patterns (avoids the
+    // generic `sort_by` closure overhead that costs ~30ns/call).
     let mut suit_perm: [u8; 3] = [0, 1, 2];
-    suit_perm.sort_by(|&a, &b| {
+    let cmp_suit = |a: u8, b: u8| -> std::cmp::Ordering {
         let aa = &shifted[(a as usize) * 9..(a as usize) * 9 + 9];
         let bb = &shifted[(b as usize) * 9..(b as usize) * 9 + 9];
         aa.cmp(bb)
-    });
+    };
+    if cmp_suit(suit_perm[0], suit_perm[1]) == std::cmp::Ordering::Greater {
+        suit_perm.swap(0, 1);
+    }
+    if cmp_suit(suit_perm[1], suit_perm[2]) == std::cmp::Ordering::Greater {
+        suit_perm.swap(1, 2);
+    }
+    if cmp_suit(suit_perm[0], suit_perm[1]) == std::cmp::Ordering::Greater {
+        suit_perm.swap(0, 1);
+    }
+
     let mut canon = [0u8; 34];
     for (sorted_idx, &orig_suit) in suit_perm.iter().enumerate() {
         let dst = sorted_idx * 9;
         let src = (orig_suit as usize) * 9;
         canon[dst..dst + 9].copy_from_slice(&shifted[src..src + 9]);
     }
-    // Honor permutation: sort the seven honor positions descending by count
-    // (so "biggest count first" lands in slot 0), tie-break by index.
+
+    // Honor permutation: sort the seven honor positions descending by count,
+    // tie-break by index. Use a 7-element insertion sort (compact, no
+    // closure call overhead).
     let mut honor_perm: [u8; 7] = [0, 1, 2, 3, 4, 5, 6];
-    honor_perm.sort_by(|&a, &b| {
-        let ca = shifted[27 + a as usize];
-        let cb = shifted[27 + b as usize];
-        cb.cmp(&ca).then(a.cmp(&b))
-    });
+    for i in 1..7 {
+        let mut j = i;
+        while j > 0 {
+            let ca = shifted[27 + honor_perm[j - 1] as usize];
+            let cb = shifted[27 + honor_perm[j] as usize];
+            // Sort descending by count; ties broken by ascending index so the
+            // generated table and runtime agree.
+            if cb > ca || (cb == ca && honor_perm[j] < honor_perm[j - 1]) {
+                honor_perm.swap(j - 1, j);
+                j -= 1;
+            } else {
+                break;
+            }
+        }
+    }
     for (sorted_idx, &orig_pos) in honor_perm.iter().enumerate() {
         canon[27 + sorted_idx] = shifted[27 + orig_pos as usize];
     }
@@ -227,11 +293,11 @@ pub struct DivisionList {
     pub divs: [Division; MAX_DIVS_PER_KEY],
 }
 
-pub static AGARI_TABLE: LazyLock<HashMap<u128, DivisionList>> = LazyLock::new(load_table);
+pub static AGARI_TABLE: LazyLock<FxHashMap<u128, DivisionList>> = LazyLock::new(load_table);
 
-fn load_table() -> HashMap<u128, DivisionList> {
+fn load_table() -> FxHashMap<u128, DivisionList> {
     let raw = AGARI_TABLE_DATA;
-    let mut map = HashMap::with_capacity(10_000);
+    let mut map = FxHashMap::with_capacity_and_hasher(50_000, BuildHasherDefault::default());
     let mut i = 0;
     while i < raw.len() {
         // u128 key (16 bytes, little endian)

@@ -71,6 +71,68 @@ pub fn compute_for_sp_tsumo(
         }
     }
 
+    let assume_riichi = input.is_menzen && input.can_riichi;
+
+    // Chitoitsu fast path: 7 distinct pairs, menzen, no melds. Returns
+    // directly without going through the standard agari_table.
+    if input.is_menzen && input.melds.is_empty() {
+        let mut all_two = true;
+        let mut pair_count = 0u8;
+        for &c in &counts_14 {
+            match c {
+                0 => {}
+                2 => pair_count += 1,
+                _ => {
+                    all_two = false;
+                    break;
+                }
+            }
+        }
+        if all_two && pair_count == 7 {
+            let (suit_usage, flags) = scan_hand(&counts_14);
+            let mut han: u32 = 2; // chiitoitsu
+            han += 1; // menzen tsumo
+            if assume_riichi {
+                han += 1;
+            }
+            // tanyao
+            if !flags.has_terminal && !suit_usage.has_z {
+                han += 1;
+            }
+            // honitsu / chinitsu
+            if flags.single_numbered_suit {
+                if suit_usage.has_z {
+                    han += 3;
+                } else {
+                    han += 6;
+                }
+            }
+            // honroutou (all yaocchi pairs)
+            if flags.all_yaocchi {
+                han += 2;
+            }
+            // dora
+            let regular_dora = count_regular_dora(input, &counts_14);
+            let red_present = |t34: usize| counts_13[t34] >= 1;
+            let mut aka_dora = 0u32;
+            if akas_in_hand[0] && red_present(4) {
+                aka_dora += 1;
+            }
+            if akas_in_hand[1] && red_present(13) {
+                aka_dora += 1;
+            }
+            if akas_in_hand[2] && red_present(22) {
+                aka_dora += 1;
+            }
+            han += regular_dora + aka_dora;
+            return Some(LeanScore {
+                han,
+                fu: 25,
+                yakuman: false,
+            });
+        }
+    }
+
     // Look up decompositions from the precomputed table.
     let (list, offsets, sp_perm, hp) = agari_table::lookup_canonical(&counts_14)?;
     if list.n == 0 {
@@ -83,12 +145,8 @@ pub fn compute_for_sp_tsumo(
         return None;
     }
 
-    let assume_riichi = input.is_menzen && input.can_riichi;
-    // Total yaocchi count flags
-    let only_terminals_in_hand = is_chinroutou(&full_counts);
-    let _ = only_terminals_in_hand;
-    // For honitsu/chinitsu detection
-    let suit_usage = SuitUsage::from(&full_counts);
+    // Single-pass hand scan: SuitUsage + HandFlags in one walk over the counts.
+    let (suit_usage, flags) = scan_hand(&full_counts);
 
     // Aggregate dora count (regular indicators -> next tile + aka).
     let regular_dora = count_regular_dora(input, &full_counts);
@@ -120,9 +178,6 @@ pub fn compute_for_sp_tsumo(
     let melds_kotsu = &melds_kotsu_buf[..n_mk];
     let melds_shuntsu = &melds_shuntsu_buf[..n_ms];
 
-    // Hand-level structural flags — precomputed once so the per-div yaku
-    // checks can early-exit on patterns that cannot apply.
-    let flags = HandFlags::compute(&full_counts, &suit_usage);
 
     // For each table-decomp + the open-meld portion, compute (han, fu).
     let mut best: Option<(u32, u32)> = None; // (han, fu) — pick by total score
@@ -301,21 +356,6 @@ fn might_be_yakuman(full_counts: &[u8; TILE_MAX], melds: &[Meld]) -> bool {
     false
 }
 
-fn is_chinroutou(full_counts: &[u8; TILE_MAX]) -> bool {
-    for t in 0..27 {
-        let n = t % 9;
-        if full_counts[t] > 0 && (1..=7).contains(&n) {
-            return false;
-        }
-    }
-    for t in 27..34 {
-        if full_counts[t] > 0 {
-            return false;
-        }
-    }
-    true
-}
-
 #[derive(Debug, Clone, Copy)]
 struct SuitUsage {
     has_m: bool,
@@ -325,14 +365,7 @@ struct SuitUsage {
 }
 
 impl SuitUsage {
-    fn from(counts: &[u8; TILE_MAX]) -> Self {
-        Self {
-            has_m: (0..9).any(|t| counts[t] > 0),
-            has_p: (9..18).any(|t| counts[t] > 0),
-            has_s: (18..27).any(|t| counts[t] > 0),
-            has_z: (27..34).any(|t| counts[t] > 0),
-        }
-    }
+    #[allow(dead_code)]
     fn n_numbered_suits(&self) -> usize {
         self.has_m as usize + self.has_p as usize + self.has_s as usize
     }
@@ -346,24 +379,34 @@ struct HandFlags {
     has_terminal: bool,
     /// Every tile is yaocchi (terminal or honor).
     all_yaocchi: bool,
-    /// Every tile is a terminal (no simples, no honors). (Unused for yaku
-    /// decisions today but useful as a documented predicate for future
-    /// chinroutou handling.)
-    #[allow(dead_code)]
-    all_terminal: bool,
     /// Hand uses only one numbered suit (chinitsu/honitsu eligible).
     single_numbered_suit: bool,
     /// At least one dragon (haku/hatsu/chun) is present.
+    /// Used at the kotsu loop's outer guard for shousangen / future yakuman gating.
+    #[allow(dead_code)]
     has_dragon: bool,
 }
 
-impl HandFlags {
-    fn compute(counts: &[u8; TILE_MAX], suit_usage: &SuitUsage) -> Self {
-        let mut has_terminal = false;
-        let mut has_simple = false;
-        for t in 0..27 {
-            if counts[t] > 0 {
-                let n = t % 9;
+/// Single-pass scan: compute `SuitUsage` and `HandFlags` together. Each
+/// previously walked the 34-tile counts independently — fusing them halves
+/// the iteration cost.
+fn scan_hand(counts: &[u8; TILE_MAX]) -> (SuitUsage, HandFlags) {
+    let mut su = SuitUsage {
+        has_m: false,
+        has_p: false,
+        has_s: false,
+        has_z: false,
+    };
+    let mut has_terminal = false;
+    let mut has_simple = false;
+    // Numbered suits 0..27.
+    for suit in 0..3 {
+        let base = suit * 9;
+        let mut suit_present = false;
+        for n in 0..9 {
+            let c = counts[base + n];
+            if c > 0 {
+                suit_present = true;
                 if n == 0 || n == 8 {
                     has_terminal = true;
                 } else {
@@ -371,17 +414,28 @@ impl HandFlags {
                 }
             }
         }
-        let has_dragon = counts[31] > 0 || counts[32] > 0 || counts[33] > 0;
-        let all_yaocchi = !has_simple;
-        let all_terminal = !has_simple && !suit_usage.has_z;
-        Self {
-            has_terminal,
-            all_yaocchi,
-            all_terminal,
-            single_numbered_suit: suit_usage.n_numbered_suits() == 1,
-            has_dragon,
+        match suit {
+            0 => su.has_m = suit_present,
+            1 => su.has_p = suit_present,
+            _ => su.has_s = suit_present,
         }
     }
+    // Honors 27..34.
+    for t in 27..34 {
+        if counts[t] > 0 {
+            su.has_z = true;
+            break;
+        }
+    }
+    let has_dragon = counts[31] > 0 || counts[32] > 0 || counts[33] > 0;
+    let n_numbered = su.has_m as usize + su.has_p as usize + su.has_s as usize;
+    let flags = HandFlags {
+        has_terminal,
+        all_yaocchi: !has_simple,
+        single_numbered_suit: n_numbered == 1,
+        has_dragon,
+    };
+    (su, flags)
 }
 
 /// Translate a canonical-form `Division` from `agari_table` into one with
@@ -456,30 +510,45 @@ fn score_one_div(
 ) -> Option<(u32, u32)> {
     let _ = (counts_13, akas_in_hand);
 
-    // All kotsu (closed in-hand + open from melds)
+    // For the common menzen-no-melds case, the divs' mentsu are already the
+    // full set; skip the copy into all_*_buf entirely.
+    let melds_empty = melds_kotsu.is_empty() && melds_shuntsu.is_empty();
     let mut all_kotsu_buf = [0u8; 8];
-    let mut n_all_kotsu = 0usize;
-    for &k in div.kotsu() {
-        all_kotsu_buf[n_all_kotsu] = k;
-        n_all_kotsu += 1;
-    }
-    for &k in melds_kotsu {
-        all_kotsu_buf[n_all_kotsu] = k;
-        n_all_kotsu += 1;
-    }
-    // All shuntsu (closed in-hand + open from chi melds)
     let mut all_shuntsu_buf = [0u8; 8];
-    let mut n_all_shuntsu = 0usize;
-    for &s in div.shuntsu() {
-        all_shuntsu_buf[n_all_shuntsu] = s;
-        n_all_shuntsu += 1;
+    let (all_kotsu, all_shuntsu): (&[u8], &[u8]) = if melds_empty {
+        (div.kotsu(), div.shuntsu())
+    } else {
+        let mut n_k = 0usize;
+        for &k in div.kotsu() {
+            all_kotsu_buf[n_k] = k;
+            n_k += 1;
+        }
+        for &k in melds_kotsu {
+            all_kotsu_buf[n_k] = k;
+            n_k += 1;
+        }
+        let mut n_s = 0usize;
+        for &s in div.shuntsu() {
+            all_shuntsu_buf[n_s] = s;
+            n_s += 1;
+        }
+        for &s in melds_shuntsu {
+            all_shuntsu_buf[n_s] = s;
+            n_s += 1;
+        }
+        (&all_kotsu_buf[..n_k], &all_shuntsu_buf[..n_s])
+    };
+
+    // Bitmasks for O(1) yaku detection. kotsu_mask: 34 bits, one per tile type.
+    // shuntsu_mask: 27 bits, one per shuntsu starting tile (0..=24, so bits 25,26 always 0).
+    let mut kotsu_mask: u64 = 0;
+    for &k in all_kotsu {
+        kotsu_mask |= 1u64 << k;
     }
-    for &s in melds_shuntsu {
-        all_shuntsu_buf[n_all_shuntsu] = s;
-        n_all_shuntsu += 1;
+    let mut shuntsu_mask: u32 = 0;
+    for &s in all_shuntsu {
+        shuntsu_mask |= 1u32 << s;
     }
-    let all_kotsu = &all_kotsu_buf[..n_all_kotsu];
-    let all_shuntsu = &all_shuntsu_buf[..n_all_shuntsu];
 
     let pair_tile = div.pair_tile;
 
@@ -514,14 +583,23 @@ fn score_one_div(
         (j, c)
     };
 
-    // ---------- Yaku: ittsu ---------- (need at least 3 shuntsu)
-    let ittsu = all_shuntsu.len() >= 3 && detect_ittsu(all_shuntsu);
+    // ---------- Yaku: ittsu / sanshoku doujun ---------- (bitmask-based O(1))
+    let smask_m = shuntsu_mask & 0x1FF; // bits 0..8 (m suit shuntsu starts 0..=8)
+    let smask_p = (shuntsu_mask >> 9) & 0x1FF;
+    let smask_s = (shuntsu_mask >> 18) & 0x1FF;
+    // Ittsu: starts 0, 3, 6 (1-3, 4-6, 7-9) all present in same suit.
+    const ITTSU_PATTERN: u32 = (1 << 0) | (1 << 3) | (1 << 6);
+    let ittsu = (smask_m & ITTSU_PATTERN) == ITTSU_PATTERN
+        || (smask_p & ITTSU_PATTERN) == ITTSU_PATTERN
+        || (smask_s & ITTSU_PATTERN) == ITTSU_PATTERN;
+    // Sanshoku doujun: same shuntsu start in all 3 numbered suits.
+    let sanshoku_doujun = (smask_m & smask_p & smask_s) != 0;
 
-    // ---------- Yaku: sanshoku doujun ---------- (need ≥3 shuntsu)
-    let sanshoku_doujun = all_shuntsu.len() >= 3 && detect_sanshoku_doujun(all_shuntsu);
-
-    // ---------- Yaku: sanshoku doukou ---------- (need ≥3 kotsu)
-    let sanshoku_doukou = all_kotsu.len() >= 3 && detect_sanshoku_doukou(all_kotsu);
+    // ---------- Yaku: sanshoku doukou ---------- (bitmask-based O(1))
+    let kmask_m = (kotsu_mask & 0x1FF) as u32;
+    let kmask_p = ((kotsu_mask >> 9) & 0x1FF) as u32;
+    let kmask_s = ((kotsu_mask >> 18) & 0x1FF) as u32;
+    let sanshoku_doukou = (kmask_m & kmask_p & kmask_s) != 0;
 
     // ---------- Yaku: toitoi ----------
     let toitoi = all_shuntsu.is_empty();
@@ -530,15 +608,10 @@ fn score_one_div(
     let n_ankou = div.n_kotsu;
     let sanankou = n_ankou >= 3;
 
-    // ---------- Yaku: shousangen ---------- (needs dragons)
-    let (dragon_kotsu_count, dragon_pair) = if flags.has_dragon {
-        (
-            all_kotsu.iter().filter(|&&t| (31..=33).contains(&t)).count(),
-            (31..=33).contains(&pair_tile),
-        )
-    } else {
-        (0, false)
-    };
+    // ---------- Yaku: shousangen ---------- (bitmask-based O(1))
+    let dragon_kotsu_bits = (kotsu_mask >> 31) & 0b111; // bits for 31, 32, 33
+    let dragon_kotsu_count = dragon_kotsu_bits.count_ones() as usize;
+    let dragon_pair = (31..=33).contains(&pair_tile);
     let shousangen = dragon_kotsu_count == 2 && dragon_pair;
 
     // ---------- Yaku: yakuhai ----------
@@ -735,43 +808,6 @@ fn classify_waits(div: &AbsoluteDiv, win_tile: u8, out: &mut [WaitKind; 5]) -> u
 
 fn is_yakuhai_pair(t: u8, bakaze: u8, jikaze: u8) -> bool {
     matches!(t, 31 | 32 | 33) || t == bakaze || t == jikaze
-}
-
-fn detect_ittsu(all_shuntsu: &[u8]) -> bool {
-    for suit in 0..3u8 {
-        let base = suit * 9;
-        if all_shuntsu.contains(&base)
-            && all_shuntsu.contains(&(base + 3))
-            && all_shuntsu.contains(&(base + 6))
-        {
-            return true;
-        }
-    }
-    false
-}
-
-fn detect_sanshoku_doujun(all_shuntsu: &[u8]) -> bool {
-    for start in 0..7u8 {
-        if all_shuntsu.contains(&start)
-            && all_shuntsu.contains(&(start + 9))
-            && all_shuntsu.contains(&(start + 18))
-        {
-            return true;
-        }
-    }
-    false
-}
-
-fn detect_sanshoku_doukou(all_kotsu: &[u8]) -> bool {
-    for n in 0..9u8 {
-        if all_kotsu.contains(&n)
-            && all_kotsu.contains(&(n + 9))
-            && all_kotsu.contains(&(n + 18))
-        {
-            return true;
-        }
-    }
-    false
 }
 
 fn detect_peikou(in_hand_shuntsu: &[u8]) -> (bool, bool) {

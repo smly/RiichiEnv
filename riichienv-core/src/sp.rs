@@ -1814,6 +1814,42 @@ pub mod base_score_calls {
     }
 }
 
+/// Fast inline equivalent of `score::calculate_score(han, fu, is_oya, tsumo=true,
+/// honba=0, 4-player) → tsumo_total_for_sp(...)`. Avoids the `Score` struct
+/// allocation and the honba/ron branches.
+#[inline]
+fn sp_tsumo_total_fast(han: u32, fu: u32, is_oya: bool) -> u32 {
+    let base_points: u32 = if han >= 5 {
+        match han {
+            5 => 2000,
+            6 | 7 => 3000,
+            8..=10 => 4000,
+            11 | 12 => 6000,
+            _ => 8000 * (han / 13).max(1),
+        }
+    } else {
+        let fu_rounded = if fu == 25 { 25 } else { fu.div_ceil(10) * 10 };
+        let bp = fu_rounded * (1u32 << (2 + han));
+        bp.min(2000)
+    };
+    // pay_tsumo_oya / pay_tsumo_ko via 100-yen rounding.
+    let (pay_oya, pay_ko) = if is_oya {
+        (0u32, ((base_points * 2).div_ceil(100)) * 100)
+    } else {
+        (
+            ((base_points * 2).div_ceil(100)) * 100,
+            (base_points.div_ceil(100)) * 100,
+        )
+    };
+    if pay_oya == 0 {
+        // Dealer tsumo: 3 ko all pay pay_ko.
+        pay_ko.saturating_mul(3)
+    } else {
+        // Non-dealer tsumo: oya pays pay_oya, 2 ko pay pay_ko each.
+        pay_oya + pay_ko.saturating_mul(2)
+    }
+}
+
 fn base_score_tsumo(
     input: &SpInput,
     counts_13: &[u8; TILE_MAX],
@@ -1846,15 +1882,9 @@ fn base_score_tsumo(
             crate::sp_yaku::compute_for_sp_tsumo(input, counts_13, win_tile, akas_in_hand)
         && lean.han > 0
     {
-        let s = score::calculate_score(
-            lean.han.min(13) as u8,
-            lean.fu as u8,
-            is_oya,
-            true,
-            0,
-            4,
-        );
-        let base_total = tsumo_total_for_sp(s.pay_tsumo_oya, s.pay_tsumo_ko);
+        // Inline + table-driven version of score::calculate_score with the SP
+        // hot-path constants (tsumo, 4 players, honba=0, no ura) baked in.
+        let base_total = sp_tsumo_total_fast(lean.han, lean.fu, is_oya);
         return Some(BaseScore {
             total: base_total,
             han: lean.han,
