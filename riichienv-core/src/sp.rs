@@ -1990,4 +1990,224 @@ mod tests {
         assert!(win[1] > 0.0);
         assert!(ev[1] > 0.0);
     }
+
+    // ----- Semantic correctness tests -----
+
+    /// 全候補・全巡目で win_prob ≤ tenpai_prob を満たすこと。
+    /// 聴牌に達さなければ和了できないという条件は SP の設計不変条件。
+    #[test]
+    fn win_prob_never_exceeds_tenpai_prob_per_turn() {
+        let inputs = [
+            tenpai_fixture(10),
+            input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 18, 25, 26], 10),
+            input_from_tiles(&[0, 1, 4, 5, 8, 9, 10, 13, 18, 19, 22, 27, 28, 31], 10),
+        ];
+        for input in &inputs {
+            let result = calculate_sp(input);
+            for c in &result.candidates {
+                for turn in 0..SP_MAX_TURNS {
+                    assert!(
+                        c.win_probs[turn] <= c.tenpai_probs[turn] + 1e-5,
+                        "candidate tile {} turn {}: win {} > tenpai {}",
+                        c.tile,
+                        turn,
+                        c.win_probs[turn],
+                        c.tenpai_probs[turn],
+                    );
+                }
+            }
+        }
+    }
+
+    /// shanten s 状態の手牌からは min s 回の自摸を要するため、
+    /// `series[0..s-1]` の win_prob は 0 でなければならない。
+    #[test]
+    fn shanten_lower_bounds_first_winning_turn() {
+        // tehai sums to 14; for each candidate discard, the remaining 13-tile hand has shanten s_d.
+        // At every turn t in 0..s_d the win_prob must be 0.
+        let inputs = [
+            tenpai_fixture(10),
+            input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 18, 25, 26], 10),
+            input_from_tiles(&[0, 1, 4, 5, 8, 9, 10, 13, 18, 19, 22, 27, 28, 31], 10),
+        ];
+        for input in &inputs {
+            let result = calculate_sp(input);
+            for c in &result.candidates {
+                let mut post = input.tehai;
+                if post[c.tile as usize] == 0 {
+                    continue;
+                }
+                post[c.tile as usize] -= 1;
+                let shanten = shanten_of_counts(&post);
+                if shanten <= 0 {
+                    continue;
+                }
+                for turn in 0..(shanten as usize).min(SP_MAX_TURNS) {
+                    assert!(
+                        c.win_probs[turn] < 1e-6,
+                        "candidate tile {} (post-shanten {}): win_probs[{}]={} should be ~0",
+                        c.tile,
+                        shanten,
+                        turn,
+                        c.win_probs[turn],
+                    );
+                }
+            }
+        }
+    }
+
+    /// 聴牌維持の打牌候補は、ホライズン内の全巡目で tenpai_prob = 1 でなければならない
+    /// (聴牌後は自摸の有無に関わらず聴牌状態が保たれる)。
+    #[test]
+    fn tenpai_candidate_has_full_tenpai_probability_in_horizon() {
+        let input = tenpai_fixture(10);
+        let result = calculate_sp(&input);
+        let horizon = (input.tsumos_left as usize).min(SP_MAX_TURNS);
+        for c in &result.candidates {
+            let mut post = input.tehai;
+            if post[c.tile as usize] == 0 {
+                continue;
+            }
+            post[c.tile as usize] -= 1;
+            let s = shanten_of_counts(&post);
+            if s != 0 {
+                continue;
+            }
+            for turn in 0..horizon {
+                assert!(
+                    (c.tenpai_probs[turn] - 1.0).abs() < 1e-5,
+                    "tenpai discard tile {} turn {}: tenpai_prob={}",
+                    c.tile,
+                    turn,
+                    c.tenpai_probs[turn],
+                );
+            }
+        }
+    }
+
+    /// `encode_sp` の best required-tile marker (channel 70) は、required-tile column
+    /// (channel 2 + d) に有効値を持つ候補 d を指していなければならない。
+    #[test]
+    fn best_required_marker_points_to_a_real_candidate() {
+        let inputs = [
+            tenpai_fixture(10),
+            input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 18, 25, 26], 10),
+        ];
+        for input in &inputs {
+            let result = calculate_sp(input);
+            let encoded = encode_sp(&result);
+            let mut marker_tile: Option<usize> = None;
+            for tile in 0..TILE_MAX {
+                if encoded[70 * TILE_MAX + tile] > 0.5 {
+                    assert!(
+                        marker_tile.is_none(),
+                        "best required-tile marker is not one-hot"
+                    );
+                    marker_tile = Some(tile);
+                }
+            }
+            if let Some(tile) = marker_tile {
+                let any = (0..TILE_MAX)
+                    .any(|t| encoded[(2 + tile) * TILE_MAX + t] > 0.5);
+                assert!(
+                    any,
+                    "marker at tile {} but channel 2+{} has no required tiles",
+                    tile, tile,
+                );
+            }
+        }
+    }
+
+    /// 全候補の tenpai/win/ev 系列はホライズン内で単調非減少 (ターン0..horizon-1)。
+    #[test]
+    fn series_are_monotonic_within_horizon() {
+        let inputs = [
+            tenpai_fixture(10),
+            input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 18, 25, 26], 10),
+            input_from_tiles(&[0, 1, 4, 5, 8, 9, 10, 13, 18, 19, 22, 27, 28, 31], 10),
+        ];
+        for input in &inputs {
+            let result = calculate_sp(input);
+            let horizon = (input.tsumos_left as usize).min(SP_MAX_TURNS);
+            for c in &result.candidates {
+                for series in [&c.tenpai_probs, &c.win_probs, &c.exp_values] {
+                    for turn in 1..horizon {
+                        assert!(
+                            series[turn] + 1e-5 >= series[turn - 1],
+                            "candidate tile {}: series not monotonic at turn {}: {:?}",
+                            c.tile,
+                            turn,
+                            series,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// 残り牌の合計枚数 = sum(tiles_in_wall) で、required_tiles[t] > 0 なら remaining[t] > 0。
+    /// SP の required_tiles は実際に山から引ける牌でなければならない。
+    #[test]
+    fn required_tiles_are_still_drawable() {
+        let inputs = [
+            tenpai_fixture(10),
+            input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 18, 25, 26], 10),
+        ];
+        for input in &inputs {
+            let remaining = remaining_counts(input);
+            let result = calculate_sp(input);
+            for c in &result.candidates {
+                for t in 0..TILE_MAX {
+                    if c.required_tiles[t] > 0.0 {
+                        assert!(
+                            remaining[t] > 0,
+                            "required tile {} for discard {} has 0 remaining",
+                            t,
+                            c.tile,
+                        );
+                    }
+                    if c.yaku_progress_tiles[t] > 0.0 {
+                        assert!(
+                            remaining[t] > 0,
+                            "yaku-progress tile {} for discard {} has 0 remaining",
+                            t,
+                            c.tile,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// horizon を増やすと win_prob[最後の有効ターン] は単調非減少 (ホライズンが長いほうが
+    /// 和了機会が多い)。
+    #[test]
+    fn longer_horizon_does_not_decrease_terminal_win_prob() {
+        // Construct a 1-shanten with several useless tiles in the wall so the conditional
+        // probabilities are well defined.
+        let mut input = input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 18, 25], 1);
+        // augment tiles_seen so n_left_tiles is realistic
+        for t in 13..30 {
+            input.tiles_seen[t] = 0;
+        }
+        let mut prev_win: Option<f32> = None;
+        for h in [3u8, 5, 8, 12, 17] {
+            input.tsumos_left = h;
+            let mut dp = DpContext::new(&input);
+            let counts = input.tehai;
+            let remaining = remaining_counts(&input);
+            let (_t, win, _e) = dp.series(&counts, &remaining, h as usize);
+            let terminal = win[(h as usize) - 1];
+            if let Some(prev) = prev_win {
+                assert!(
+                    terminal + 1e-5 >= prev,
+                    "longer horizon h={} gave smaller terminal win {} < prev {}",
+                    h,
+                    terminal,
+                    prev,
+                );
+            }
+            prev_win = Some(terminal);
+        }
+    }
 }
