@@ -4,6 +4,7 @@ use pyo3::types::{PyDict, PyDictMethods};
 
 use crate::action::{Action, ActionEncoder, ActionType};
 use crate::shanten;
+use crate::sp::SP_CHANNELS;
 use crate::types::{Meld, MeldType};
 use crate::yaku_checker;
 
@@ -1287,6 +1288,45 @@ impl Observation {
         self.encode_pass_ctx_into(&mut buf, 194);
         self.encode_last_ted_into(&mut buf, 197);
         self.encode_riichi_sute_into(&mut buf, 206);
+
+        let byte_len = total * std::mem::size_of::<f32>();
+        let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
+        Ok(pyo3::types::PyBytes::new(py, byte_slice))
+    }
+
+    /// Encode SP features as 123 channels.
+    #[pyo3(name = "encode_sp")]
+    pub fn encode_sp_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let total = SP_CHANNELS * 34;
+        let mut buf = vec![0.0f32; total];
+        self.encode_sp_into(&mut buf, 0);
+
+        let byte_len = total * std::mem::size_of::<f32>();
+        let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
+        Ok(pyo3::types::PyBytes::new(py, byte_slice))
+    }
+
+    /// Encode extended features plus SP features.
+    #[pyo3(name = "encode_extended_with_sp")]
+    pub fn encode_extended_with_sp<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let total_channels = 215 + SP_CHANNELS;
+        let total = total_channels * 34;
+        let mut buf = vec![0.0f32; total];
+
+        self.encode_base_into(&mut buf, 0);
+        self.encode_discard_decay_into(&mut buf, 74);
+        self.encode_shanten_into(&mut buf, 78);
+        self.encode_ankan_into(&mut buf, 94);
+        self.encode_fuuro_into(&mut buf, 98);
+        self.encode_action_avail_into(&mut buf, 178);
+        self.encode_discard_cand_into(&mut buf, 189);
+        self.encode_pass_ctx_into(&mut buf, 194);
+        self.encode_last_ted_into(&mut buf, 197);
+        self.encode_riichi_sute_into(&mut buf, 206);
+        self.encode_sp_into(&mut buf, 215);
 
         let byte_len = total * std::mem::size_of::<f32>();
         let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };

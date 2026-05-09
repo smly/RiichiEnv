@@ -426,6 +426,18 @@ class Observation:
             features = np.frombuffer(buf, dtype=np.float32).reshape(215, 34)
         """
         ...
+    def encode_sp(self) -> bytes:
+        """Encode SP features.
+
+        Shape: ``(123, 34)`` / dtype: ``float32``.
+        """
+        ...
+    def encode_extended_with_sp(self) -> bytes:
+        """Encode extended features followed by SP features.
+
+        Shape: ``(338, 34)`` / dtype: ``float32``.
+        """
+        ...
     def encode_seq_sparse(self, game_style: int = 1) -> bytes:
         """Encode sequence features as sparse token ids.
 

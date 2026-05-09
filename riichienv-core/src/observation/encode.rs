@@ -1,5 +1,6 @@
 use crate::action::ActionType;
 use crate::shanten;
+use crate::sp::{self, SpInput};
 use crate::types::MeldType;
 
 use super::Observation;
@@ -581,6 +582,13 @@ impl Observation {
             }
             opp_idx += 1;
         }
+    }
+
+    /// Write 123 SP channels into buf starting at ch_offset.
+    pub(crate) fn encode_sp_into(&self, buf: &mut [f32], ch_offset: usize) {
+        let input = SpInput::from_observation(self);
+        let result = sp::calculate_sp(&input);
+        sp::encode_sp_into(&result, buf, ch_offset);
     }
 }
 
