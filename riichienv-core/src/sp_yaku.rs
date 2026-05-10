@@ -73,8 +73,12 @@ pub fn compute_for_sp_tsumo(
 
     let assume_riichi = input.is_menzen && input.can_riichi;
 
-    // Chitoitsu fast path: 7 distinct pairs, menzen, no melds. Returns
-    // directly without going through the standard agari_table.
+    // Chitoitsu shape detection (7 distinct pairs, menzen, no melds).
+    // We don't early-return here: a 14-tile hand with 7 distinct pairs can
+    // ALSO admit a ryanpeikou-style standard decomposition (e.g. 2 sets of
+    // identical shuntsu + 1 pair). 高点法 (highest-score rule) requires us
+    // to evaluate both interpretations and return the higher-scoring one.
+    let mut chitoi_han: Option<u32> = None;
     if input.is_menzen && input.melds.is_empty() {
         let mut all_two = true;
         let mut pair_count = 0u8;
@@ -126,11 +130,7 @@ pub fn compute_for_sp_tsumo(
                 aka_dora += 1;
             }
             han += regular_dora + aka_dora;
-            return Some(LeanScore {
-                han,
-                fu: 25,
-                yakuman: false,
-            });
+            chitoi_han = Some(han);
         }
     }
 
@@ -138,10 +138,23 @@ pub fn compute_for_sp_tsumo(
     // Returns a slice of CompactDiv (each = u32, packed pair_idx +
     // kotsu/shuntsu tile14 indices). Working set per SP sample is small
     // enough to fit in L1 (~250 unique keys × 4-byte div + index value).
-    let (tile14, list) = agari_table::lookup_compact(&counts_14)?;
-    if list.is_empty() {
-        return None;
-    }
+    //
+    // For pure-chitoi shapes (no 4-set+pair decomposition possible), the
+    // lookup miss is expected — we'll return the chitoi score we already
+    // computed. For shapes that admit BOTH chitoi AND a standard division
+    // (e.g. ryanpeikou-via-double-shuntsu), we fall through to compute the
+    // standard score and pick the higher-scoring interpretation.
+    let standard_lookup = agari_table::lookup_compact(&counts_14);
+    let (tile14, list) = match standard_lookup {
+        Some((t, l)) if !l.is_empty() => (t, l),
+        _ => {
+            return chitoi_han.map(|han| LeanScore {
+                han,
+                fu: 25,
+                yakuman: false,
+            });
+        }
+    };
 
     // Quick yakuman shape detection: defer to the legacy path so we never
     // produce a wrong score by missing yakuman.
@@ -219,12 +232,29 @@ pub fn compute_for_sp_tsumo(
         }
     }
 
-    let (han, fu) = best?;
-    Some(LeanScore {
-        han,
-        fu,
-        yakuman: false,
-    })
+    // 高点法: compare standard best with chitoi (if applicable) and return
+    // the higher-scoring interpretation.
+    let standard = best;
+    match (standard, chitoi_han) {
+        (Some((s_han, s_fu)), Some(c_han)) => {
+            if score_lt(c_han, 25, s_han, s_fu, is_oya) {
+                Some(LeanScore { han: s_han, fu: s_fu, yakuman: false })
+            } else {
+                Some(LeanScore { han: c_han, fu: 25, yakuman: false })
+            }
+        }
+        (Some((s_han, s_fu)), None) => Some(LeanScore {
+            han: s_han,
+            fu: s_fu,
+            yakuman: false,
+        }),
+        (None, Some(c_han)) => Some(LeanScore {
+            han: c_han,
+            fu: 25,
+            yakuman: false,
+        }),
+        (None, None) => None,
+    }
 }
 
 /// Yaku-presence-only fast path. Returns `Some(true)` if the (counts_13, win_tile)

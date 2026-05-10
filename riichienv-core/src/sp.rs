@@ -2609,6 +2609,13 @@ impl<'a> DpContext<'a> {
         let mut best_tenpai = [f32::MIN; SP_MAX_TURNS];
         let mut best_win = [f32::MIN; SP_MAX_TURNS];
         let mut best_exp = [f32::MIN; SP_MAX_TURNS];
+        // Track the tile picked at each turn so we can break ties using
+        // discard priority (mirrors Mortal's `cmp_discard_priority`). Without
+        // tie-breaking, our impl picks the lowest tile_id at ties; Mortal
+        // prefers honors > terminals > middle > aka, which downstream changes
+        // which intermediate state we recurse into and accumulates 0.05–0.13
+        // tenpai_prob divergence on high-shanten DP paths.
+        let mut best_tile = [u8::MAX; SP_MAX_TURNS];
         let mut any_valid = false;
 
         // Per-suit incremental shanten state for the discard enumeration.
@@ -2651,10 +2658,23 @@ impl<'a> DpContext<'a> {
             };
             let v = self.draw_dp(next_key, shanten);
             for i in 0..horizon {
-                if !any_valid || v.exp[i] > best_exp[i] {
+                // Mortal-style tie-break: when EVs are equal at i32 (= yen)
+                // precision, prefer the higher-discard-priority tile (honors
+                // > terminals > middle > aka). This matches Mortal's
+                // `cmp_discard_priority` and keeps intermediate-state choices
+                // aligned, which reduces tenpai_prob accumulating drift.
+                let cur_i = v.exp[i] as i32;
+                let best_i = best_exp[i] as i32;
+                let take = !any_valid
+                    || cur_i > best_i
+                    || (cur_i == best_i
+                        && discard_priority(tile as u8)
+                            > discard_priority(best_tile[i]));
+                if take {
                     best_tenpai[i] = v.tenpai[i];
                     best_win[i] = v.win[i];
                     best_exp[i] = v.exp[i];
+                    best_tile[i] = tile as u8;
                 }
             }
             any_valid = true;
@@ -3190,7 +3210,48 @@ pub mod base_score_calls {
 /// tiles must have a neighbor (or self) within ±2 in the same suit. Filters out
 /// truly isolated tiles before paying even the cached shanten lookup.
 #[inline]
+/// Discard-priority lookup matching Mortal's `cmp_discard_priority` semantics
+/// (libriichi/src/tile.rs). Higher = preferred for discard. Used as a
+/// tie-breaker in `discard_dp_slow` when two candidate discards score equal
+/// EV at integer-yen precision.
+///
+/// Layout: honors (7) > terminals (6) > 2/8 (5) > 3/7 (4) > 4/6 (3) > 5 (2).
+/// Aka 5x maps to its deakaized 5x (priority 2) since this function takes
+/// 0..34 tile_type indices, not 136-form ids.
+#[inline]
+fn discard_priority(tile: u8) -> u8 {
+    if tile >= 27 {
+        return 7;
+    }
+    let pos = tile % 9;
+    match pos {
+        0 | 8 => 6,
+        1 | 7 => 5,
+        2 | 6 => 4,
+        3 | 5 => 3,
+        4 => 2,
+        _ => 0,
+    }
+}
+
 fn potentially_effective_for_draw(counts: &[u8; TILE_MAX], tile: usize) -> bool {
+    // Kokushi-eligibility check: when the hand has no melds (= len_div3 >= 4),
+    // every yaocchi tile is a potential kokushi-progression draw, regardless
+    // of whether the player currently has a copy. The standard "adjacency or
+    // count >= 1" filter would skip missing yaocchi like a third honor, but
+    // those are precisely the kokushi wait tiles. We bias the heuristic
+    // toward false-positives on yaocchi (paying the shanten lookup) so the
+    // DP doesn't silently drop kokushi paths.
+    let total: u8 = counts.iter().sum();
+    let len_div3 = total / 3;
+    let is_yaocchi = if tile < 27 {
+        matches!(tile % 9, 0 | 8)
+    } else {
+        true
+    };
+    if len_div3 >= 4 && is_yaocchi {
+        return true;
+    }
     if tile >= 27 {
         return counts[tile] >= 1;
     }
