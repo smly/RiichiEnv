@@ -111,9 +111,10 @@ pub fn compute_for_sp_tsumo(
             if flags.all_yaocchi {
                 han += 2;
             }
-            // dora
+            // dora — counts_14 includes the win tile, so the aka check
+            // correctly attributes the red 5x even when it's the win itself.
             let regular_dora = count_regular_dora(input, &counts_14);
-            let red_present = |t34: usize| counts_13[t34] >= 1;
+            let red_present = |t34: usize| counts_14[t34] >= 1;
             let mut aka_dora = 0u32;
             if akas_in_hand[0] && red_present(4) {
                 aka_dora += 1;
@@ -153,12 +154,13 @@ pub fn compute_for_sp_tsumo(
 
     // Aggregate dora count (regular indicators -> next tile + aka).
     let regular_dora = count_regular_dora(input, &full_counts);
-    // Mirror the legacy path's aka semantics: only count an in-hand red if the
-    // corresponding deakaized 5x is actually present in counts_13. (When the
-    // win tile *is* the red 5x but counts_13 has 0 of that tile, the legacy
-    // encoder drops the red bit because it can't be attached to any in-hand
-    // tile.)
-    let red_present = |t34: usize| counts_13[t34] >= 1;
+    // Aka attribution: an in-hand red 5x must be present somewhere in the
+    // 14-tile post-win hand (counts_14 = counts_13 + win_tile). Previously
+    // this checked counts_13 only, which incorrectly dropped the aka bit
+    // when the win tile WAS the player's only copy of that 5x (e.g. drew
+    // aka 5s into a hand without prior 5s). Mortal counts this aka via its
+    // post-deal `state.akas_in_hand` flag — we need the same semantics here.
+    let red_present = |t34: usize| counts_14[t34] >= 1;
     let mut aka_dora = count_meld_aka(&input.melds);
     if akas_in_hand[0] && red_present(4) {
         aka_dora += 1;

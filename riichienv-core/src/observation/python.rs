@@ -9,6 +9,8 @@ use crate::sp::SP_CHANNELS;
 use crate::types::{Meld, MeldType};
 use crate::yaku_checker;
 
+use super::OBS_EXTENDED_CHANNELS;
+
 use super::Observation;
 use super::helpers::get_next_tile;
 
@@ -1323,7 +1325,7 @@ impl Observation {
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        let total_channels = 215 + SP_CHANNELS + DREV_CHANNELS;
+        let total_channels = OBS_EXTENDED_CHANNELS + SP_CHANNELS + DREV_CHANNELS;
         let total = total_channels * 34;
         let mut buf = vec![0.0f32; total];
 
@@ -1337,8 +1339,8 @@ impl Observation {
         self.encode_pass_ctx_into(&mut buf, 194);
         self.encode_last_ted_into(&mut buf, 197);
         self.encode_riichi_sute_into(&mut buf, 206);
-        self.encode_sp_into(&mut buf, 215);
-        self.encode_drev_into(&mut buf, 215 + SP_CHANNELS);
+        self.encode_sp_into(&mut buf, OBS_EXTENDED_CHANNELS);
+        self.encode_drev_into(&mut buf, OBS_EXTENDED_CHANNELS + SP_CHANNELS);
 
         let byte_len = total * std::mem::size_of::<f32>();
         let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };

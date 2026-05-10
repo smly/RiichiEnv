@@ -3369,8 +3369,18 @@ fn base_score_tsumo(
     }
 
     // Legacy fallback path (allocates HandEvaluator + Vec).
+    // Aka-as-win-tile fix: if `akas_in_hand[i]` is true but counts_13 has 0
+    // of that 5x, the aka must be the win tile itself. counts_to_136_stack
+    // can't see the win tile, so we'd lose the aka attribution. Pass the win
+    // tile as `red=true` in that case so HandEvaluator gets the correct dora.
     let (tiles, tlen) = counts_to_136_stack(counts_13, akas_in_hand);
     let evaluator = HandEvaluator::new_borrowed(&tiles[..tlen], &input.melds);
+    let win_is_aka = match win_tile {
+        4 => akas_in_hand[0] && counts_13[4] == 0,
+        13 => akas_in_hand[1] && counts_13[13] == 0,
+        22 => akas_in_hand[2] && counts_13[22] == 0,
+        _ => false,
+    };
     let conditions = Conditions {
         tsumo: true,
         riichi: assume_riichi,
@@ -3379,7 +3389,7 @@ fn base_score_tsumo(
         ..Conditions::default()
     };
     let result = evaluator.calc_borrowed(
-        tile_type_to_136(win_tile, false),
+        tile_type_to_136(win_tile, win_is_aka),
         &input.dora_indicators,
         &[],
         Some(conditions.clone()),

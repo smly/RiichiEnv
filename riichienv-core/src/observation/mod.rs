@@ -1,6 +1,8 @@
 #[cfg(feature = "python")]
 mod encode;
 #[cfg(feature = "python")]
+pub use encode::OBS_EXTENDED_CHANNELS;
+#[cfg(feature = "python")]
 pub(crate) mod helpers;
 #[cfg(feature = "python")]
 pub(crate) mod mjai_select;

@@ -84,5 +84,23 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(riichienv_core::yaku::get_all_yaku_py, m)?)?;
+
+    // Feature-block sizes. Exporting them from the binding lets Python call
+    // sites use the canonical Rust values instead of hardcoding numbers that
+    // silently drift when the feature space changes.
+    m.add("SP_CHANNELS", riichienv_core::sp::SP_CHANNELS)?;
+    m.add("DREV_CHANNELS", riichienv_core::drev::DREV_CHANNELS)?;
+    m.add(
+        "OBS_EXTENDED_CHANNELS",
+        riichienv_core::observation::OBS_EXTENDED_CHANNELS,
+    )?;
+    m.add(
+        "OBS_TOTAL_CHANNELS",
+        riichienv_core::observation::OBS_EXTENDED_CHANNELS
+            + riichienv_core::sp::SP_CHANNELS
+            + riichienv_core::drev::DREV_CHANNELS,
+    )?;
+    m.add("TILE_TYPES", 34u32)?;
+
     Ok(())
 }

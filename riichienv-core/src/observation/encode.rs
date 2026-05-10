@@ -7,6 +7,11 @@ use crate::types::MeldType;
 use super::Observation;
 use super::helpers::{add_val, broadcast_scalar, get_next_tile, set_val};
 
+/// Number of "extended observation" channels written by `encode_*_into` calls
+/// at offsets 0..215. The full feature block is
+/// `OBS_EXTENDED_CHANNELS + sp::SP_CHANNELS + drev::DREV_CHANNELS`.
+pub const OBS_EXTENDED_CHANNELS: usize = 215;
+
 /// Internal (non-PyO3) methods that write features directly into a flat f32 buffer.
 /// Buffer layout: channel-major, buf[(ch_offset + ch) * 34 + tile] = value.
 impl Observation {
@@ -708,7 +713,7 @@ mod tests {
         let mut sp_only = vec![0.0f32; SP_CHANNELS * 34];
         obs.encode_sp_into(&mut sp_only, 0);
 
-        let total_channels = 215 + SP_CHANNELS + DREV_CHANNELS;
+        let total_channels = OBS_EXTENDED_CHANNELS + SP_CHANNELS + DREV_CHANNELS;
         let mut extended = vec![0.0f32; total_channels * 34];
         obs.encode_base_into(&mut extended, 0);
         obs.encode_discard_decay_into(&mut extended, 74);
@@ -720,10 +725,12 @@ mod tests {
         obs.encode_pass_ctx_into(&mut extended, 194);
         obs.encode_last_ted_into(&mut extended, 197);
         obs.encode_riichi_sute_into(&mut extended, 206);
-        obs.encode_sp_into(&mut extended, 215);
-        obs.encode_drev_into(&mut extended, 215 + SP_CHANNELS);
+        obs.encode_sp_into(&mut extended, OBS_EXTENDED_CHANNELS);
+        obs.encode_drev_into(&mut extended, OBS_EXTENDED_CHANNELS + SP_CHANNELS);
 
-        assert_eq!(sp_only, extended[215 * 34..(215 + SP_CHANNELS) * 34]);
+        let sp_start = OBS_EXTENDED_CHANNELS * 34;
+        let sp_end = (OBS_EXTENDED_CHANNELS + SP_CHANNELS) * 34;
+        assert_eq!(sp_only, extended[sp_start..sp_end]);
     }
 
     #[test]
