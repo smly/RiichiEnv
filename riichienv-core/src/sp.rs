@@ -9,7 +9,32 @@ use crate::shanten;
 use crate::types::{Conditions, Meld, MeldType, TILE_MAX, Wind};
 
 pub const SP_MAX_TURNS: usize = 17;
-pub const SP_CHANNELS: usize = 123;
+/// SP channel layout:
+///  - ch  0..  2  ( 2): broadcast max_ev (100k / 30k normalisation)
+///  - ch  2.. 36  (34): per-discard required_tiles[discard][tile] = 1
+///  - ch 36.. 70  (34): per-discard yaku_progress_tiles[discard][tile] = 1
+///  - ch     70   ( 1): one-hot best_required discard tile
+///  - ch     71   ( 1): one-hot best_yaku_progress discard tile
+///  - ch 72.. 89  (17): tenpai_probs per (discard, turn)
+///  - ch 89..106  (17): win_probs per (discard, turn)
+///  - ch 106..123 (17): exp_values per (discard, turn)
+///  - ch 123..135 (12): per-discard yaku-mask flags (one bit each, see
+///    `yaku_mask_bits`); cell `(123+bit, discard_tile)` = 1 if achievable
+///  - ch 135..138 ( 3): per-discard scoring stats — at cell `(.., discard_tile)`,
+///    min_point/100k, mean_point/100k, max_point/100k respectively
+///  - ch 138..172 (34): per-discard future wait map. Channel `138+discard`
+///    has cell `tile` = 1 if drawing that tile after the discard is
+///    structurally useful (= `potentially_effective_for_draw`). Superset of
+///    `required_tiles` (ch 2..36) — at tenpai they coincide; pre-tenpai it
+///    captures the broader set of tiles that *could* progress the hand.
+///  - ch 172..178 ( 6): per-discard target-point achievement probability.
+///    For target thresholds `target_points::TARGETS = [1k, 2k, 4k, 8k, 12k,
+///    16k]`, channel `172+k` has cell `discard_tile` =
+///    `P(score ≥ T_k | win at this discard)`. Populated at shanten=0 only.
+///
+/// Total: 178 channels. Deal-in Risk EV (DREV) features live in a sibling
+/// `drev` module and are concatenated downstream in the observation encoder.
+pub const SP_CHANNELS: usize = 178;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SpInput {
@@ -62,6 +87,60 @@ mod serde_arrays {
     }
 }
 
+/// Compute the per-discard "future wait map": for each tile in 0..34, mark
+/// 1.0 if drawing that tile after the given discard is structurally relevant
+/// to hand progression. Uses `potentially_effective_for_draw` semantics — a
+/// superset of `required_tiles` (which only marks tiles that *immediately*
+/// reduce shanten). Future-wait extends to "tiles within ±2 of any in-hand
+/// tile in the same suit, OR matching an in-hand tile" — these are the
+/// candidates the network may want to weigh for hand-shape planning beyond
+/// the immediate next draw.
+#[inline]
+fn future_wait_map(after_discard: &[u8; TILE_MAX], remaining: &[u8; TILE_MAX]) -> [f32; TILE_MAX] {
+    let mut out = [0.0f32; TILE_MAX];
+    for tile in 0..TILE_MAX {
+        if remaining[tile] == 0 || after_discard[tile] >= 4 {
+            continue;
+        }
+        if potentially_effective_for_draw(after_discard, tile) {
+            out[tile] = remaining[tile] as f32;
+        }
+    }
+    out
+}
+
+/// Bit positions for `SpCandidate.yaku_mask`. Each bit indicates that the
+/// corresponding yaku is achievable by SOME wait tile of this discard's
+/// resulting hand (= structural shape allows it). For non-optimal discards
+/// (= shanten-down), the mask is left at 0 because per-wait yaku detection
+/// is not run for those candidates.
+pub mod yaku_mask_bits {
+    pub const TANYAO: u32 = 1 << 0;
+    pub const YAKUHAI_DRAGON: u32 = 1 << 1;
+    pub const YAKUHAI_ROUND: u32 = 1 << 2;
+    pub const YAKUHAI_SEAT: u32 = 1 << 3;
+    pub const HONITSU: u32 = 1 << 4;
+    pub const CHINITSU: u32 = 1 << 5;
+    pub const HONROUTOU: u32 = 1 << 6;
+    pub const TOITOI: u32 = 1 << 7;
+    pub const SANSHOKU_DOUKOU: u32 = 1 << 8;
+    pub const SHOUSANGEN: u32 = 1 << 9;
+    pub const RIICHI: u32 = 1 << 10;
+    pub const MENZEN_TSUMO: u32 = 1 << 11;
+    /// Number of yaku-mask bits actually consumed by the encoder.
+    pub const N_BITS: usize = 12;
+}
+
+/// Tsumo-total point thresholds used to encode "target-point achievement
+/// probability" features. For each candidate (discard), we report
+/// `P(score ≥ T_k | win at this discard)` = wait-count-weighted fraction of
+/// waits scoring ≥ T_k. Targets cover the natural breakpoints between hand
+/// classes (kid tsumo totals): 1han, 2han, 3han, mangan, haneman, baiman.
+pub mod target_points {
+    pub const TARGETS: [f32; 6] = [1000.0, 2000.0, 4000.0, 8000.0, 12_000.0, 16_000.0];
+    pub const N: usize = TARGETS.len();
+}
+
 #[derive(Debug, Clone)]
 pub struct SpCandidate {
     pub tile: u8,
@@ -72,6 +151,28 @@ pub struct SpCandidate {
     pub yaku_progress_tiles: [f32; TILE_MAX],
     pub num_required_tiles: f32,
     pub num_yaku_progress_tiles: f32,
+    /// Bitmask of yaku achievable by SOME wait of this discard. See
+    /// `yaku_mask_bits` for bit positions. Populated for tenpai-maintaining
+    /// (optimal) discards; left at 0 for shanten-down (non-optimal) ones.
+    pub yaku_mask: u32,
+    /// Lowest tsumo total point (yen) over the wait set. 0 if no scored waits.
+    pub min_point: f32,
+    /// Wait-count-weighted mean tsumo total point. Same value as
+    /// `ScoringSummary.mean_point` but exposed per candidate.
+    pub mean_point: f32,
+    /// Highest tsumo total point over the wait set.
+    pub max_point: f32,
+    /// Future wait candidate map: for each tile, the count of remaining
+    /// instances if drawing it would be structurally useful for the hand's
+    /// future progression (= `potentially_effective_for_draw`). Superset of
+    /// `required_tiles`.
+    pub future_wait_tiles: [f32; TILE_MAX],
+    /// Target-point achievement probabilities. `point_achievement_probs[k]`
+    /// = `P(score ≥ target_points::TARGETS[k] | win at this discard)`,
+    /// computed as wait-count-weighted fraction over the wait set. Populated
+    /// at shanten=0 only; left at 0 for shanten-down candidates (the network
+    /// can rely on `mean_point`/`max_point` for those).
+    pub point_achievement_probs: [f32; target_points::N],
 }
 
 #[derive(Debug, Clone)]
@@ -401,6 +502,16 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
             )
         };
 
+        let future_wait_tiles = future_wait_map(&after_discard, &remaining);
+
+        let mut point_achievement_probs = [0.0f32; target_points::N];
+        if scoring.wait_count > 0.0 {
+            let inv = 1.0 / scoring.wait_count;
+            for k in 0..target_points::N {
+                point_achievement_probs[k] = (scoring.point_buckets[k] * inv).clamp(0.0, 1.0);
+            }
+        }
+
         candidates.push(SpCandidate {
             tile,
             tenpai_probs,
@@ -410,6 +521,12 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
             yaku_progress_tiles,
             num_required_tiles,
             num_yaku_progress_tiles,
+            yaku_mask: scoring.yaku_mask,
+            min_point: scoring.min_point,
+            mean_point: scoring.mean_point,
+            max_point: scoring.max_point,
+            future_wait_tiles,
+            point_achievement_probs,
         });
     }
 
@@ -581,6 +698,15 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
     }
 
     let ev_scale = if max_ev >= 1.0 { 1.0 / max_ev } else { 0.0 };
+    // Channel base offsets after the 123-channel legacy block.
+    const YAKU_MASK_BASE: usize = 72 + SP_MAX_TURNS * 3; // = 123
+    const SCORING_BASE: usize = YAKU_MASK_BASE + yaku_mask_bits::N_BITS; // = 135
+    const FUTURE_WAIT_BASE: usize = SCORING_BASE + 3; // = 138
+    const TARGET_PROB_BASE: usize = FUTURE_WAIT_BASE + TILE_MAX; // = 172
+    /// Normalisation for tsumo total points. Mangan ≈ 8000, kazoe yakuman ≈
+    /// 32000; pick 100k as the same upper bound used by `max_ev` ch 0 so the
+    /// scale matches across channels.
+    const POINT_NORM: f32 = 100_000.0;
     for candidate in &result.candidates {
         let discard = candidate.tile as usize;
         if discard >= TILE_MAX {
@@ -609,6 +735,49 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
                 (candidate.exp_values[turn] * ev_scale).clamp(0.0, 1.0),
             );
         }
+
+        // Yaku-mask per-discard one-hot. Bit b of `candidate.yaku_mask` →
+        // channel YAKU_MASK_BASE + b at the discard-tile cell.
+        for b in 0..yaku_mask_bits::N_BITS {
+            if candidate.yaku_mask & (1u32 << b) != 0 {
+                set(buf, ch_offset, YAKU_MASK_BASE + b, discard, 1.0);
+            }
+        }
+
+        // Scoring stats per-discard: min/mean/max normalised by POINT_NORM.
+        if candidate.mean_point > 0.0 || candidate.max_point > 0.0 {
+            set(
+                buf, ch_offset, SCORING_BASE, discard,
+                (candidate.min_point / POINT_NORM).clamp(0.0, 1.0),
+            );
+            set(
+                buf, ch_offset, SCORING_BASE + 1, discard,
+                (candidate.mean_point / POINT_NORM).clamp(0.0, 1.0),
+            );
+            set(
+                buf, ch_offset, SCORING_BASE + 2, discard,
+                (candidate.max_point / POINT_NORM).clamp(0.0, 1.0),
+            );
+        }
+
+        // Per-discard future wait map: channel `FUTURE_WAIT_BASE + discard`
+        // has cell `tile` = 1 if drawing that tile after this discard is
+        // potentially-effective. One-hot, not count-weighted, to match the
+        // existing `required_tiles` channel encoding (ch 2..36).
+        for tile in 0..TILE_MAX {
+            if candidate.future_wait_tiles[tile] > 0.0 {
+                set(buf, ch_offset, FUTURE_WAIT_BASE + discard, tile, 1.0);
+            }
+        }
+
+        // Per-discard target-point achievement probabilities at the discard
+        // cell. Each of `target_points::N` thresholds gets its own channel.
+        for k in 0..target_points::N {
+            let p = candidate.point_achievement_probs[k];
+            if p > 0.0 {
+                set(buf, ch_offset, TARGET_PROB_BASE + k, discard, p);
+            }
+        }
     }
 }
 
@@ -619,6 +788,16 @@ struct ScoringSummary {
     /// for shanten-down/high-shanten paths). Tenpai+optimal candidates do NOT
     /// consume this — `tenpai_series_from_waits` ignores it.
     mean_point: f32,
+    /// Lowest score across waits (0 if none scored).
+    min_point: f32,
+    /// Highest score across waits.
+    max_point: f32,
+    /// OR of yaku flag bits achievable for SOME wait. See `yaku_mask_bits`.
+    yaku_mask: u32,
+    /// Wait-count-weighted accumulator: `point_buckets[k]` = sum of weights
+    /// of scored waits whose tsumo total ≥ `target_points::TARGETS[k]`.
+    /// Divide by `wait_count` to get achievement probability.
+    point_buckets: [f32; target_points::N],
 }
 
 fn add_seen(tiles_seen: &mut [u8; TILE_MAX], tile: u32) {
@@ -777,6 +956,42 @@ fn fused_tenpai_pass(
     let yakuhai_kotsu_pre = !assume_riichi
         && yh[..n_yh].iter().any(|&y| counts[y as usize] >= 3);
 
+    // Decompose yakuhai by class (dragon/round/seat) for yaku-mask reporting.
+    // A class is "wait-invariant present" if any meld is that class OR any
+    // count_pre[that_tile] ≥ 3.
+    let yakuhai_dragon_pre = matches!(counts[31], 3..)
+        || matches!(counts[32], 3..)
+        || matches!(counts[33], 3..)
+        || dp.input.melds.iter().any(|m| {
+            m.tiles.iter().any(|&t| matches!(t / 4, 31 | 32 | 33))
+        });
+    let yakuhai_round_pre = (27..=30).contains(&bakaze_yh)
+        && (counts[bakaze_yh as usize] >= 3
+            || dp.input.melds.iter().any(|m| {
+                m.tiles.iter().any(|&t| t / 4 == bakaze_yh)
+            }));
+    let yakuhai_seat_pre = (27..=30).contains(&jikaze_yh)
+        && (counts[jikaze_yh as usize] >= 3
+            || dp.input.melds.iter().any(|m| {
+                m.tiles.iter().any(|&t| t / 4 == jikaze_yh)
+            }));
+
+    // Shousangen pre-check: 2 dragon kotsu + 1 dragon pair in (counts + melds).
+    // Wait-invariant.
+    let mut dragon_kotsu_count = 0u8;
+    let mut dragon_pair_present = false;
+    for d in [31u8, 32, 33] {
+        let mut c = counts[d as usize];
+        for m in &dp.input.melds {
+            for &t in &m.tiles {
+                if t / 4 == d { c = c.saturating_add(1); }
+            }
+        }
+        if c >= 3 { dragon_kotsu_count += 1; }
+        else if c == 2 { dragon_pair_present = true; }
+    }
+    let shousangen_pre = dragon_kotsu_count >= 2 && dragon_pair_present;
+
     // counts_plus_melds: pre-win 13-tile + melds. Post-win shape = + wait tile.
     let mut full_pre = *counts;
     for meld in &dp.input.melds {
@@ -860,23 +1075,11 @@ fn fused_tenpai_pass(
             continue;
         }
         required[tile] = remaining[tile] as f32;
-        if assume_riichi {
-            yaku_progress[tile] = remaining[tile] as f32;
-            continue;
-        }
 
-        // Structural yaku short-circuit on post-win shape (= full_pre + tile).
-        // Wait-invariant guarantees:
-        //   - yakuhai-in-meld
-        //   - in-hand yakuhai kotsu (counts already has ≥3 of yakuhai)
-        //   - sanshoku doukou already complete in 13-tile + melds
-        // Wait-dependent guarantees:
-        //   - tanyao: full_pre has no yaocchi AND wait is non-yaocchi
-        //   - honitsu/chinitsu: single suit AND wait is that suit (+honors)
-        //   - honroutou: pre all-yaocchi AND wait is yaocchi
-        //   - toitoi: pre has no singleton AND wait is shanpon-completion
-        //     (wait already at count 2 → completes a kotsu)
-        //   - yakuhai-by-completion: wait is yakuhai AND counts[wait] == 2
+        // Compute per-wait structural yaku flags (these are also the gating
+        // conditions for the "skip score_tsumo" short-circuit). Then, for
+        // ANY wait that has yaku, OR the corresponding mask bits into
+        // `scoring.yaku_mask`, and update min/mean/max via score_tsumo.
         let tile_u = tile as u8;
         let tile_is_yaocchi = if tile < 27 {
             matches!(tile % 9, 0 | 8)
@@ -886,32 +1089,96 @@ fn fused_tenpai_pass(
         let tile_is_honor = tile >= 27;
         let tile_suit = if tile < 27 { Some((tile / 9) as u8) } else { None };
         let post_tanyao = !has_yaocchi_pre && !tile_is_yaocchi;
-        let post_single_suit = single_suit_pre
+        let post_chinitsu = single_suit_pre
+            && !has_z_pre
+            && match main_suit_pre {
+                Some(s) => tile_suit == Some(s),
+                None => false,
+            };
+        let post_honitsu = single_suit_pre
+            && has_z_pre
             && match main_suit_pre {
                 Some(s) => tile_suit == Some(s) || tile_is_honor,
-                None => tile_is_honor && !has_z_pre,
+                None => tile_is_honor,
             };
+        let post_single_suit = post_chinitsu || post_honitsu;
         let post_honroutou = !has_simple_pre && tile_is_yaocchi;
         let post_toitoi = !has_singleton_pre && counts[tile] == 2;
-        let post_yakuhai_completion =
-            yh[..n_yh].contains(&tile_u) && counts[tile] == 2;
 
-        if yakuhai_in_meld
+        // Per-wait yakuhai-completion: wait IS a yakuhai tile, and counts
+        // already had 2 of it (so it completes the kotsu).
+        let waits_complete_dragon = matches!(tile_u, 31 | 32 | 33) && counts[tile] == 2;
+        let waits_complete_round = (27..=30).contains(&bakaze_yh)
+            && tile_u == bakaze_yh
+            && counts[tile] == 2;
+        let waits_complete_seat = (27..=30).contains(&jikaze_yh)
+            && tile_u == jikaze_yh
+            && counts[tile] == 2;
+
+        let post_yakuhai_completion =
+            waits_complete_dragon || waits_complete_round || waits_complete_seat;
+
+        let has_struct_yaku = yakuhai_in_meld
             || yakuhai_kotsu_pre
             || sanshoku_doukou_pre_full
+            || shousangen_pre
             || post_tanyao
             || post_single_suit
             || post_honroutou
             || post_toitoi
-            || post_yakuhai_completion
-        {
+            || post_yakuhai_completion;
+
+        // Update scoring (min/mean/max + yaku_mask) for waits that have yaku.
+        // `assume_riichi` always has yaku via riichi itself; `has_struct_yaku`
+        // identifies the per-wait structural source. For all other cases,
+        // fall through to score_tsumo to discover lean-path yaku (sanshoku
+        // doujun / ittsu / sanankou / pinfu / iipeikou / etc.).
+        let wait_has_yaku = assume_riichi || has_struct_yaku;
+        if wait_has_yaku {
             yaku_progress[tile] = remaining[tile] as f32;
-            // Skip score_tsumo: scoring.{wait_count,mean_point} are unused
-            // by the tenpai+optimal consumer (`tenpai_series_from_waits`).
+            // Mask: union of applicable yaku for THIS wait.
+            let mut mask: u32 = 0;
+            if assume_riichi { mask |= yaku_mask_bits::RIICHI; }
+            if dp.input.is_menzen { mask |= yaku_mask_bits::MENZEN_TSUMO; }
+            if post_tanyao { mask |= yaku_mask_bits::TANYAO; }
+            if yakuhai_dragon_pre || waits_complete_dragon {
+                mask |= yaku_mask_bits::YAKUHAI_DRAGON;
+            }
+            if yakuhai_round_pre || waits_complete_round {
+                mask |= yaku_mask_bits::YAKUHAI_ROUND;
+            }
+            if yakuhai_seat_pre || waits_complete_seat {
+                mask |= yaku_mask_bits::YAKUHAI_SEAT;
+            }
+            if post_chinitsu { mask |= yaku_mask_bits::CHINITSU; }
+            if post_honitsu { mask |= yaku_mask_bits::HONITSU; }
+            if post_honroutou { mask |= yaku_mask_bits::HONROUTOU; }
+            if post_toitoi { mask |= yaku_mask_bits::TOITOI; }
+            if sanshoku_doukou_pre_full { mask |= yaku_mask_bits::SANSHOKU_DOUKOU; }
+            if shousangen_pre { mask |= yaku_mask_bits::SHOUSANGEN; }
+            scoring.yaku_mask |= mask;
+
+            // Min/mean/max point: score this wait via the lean tsumo path.
+            // Even under riichi (where we skipped this before), the
+            // distribution per wait is needed for the new min/max channels.
+            if let Some(point) =
+                dp.score_tsumo(counts, remaining, tile_u, ScoreMods::default())
+            {
+                merge_point(&mut scoring, point, remaining[tile] as f32);
+            }
             continue;
         }
+
+        // No structural yaku → fall back to per-wait score_tsumo. If it
+        // succeeds, the lean path detected a decomp-dependent yaku
+        // (sanshoku doujun / ittsu / sanankou / etc.). We can't easily
+        // categorize which without re-running the lean path, so leave the
+        // mask bits unset for this wait; the channel will still be 0 if
+        // no other wait sets them, and the network can fall back on
+        // `yaku_progress_tiles` (the binary "any yaku" channel) for that
+        // info.
         if let Some(point) =
-            dp.score_tsumo(counts, remaining, tile as u8, ScoreMods::default())
+            dp.score_tsumo(counts, remaining, tile_u, ScoreMods::default())
         {
             yaku_progress[tile] = remaining[tile] as f32;
             merge_point(&mut scoring, point, remaining[tile] as f32);
@@ -1017,9 +1284,25 @@ fn score_waits(
 
 fn merge_point(scoring: &mut ScoringSummary, point: f32, weight: f32) {
     let old_weighted_sum = scoring.mean_point * scoring.wait_count;
+    let was_empty = scoring.wait_count == 0.0;
     scoring.wait_count += weight;
     if scoring.wait_count > 0.0 {
         scoring.mean_point = (old_weighted_sum + point * weight) / scoring.wait_count;
+    }
+    if was_empty || point < scoring.min_point {
+        scoring.min_point = point;
+    }
+    if point > scoring.max_point {
+        scoring.max_point = point;
+    }
+    // Per-target weight accumulator. The targets are sorted ascending, so we
+    // can break early at the first miss.
+    for (k, &threshold) in target_points::TARGETS.iter().enumerate() {
+        if point >= threshold {
+            scoring.point_buckets[k] += weight;
+        } else {
+            break;
+        }
     }
 }
 
@@ -3483,12 +3766,100 @@ mod tests {
     }
 
     #[test]
-    fn sp_generates_candidates_and_123_channels() {
+    fn sp_generates_candidates_and_178_channels() {
         let input = tenpai_fixture(10);
         let result = calculate_sp(&input);
         assert!(!result.candidates.is_empty());
         let encoded = encode_sp(&result);
         assert_eq!(encoded.len(), SP_CHANNELS * TILE_MAX);
+        assert_eq!(SP_CHANNELS, 178);
+    }
+
+    #[test]
+    fn sp_target_point_probs_are_monotone_non_increasing() {
+        // P(score ≥ T_k) must be non-increasing in T_k since the targets are
+        // sorted ascending.
+        let input = tenpai_fixture(10);
+        let result = calculate_sp(&input);
+        let mut saw_signal = false;
+        for c in &result.candidates {
+            for k in 1..target_points::N {
+                let prev = c.point_achievement_probs[k - 1];
+                let cur = c.point_achievement_probs[k];
+                assert!(
+                    prev + 1e-6 >= cur,
+                    "discard={} k={}: prob {} → {} should be non-increasing",
+                    c.tile, k, prev, cur,
+                );
+                if prev > 0.0 {
+                    saw_signal = true;
+                }
+            }
+        }
+        assert!(saw_signal, "expected at least one candidate with non-zero target-prob");
+    }
+
+    #[test]
+    fn sp_future_wait_is_superset_of_required_tiles_at_tenpai() {
+        // For tenpai-maintaining candidates, `future_wait_tiles` should
+        // include every tile in `required_tiles` (the wait set is a subset of
+        // structurally-progressive draws). Verifies the new ch 138..172 block
+        // is consistent with the legacy ch 2..36 block.
+        let input = tenpai_fixture(10);
+        let result = calculate_sp(&input);
+        for c in &result.candidates {
+            for tile in 0..TILE_MAX {
+                if c.required_tiles[tile] > 0.0 {
+                    assert!(
+                        c.future_wait_tiles[tile] > 0.0,
+                        "discard={} tile={}: required_tiles set but future_wait_tiles unset",
+                        c.tile, tile,
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sp_yaku_mask_riichi_for_menzen_riichi_eligible() {
+        // tenpai_fixture uses menzen + can_riichi=true. Every optimal
+        // candidate should set the RIICHI and MENZEN_TSUMO bits.
+        let input = tenpai_fixture(10);
+        let result = calculate_sp(&input);
+        let optimal_count = result
+            .candidates
+            .iter()
+            .filter(|c| c.yaku_mask & yaku_mask_bits::RIICHI != 0)
+            .count();
+        assert!(optimal_count > 0, "expected at least one riichi-eligible candidate");
+        for c in &result.candidates {
+            if c.yaku_mask & yaku_mask_bits::RIICHI != 0 {
+                assert!(
+                    c.yaku_mask & yaku_mask_bits::MENZEN_TSUMO != 0,
+                    "menzen+riichi candidate must also set MENZEN_TSUMO"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn sp_min_mean_max_point_populated_for_optimal_tenpai() {
+        let input = tenpai_fixture(10);
+        let result = calculate_sp(&input);
+        // At least one optimal candidate (= tenpai-maintaining discard) must
+        // have populated min/mean/max scoring.
+        let any = result
+            .candidates
+            .iter()
+            .any(|c| c.max_point > 0.0 && c.mean_point > 0.0 && c.min_point > 0.0);
+        assert!(any, "expected scoring stats for at least one tenpai candidate");
+        // Sanity: min ≤ mean ≤ max within each candidate.
+        for c in &result.candidates {
+            if c.max_point > 0.0 {
+                assert!(c.min_point <= c.mean_point + 1e-3);
+                assert!(c.mean_point <= c.max_point + 1e-3);
+            }
+        }
     }
 
     #[test]

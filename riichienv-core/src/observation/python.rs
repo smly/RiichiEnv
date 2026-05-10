@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
 use crate::action::{Action, ActionEncoder, ActionType};
+use crate::drev::DREV_CHANNELS;
 use crate::shanten;
 use crate::sp::SP_CHANNELS;
 use crate::types::{Meld, MeldType};
@@ -1316,13 +1317,13 @@ impl Observation {
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
-    /// Encode extended features plus SP features.
+    /// Encode extended features plus SP and DREV features.
     #[pyo3(name = "encode_extended_with_sp")]
     pub fn encode_extended_with_sp<'py>(
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        let total_channels = 215 + SP_CHANNELS;
+        let total_channels = 215 + SP_CHANNELS + DREV_CHANNELS;
         let total = total_channels * 34;
         let mut buf = vec![0.0f32; total];
 
@@ -1337,6 +1338,19 @@ impl Observation {
         self.encode_last_ted_into(&mut buf, 197);
         self.encode_riichi_sute_into(&mut buf, 206);
         self.encode_sp_into(&mut buf, 215);
+        self.encode_drev_into(&mut buf, 215 + SP_CHANNELS);
+
+        let byte_len = total * std::mem::size_of::<f32>();
+        let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
+        Ok(pyo3::types::PyBytes::new(py, byte_slice))
+    }
+
+    /// Encode DREV features only.
+    #[pyo3(name = "encode_drev")]
+    pub fn encode_drev_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let total = DREV_CHANNELS * 34;
+        let mut buf = vec![0.0f32; total];
+        self.encode_drev_into(&mut buf, 0);
 
         let byte_len = total * std::mem::size_of::<f32>();
         let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };

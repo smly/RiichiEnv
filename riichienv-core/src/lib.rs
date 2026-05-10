@@ -19,6 +19,7 @@ pub mod replay;
 pub mod rule;
 pub mod shanten;
 pub mod sp;
+pub mod drev;
 pub mod state;
 
 // DEBUG-ONLY: links against AGPL Mortal libriichi for SP feature numerical

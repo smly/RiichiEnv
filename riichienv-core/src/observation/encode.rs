@@ -1,4 +1,5 @@
 use crate::action::ActionType;
+use crate::drev::{self, DrevInput};
 use crate::shanten;
 use crate::sp::{self, SpInput};
 use crate::types::MeldType;
@@ -584,11 +585,21 @@ impl Observation {
         }
     }
 
-    /// Write 123 SP channels into buf starting at ch_offset.
+    /// Write `sp::SP_CHANNELS` SP channels into buf starting at ch_offset.
     pub(crate) fn encode_sp_into(&self, buf: &mut [f32], ch_offset: usize) {
         let input = SpInput::from_observation(self);
         let result = sp::calculate_sp(&input);
         sp::encode_sp_into(&result, buf, ch_offset);
+    }
+
+    /// Write `drev::DREV_CHANNELS` DREV channels into buf starting at
+    /// ch_offset. DREV (Deal-in Risk EV) is a separate feature block from
+    /// SP — orthogonal concept (opponent threat vs. own EV) so it has its
+    /// own module and gets concatenated downstream.
+    pub(crate) fn encode_drev_into(&self, buf: &mut [f32], ch_offset: usize) {
+        let input = DrevInput::from_observation(self);
+        let result = drev::calculate_drev(&input);
+        drev::encode_drev_into(&result, buf, ch_offset);
     }
 }
 
@@ -596,6 +607,7 @@ impl Observation {
 mod tests {
     use super::*;
     use crate::action::{Action, ActionType};
+    use crate::drev::DREV_CHANNELS;
     use crate::sp::SP_CHANNELS;
     use crate::types::Meld;
 
@@ -696,7 +708,7 @@ mod tests {
         let mut sp_only = vec![0.0f32; SP_CHANNELS * 34];
         obs.encode_sp_into(&mut sp_only, 0);
 
-        let total_channels = 215 + SP_CHANNELS;
+        let total_channels = 215 + SP_CHANNELS + DREV_CHANNELS;
         let mut extended = vec![0.0f32; total_channels * 34];
         obs.encode_base_into(&mut extended, 0);
         obs.encode_discard_decay_into(&mut extended, 74);
@@ -709,8 +721,9 @@ mod tests {
         obs.encode_last_ted_into(&mut extended, 197);
         obs.encode_riichi_sute_into(&mut extended, 206);
         obs.encode_sp_into(&mut extended, 215);
+        obs.encode_drev_into(&mut extended, 215 + SP_CHANNELS);
 
-        assert_eq!(sp_only, extended[215 * 34..total_channels * 34]);
+        assert_eq!(sp_only, extended[215 * 34..(215 + SP_CHANNELS) * 34]);
     }
 
     #[test]

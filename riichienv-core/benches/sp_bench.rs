@@ -14,6 +14,7 @@ fn input_from_tiles(tile_types: &[u8], tsumos_left: u8) -> SpInput {
         tehai,
         akas_in_hand: [false; 3],
         tiles_seen: seen,
+        akas_seen: [false; 3],
         dora_indicators: vec![],
         melds: Vec::<Meld>::new(),
         bakaze: 27,
