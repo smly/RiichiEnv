@@ -344,9 +344,13 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
         let (required_tiles, mut scoring, yaku_progress_tiles) = if shanten_after == 0 {
             fused_tenpai_pass(&mut dp, &after_discard, &remaining)
         } else {
-            let req = required_tiles(&after_discard, &remaining, shanten_after);
+            #[cfg(feature = "debug_mortal_sp")]
+            let _t0 = std::time::Instant::now();
+            let req = required_tiles(&mut dp, &after_discard, &remaining, shanten_after);
             let sc = score_waits(&mut dp, &after_discard, &remaining);
             let yp = yaku_progress_tiles(&mut dp, &after_discard, &remaining, shanten_after);
+            #[cfg(feature = "debug_mortal_sp")]
+            __profile::add_shanten_down_ns(_t0.elapsed().as_nanos() as u64);
             (req, sc, yp)
         };
         let num_required_tiles = required_tiles.iter().sum::<f32>();
@@ -366,7 +370,9 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
 
         let (tenpai_probs, win_probs, exp_values) = if is_optimal {
             let waits = (shanten_after == 0).then_some(&required_tiles);
-            series_for_candidate(
+            #[cfg(feature = "debug_mortal_sp")]
+            let _t0 = std::time::Instant::now();
+            let r = series_for_candidate(
                 &mut dp,
                 &after_discard,
                 &remaining,
@@ -377,7 +383,10 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
                 total_remaining,
                 post_discard_akas,
                 waits,
-            )
+            );
+            #[cfg(feature = "debug_mortal_sp")]
+            __profile::add_series_ns(_t0.elapsed().as_nanos() as u64);
+            r
         } else {
             // Shanten-down discard: skip the expensive DP and use the
             // closed-form probability_series approximation. Same code path the
@@ -418,6 +427,111 @@ pub fn encode_sp(result: &SpResult) -> Vec<f32> {
     let mut buf = vec![0.0f32; SP_CHANNELS * TILE_MAX];
     encode_sp_into(result, &mut buf, 0);
     buf
+}
+
+// ─────────────── debug-only per-section accumulators ────────────────
+#[cfg(feature = "debug_mortal_sp")]
+#[doc(hidden)]
+pub mod __profile {
+    use std::cell::Cell;
+    thread_local! {
+        static SHANTEN_DOWN_NS: Cell<u64> = const { Cell::new(0) };
+        static SERIES_NS: Cell<u64> = const { Cell::new(0) };
+        static SHANTEN_CALLS: Cell<u64> = const { Cell::new(0) };
+        static SHANTEN_HITS: Cell<u64> = const { Cell::new(0) };
+    }
+    pub fn add_shanten_down_ns(n: u64) {
+        SHANTEN_DOWN_NS.with(|c| c.set(c.get() + n));
+    }
+    pub fn add_series_ns(n: u64) {
+        SERIES_NS.with(|c| c.set(c.get() + n));
+    }
+    pub fn bump_shanten_calls() {
+        SHANTEN_CALLS.with(|c| c.set(c.get() + 1));
+    }
+    pub fn bump_shanten_hits() {
+        SHANTEN_HITS.with(|c| c.set(c.get() + 1));
+    }
+    pub fn drain_shanten_down_ns() -> u64 {
+        SHANTEN_DOWN_NS.with(|c| {
+            let v = c.get();
+            c.set(0);
+            v
+        })
+    }
+    pub fn drain_series_ns() -> u64 {
+        SERIES_NS.with(|c| {
+            let v = c.get();
+            c.set(0);
+            v
+        })
+    }
+    pub fn drain_shanten_calls() -> u64 {
+        SHANTEN_CALLS.with(|c| {
+            let v = c.get();
+            c.set(0);
+            v
+        })
+    }
+    pub fn drain_shanten_hits() -> u64 {
+        SHANTEN_HITS.with(|c| {
+            let v = c.get();
+            c.set(0);
+            v
+        })
+    }
+}
+
+// ─────────────────────── debug-only bench hooks ─────────────────────────
+// 公開 API ではなく、`debug_mortal_sp` feature 限定で内部関数の per-section
+// プロファイリングを可能にするための薄い wrapper。
+#[cfg(feature = "debug_mortal_sp")]
+#[doc(hidden)]
+pub struct __DpContextHandle<'a>(DpContext<'a>);
+
+#[cfg(feature = "debug_mortal_sp")]
+#[doc(hidden)]
+pub fn __bench_new_dp_context(input: &SpInput) -> __DpContextHandle<'_> {
+    __DpContextHandle(DpContext::new(input))
+}
+
+#[cfg(feature = "debug_mortal_sp")]
+#[doc(hidden)]
+pub fn __bench_ensure_prob_tables(handle: &mut __DpContextHandle<'_>, input: &SpInput) {
+    let remaining = remaining_counts(input);
+    let n_left = remaining.iter().map(|&v| v as u32).sum::<u32>();
+    let horizon = (input.tsumos_left as usize).min(SP_MAX_TURNS).max(1);
+    handle.0.ensure_prob_tables(n_left, horizon);
+}
+
+#[cfg(feature = "debug_mortal_sp")]
+#[doc(hidden)]
+pub fn __bench_shanten(handle: &mut __DpContextHandle<'_>, counts: &[u8; TILE_MAX]) -> i8 {
+    handle.0.shanten(counts)
+}
+
+#[cfg(feature = "debug_mortal_sp")]
+#[doc(hidden)]
+pub fn __bench_fused_tenpai_pass(
+    handle: &mut __DpContextHandle<'_>,
+    input: &SpInput,
+    after_discard: &[u8; TILE_MAX],
+) -> ([f32; TILE_MAX], [f32; TILE_MAX]) {
+    let remaining = remaining_counts(input);
+    let (req, _scoring, yaku) = fused_tenpai_pass(&mut handle.0, after_discard, &remaining);
+    (req, yaku)
+}
+
+#[cfg(feature = "debug_mortal_sp")]
+#[doc(hidden)]
+pub fn __bench_yaku_progress_tiles(
+    handle: &mut __DpContextHandle<'_>,
+    input: &SpInput,
+    after_discard: &[u8; TILE_MAX],
+    current_shanten: i8,
+) -> [f32; TILE_MAX] {
+    let remaining = remaining_counts(input);
+    yaku_progress_tiles(&mut handle.0, after_discard, &remaining, current_shanten)
 }
 
 pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
@@ -532,7 +646,59 @@ fn shanten_of_counts(counts: &[u8; TILE_MAX]) -> i8 {
     shanten::calc_shanten_from_counts(counts, len_div3)
 }
 
+/// Incremental shanten: given pre-computed k0 bytes for the hand BEFORE the
+/// `+1[tile]` perturbation, compute shanten of the perturbed hand by
+/// re-hashing only the affected suit/honor slice. `next` already reflects the
+/// perturbation. `len_div3` corresponds to `next` (= sum/3 of post-add counts).
+#[inline]
+fn shanten_after_add_incremental(
+    next: &[u8; TILE_MAX],
+    tile: usize,
+    base_k0_m: u8,
+    base_k0_p: u8,
+    base_k0_s: u8,
+    base_k0_z: u8,
+    len_div3: u8,
+) -> i8 {
+    let (km, kp, ks, kz) = if tile < 9 {
+        (
+            shanten::k0_shupai_for(&next[0..9]),
+            base_k0_p,
+            base_k0_s,
+            base_k0_z,
+        )
+    } else if tile < 18 {
+        (
+            base_k0_m,
+            shanten::k0_shupai_for(&next[9..18]),
+            base_k0_s,
+            base_k0_z,
+        )
+    } else if tile < 27 {
+        (
+            base_k0_m,
+            base_k0_p,
+            shanten::k0_shupai_for(&next[18..27]),
+            base_k0_z,
+        )
+    } else {
+        (
+            base_k0_m,
+            base_k0_p,
+            base_k0_s,
+            shanten::k0_zipai_for(&next[27..34]),
+        )
+    };
+    let mut s = shanten::shanten_normal_from_k0s(km, kp, ks, kz, len_div3);
+    if s > 0 && len_div3 >= 4 {
+        s = s.min(shanten::shanten_chitoi_kokushi_floor(next));
+    }
+    s
+}
+
+
 fn required_tiles(
+    _dp: &mut DpContext<'_>,
     counts: &[u8; TILE_MAX],
     remaining: &[u8; TILE_MAX],
     current_shanten: i8,
@@ -541,6 +707,14 @@ fn required_tiles(
     if current_shanten < 0 {
         return out;
     }
+    // Incremental shanten: cache base k0 bytes once, recompute only the
+    // affected suit per tile (saves 3 hash_shupai/zipai per iteration).
+    let base_k0_m = shanten::k0_shupai_for(&counts[0..9]);
+    let base_k0_p = shanten::k0_shupai_for(&counts[9..18]);
+    let base_k0_s = shanten::k0_shupai_for(&counts[18..27]);
+    let base_k0_z = shanten::k0_zipai_for(&counts[27..34]);
+    let len_div3_next = (counts.iter().sum::<u8>() + 1) / 3;
+    let mut next = *counts;
     for tile in 0..TILE_MAX {
         if remaining[tile] == 0 || counts[tile] >= 4 {
             continue;
@@ -548,9 +722,12 @@ fn required_tiles(
         if !potentially_effective_for_draw(counts, tile) {
             continue;
         }
-        let mut next = *counts;
         next[tile] += 1;
-        if shanten_of_counts(&next) < current_shanten {
+        let s_after = shanten_after_add_incremental(
+            &next, tile, base_k0_m, base_k0_p, base_k0_s, base_k0_z, len_div3_next,
+        );
+        next[tile] -= 1;
+        if s_after < current_shanten {
             out[tile] = remaining[tile] as f32;
         }
     }
@@ -577,6 +754,91 @@ fn fused_tenpai_pass(
     // Mean point is also dead computation at tenpai+optimal — the consumer
     // (`tenpai_series_from_waits`) computes its own per-wait score vector.
     let assume_riichi = dp.input.is_menzen && dp.input.can_riichi;
+
+    // Hand-level structural yaku flags (computed once over `counts + melds`)
+    // so each wait tile becomes a constant-time post-win shape check instead
+    // of a `score_tsumo` invocation. Catches tanyao / honitsu / chinitsu /
+    // yakuhai-in-meld / yakuhai-by-completion — which together cover the
+    // majority of open-hand tenpai candidates.
+    let bakaze_yh = norm_wind_for_yakuhai(dp.input.bakaze);
+    let jikaze_yh = norm_wind_for_yakuhai(dp.input.jikaze);
+    let mut yh = [0u8; 5];
+    let mut n_yh = 3usize;
+    yh[0] = 31; yh[1] = 32; yh[2] = 33;
+    if (27..=30).contains(&bakaze_yh) { yh[n_yh] = bakaze_yh; n_yh += 1; }
+    if (27..=30).contains(&jikaze_yh) && jikaze_yh != bakaze_yh { yh[n_yh] = jikaze_yh; n_yh += 1; }
+    let yakuhai_in_meld = !assume_riichi && dp.input.melds.iter().any(|m| {
+        m.tiles.iter().any(|&t| {
+            let tt = t / 4;
+            yh[..n_yh].contains(&tt)
+        })
+    });
+    // In-hand yakuhai kotsu in pre-discard 13-tile hand: any wait gives yaku.
+    let yakuhai_kotsu_pre = !assume_riichi
+        && yh[..n_yh].iter().any(|&y| counts[y as usize] >= 3);
+
+    // counts_plus_melds: pre-win 13-tile + melds. Post-win shape = + wait tile.
+    let mut full_pre = *counts;
+    for meld in &dp.input.melds {
+        for &t136 in &meld.tiles {
+            let tt = (t136 / 4) as usize;
+            if tt < TILE_MAX {
+                full_pre[tt] = full_pre[tt].saturating_add(1);
+            }
+        }
+    }
+    let mut suits_pre = 0u8;
+    let mut has_yaocchi_pre = false;
+    let mut has_z_pre = false;
+    let mut has_simple_pre = false;
+    let mut has_singleton_pre = false;
+    for t in 0..27usize {
+        let c = full_pre[t];
+        if c > 0 {
+            suits_pre |= 1 << (t / 9);
+            if t % 9 == 0 || t % 9 == 8 {
+                has_yaocchi_pre = true;
+            } else {
+                has_simple_pre = true;
+            }
+            if c == 1 { has_singleton_pre = true; }
+        }
+    }
+    for t in 27..34usize {
+        let c = full_pre[t];
+        if c > 0 {
+            has_z_pre = true;
+            has_yaocchi_pre = true;
+            if c == 1 { has_singleton_pre = true; }
+        }
+    }
+    let n_suits_pre = suits_pre.count_ones();
+    let single_suit_pre = n_suits_pre <= 1;
+    let main_suit_pre = if n_suits_pre == 1 {
+        Some(suits_pre.trailing_zeros() as u8)
+    } else {
+        None
+    };
+    // Sanshoku doukou pre-check: 3 kotsu of same number (n) across 3 suits in
+    // the 13-tile (or with a wait that completes an existing pair).
+    let mut sanshoku_doukou_pre_full = false;
+    for n in 0..9usize {
+        if full_pre[n] >= 3 && full_pre[n + 9] >= 3 && full_pre[n + 18] >= 3 {
+            sanshoku_doukou_pre_full = true;
+            break;
+        }
+    }
+
+    // Pre-compute base k0 bytes for the 13-tile `counts` hand. The inner
+    // shanten loop perturbs 1 suit at a time, so cached k0s for the other
+    // 3 suits avoid 3 redundant hash_shupai/zipai calls per iteration.
+    let base_k0_m = crate::shanten::k0_shupai_for(&counts[0..9]);
+    let base_k0_p = crate::shanten::k0_shupai_for(&counts[9..18]);
+    let base_k0_s = crate::shanten::k0_shupai_for(&counts[18..27]);
+    let base_k0_z = crate::shanten::k0_zipai_for(&counts[27..34]);
+    // len_div3 of the post-add hand (sum + 1) / 3.
+    let len_div3_next = (counts.iter().sum::<u8>() + 1) / 3;
+
     let mut next = *counts;
     for tile in 0..TILE_MAX {
         if remaining[tile] == 0 || counts[tile] >= 4 {
@@ -589,7 +851,9 @@ fn fused_tenpai_pass(
             continue;
         }
         next[tile] += 1;
-        let s_after = dp.shanten(&next);
+        let s_after = shanten_after_add_incremental(
+            &next, tile, base_k0_m, base_k0_p, base_k0_s, base_k0_z, len_div3_next,
+        );
         next[tile] -= 1;
         if s_after >= 0 {
             // Not a wait — drawing this tile does not complete the hand.
@@ -598,6 +862,52 @@ fn fused_tenpai_pass(
         required[tile] = remaining[tile] as f32;
         if assume_riichi {
             yaku_progress[tile] = remaining[tile] as f32;
+            continue;
+        }
+
+        // Structural yaku short-circuit on post-win shape (= full_pre + tile).
+        // Wait-invariant guarantees:
+        //   - yakuhai-in-meld
+        //   - in-hand yakuhai kotsu (counts already has ≥3 of yakuhai)
+        //   - sanshoku doukou already complete in 13-tile + melds
+        // Wait-dependent guarantees:
+        //   - tanyao: full_pre has no yaocchi AND wait is non-yaocchi
+        //   - honitsu/chinitsu: single suit AND wait is that suit (+honors)
+        //   - honroutou: pre all-yaocchi AND wait is yaocchi
+        //   - toitoi: pre has no singleton AND wait is shanpon-completion
+        //     (wait already at count 2 → completes a kotsu)
+        //   - yakuhai-by-completion: wait is yakuhai AND counts[wait] == 2
+        let tile_u = tile as u8;
+        let tile_is_yaocchi = if tile < 27 {
+            matches!(tile % 9, 0 | 8)
+        } else {
+            true
+        };
+        let tile_is_honor = tile >= 27;
+        let tile_suit = if tile < 27 { Some((tile / 9) as u8) } else { None };
+        let post_tanyao = !has_yaocchi_pre && !tile_is_yaocchi;
+        let post_single_suit = single_suit_pre
+            && match main_suit_pre {
+                Some(s) => tile_suit == Some(s) || tile_is_honor,
+                None => tile_is_honor && !has_z_pre,
+            };
+        let post_honroutou = !has_simple_pre && tile_is_yaocchi;
+        let post_toitoi = !has_singleton_pre && counts[tile] == 2;
+        let post_yakuhai_completion =
+            yh[..n_yh].contains(&tile_u) && counts[tile] == 2;
+
+        if yakuhai_in_meld
+            || yakuhai_kotsu_pre
+            || sanshoku_doukou_pre_full
+            || post_tanyao
+            || post_single_suit
+            || post_honroutou
+            || post_toitoi
+            || post_yakuhai_completion
+        {
+            yaku_progress[tile] = remaining[tile] as f32;
+            // Skip score_tsumo: scoring.{wait_count,mean_point} are unused
+            // by the tenpai+optimal consumer (`tenpai_series_from_waits`).
             continue;
         }
         if let Some(point) =
@@ -621,6 +931,16 @@ fn yaku_progress_tiles(
         return out;
     }
 
+    let assume_riichi = dp.input.is_menzen && dp.input.can_riichi;
+
+    // Incremental shanten state for the post-discard 13-tile.
+    let base_k0_m = shanten::k0_shupai_for(&counts[0..9]);
+    let base_k0_p = shanten::k0_shupai_for(&counts[9..18]);
+    let base_k0_s = shanten::k0_shupai_for(&counts[18..27]);
+    let base_k0_z = shanten::k0_zipai_for(&counts[27..34]);
+    let len_div3_next = (counts.iter().sum::<u8>() + 1) / 3;
+    let mut drawn = *counts;
+
     for tile in 0..TILE_MAX {
         if remaining[tile] == 0 || counts[tile] >= 4 {
             continue;
@@ -639,14 +959,31 @@ fn yaku_progress_tiles(
             continue;
         }
 
-        let mut drawn = *counts;
         drawn[tile] += 1;
-        let mut next_remaining = *remaining;
-        next_remaining[tile] -= 1;
-        if shanten_of_counts(&drawn) >= current_shanten {
+        let s_drawn = shanten_after_add_incremental(
+            &drawn, tile, base_k0_m, base_k0_p, base_k0_s, base_k0_z, len_div3_next,
+        );
+        if s_drawn >= current_shanten {
+            drawn[tile] -= 1;
             continue;
         }
-        if has_yaku_tenpai_after_best_discard(dp, &drawn, &next_remaining) {
+        // current_shanten == 1, drawn shanten ≤ 0 (= 14-tile is tenpai or agari).
+        // Under assume_riichi, the inner has_yaku_tenpai_after_best_discard call
+        // is logically equivalent to `shanten(drawn) == 0` (already known true):
+        // by min monotonicity, shanten(14) = min over discards of shanten(13'),
+        // so shanten(drawn) ≤ 0 implies some discard yields a 13' at shanten 0.
+        // Riichi guarantees yaku, so we count this wait without paying the
+        // 14-tile shanten sweep + cache lookup.
+        if assume_riichi {
+            out[tile] = remaining[tile] as f32;
+            drawn[tile] -= 1;
+            continue;
+        }
+        let mut next_remaining = *remaining;
+        next_remaining[tile] -= 1;
+        let yaku_present = has_yaku_tenpai_after_best_discard(dp, &drawn, &next_remaining);
+        drawn[tile] -= 1;
+        if yaku_present {
             out[tile] = remaining[tile] as f32;
         }
     }
@@ -659,7 +996,7 @@ fn score_waits(
     remaining: &[u8; TILE_MAX],
 ) -> ScoringSummary {
     let mut scoring = ScoringSummary::default();
-    if shanten_of_counts(counts) != 0 {
+    if dp.shanten(counts) != 0 {
         return scoring;
     }
 
@@ -691,6 +1028,63 @@ fn has_yaku_tenpai_after_best_discard(
     counts_14: &[u8; TILE_MAX],
     remaining: &[u8; TILE_MAX],
 ) -> bool {
+    // ── Hot fast path: pre-call base flags imply yaku ────────────────────
+    // These checks are cheap (no full-array build, no cache hash) and catch
+    // the vast majority of open-hand SP samples (tanyao, single-suit,
+    // yakuhai-in-meld, and the all-yaocchi shape). Only when none fire do we
+    // pay the YakuTenpaiKey hashing + per-tenpai-count enumeration.
+    if dp.base_full_yakuhai_in_meld {
+        return true;
+    }
+    // Tanyao on the FINAL 14-tile = (counts_14 + melds) all non-yaocchi.
+    // counts_14 = base_tehai - outer_discard + wait. Both base and melds
+    // contribute. If base_full has no yaocchi (BASE_NO_YAOCCHI), the only
+    // way counts_14+melds gains a yaocchi is via the wait tile. So:
+    //   tanyao_at_counts_14 == counts_14 has no yaocchi (since base+melds is
+    //   yaocchi-free, counts_14+melds is yaocchi-free iff counts_14 is).
+    if dp.base_full_no_yaocchi {
+        let mut yaocchi = false;
+        for t in [0usize, 8, 9, 17, 18, 26] {
+            if counts_14[t] > 0 { yaocchi = true; break; }
+        }
+        if !yaocchi {
+            for t in 27..34usize {
+                if counts_14[t] > 0 { yaocchi = true; break; }
+            }
+        }
+        if !yaocchi {
+            return true;
+        }
+    }
+    // Honitsu/Chinitsu: base_full is single-suit. counts_14+melds preserves
+    // single-suit iff counts_14 only contains tiles in that suit (or honors
+    // for honitsu: base_full has honors).
+    if let Some(s) = dp.base_full_single_suit {
+        let suit_base = (s as usize) * 9;
+        let mut outside_suit = false;
+        for t in 0..27usize {
+            if counts_14[t] > 0 && (t < suit_base || t >= suit_base + 9) {
+                outside_suit = true;
+                break;
+            }
+        }
+        if !outside_suit {
+            // Honors are allowed only if base_full has honors (= honitsu).
+            // If base_full has no honors (= chinitsu), counts_14 must also
+            // have no honors. Either way, accept.
+            let counts_has_z = (27..34).any(|t| counts_14[t] > 0);
+            if dp.base_full_has_z || !counts_has_z {
+                return true;
+            }
+        }
+    }
+    // In-hand yakuhai kotsu in counts_14 (≥3 of any yakuhai tile).
+    for i in 0..dp.base_n_yakuhai {
+        if counts_14[dp.base_yakuhai[i] as usize] >= 3 {
+            return true;
+        }
+    }
+
     let key = YakuTenpaiKey {
         counts: *counts_14,
         remaining: *remaining,
@@ -701,35 +1095,530 @@ fn has_yaku_tenpai_after_best_discard(
         return cached;
     }
 
-    let mut best_shanten = i8::MAX;
-    let mut tenpai_counts = Vec::new();
-    for discard in 0..TILE_MAX {
-        if counts_14[discard] == 0 {
-            continue;
-        }
+    // Riichi guarantees yaku, so if we can riichi we only need to confirm
+    // that *some* discard reaches shanten==0. Skip the per-wait score_tsumo
+    // loop entirely and short-circuit on the first tenpai-reaching discard.
+    // This dominates the tenpai SP cost in our profile (96% of 77μs/sample
+    // when most discards drop to shanten=1) for menzen+can_riichi inputs.
+    let assume_riichi = dp.input.is_menzen && dp.input.can_riichi;
+    if assume_riichi {
+        // Per-suit incremental shanten: drop 1 tile per iteration → only that
+        // suit's k0 needs refresh. Saves 3 hash_shupai/zipai per shanten check.
+        let r_base_k0_m = crate::shanten::k0_shupai_for(&counts_14[0..9]);
+        let r_base_k0_p = crate::shanten::k0_shupai_for(&counts_14[9..18]);
+        let r_base_k0_s = crate::shanten::k0_shupai_for(&counts_14[18..27]);
+        let r_base_k0_z = crate::shanten::k0_zipai_for(&counts_14[27..34]);
+        let r_len_div3 = counts_14.iter().sum::<u8>().saturating_sub(1) / 3;
+        let mut reaches_tenpai = false;
         let mut next = *counts_14;
-        next[discard] -= 1;
-        let s = shanten_of_counts(&next);
-        if s < best_shanten {
-            best_shanten = s;
-            tenpai_counts.clear();
+        for discard in 0..TILE_MAX {
+            if counts_14[discard] == 0 {
+                continue;
+            }
+            next[discard] -= 1;
+            let s = shanten_after_add_incremental(
+                &next, discard, r_base_k0_m, r_base_k0_p, r_base_k0_s, r_base_k0_z, r_len_div3,
+            );
+            next[discard] += 1;
+            if s == 0 {
+                reaches_tenpai = true;
+                break;
+            }
         }
-        if s == best_shanten && s == 0 {
-            tenpai_counts.push(next);
+        dp.yaku_tenpai_cache.insert(key, reaches_tenpai);
+        return reaches_tenpai;
+    }
+
+    // ── Structural shape-only short-circuit (non-riichi) ────────────────
+    // These yaku are determined entirely by the *full* 14-tile hand shape
+    // (counts_14 + meld tiles) and are invariant to which tile is discarded
+    // best-shanten-wise:
+    //   - yakuhai-in-meld (pon/kan of dragon/seat/round wind)
+    //   - tanyao (full has no yaocchi)
+    //   - honitsu / chinitsu (full uses only 1 numbered suit)
+    //   - honroutou (full all yaocchi → kotsu-only decomp guaranteed)
+    //   - toitoi (no count == 1 in full → 4 kotsu + 1 pair only shape)
+    //   - sanshoku doukou (some n with counts[n]≥3, counts[n+9]≥3, counts[n+18]≥3)
+    //   - in-hand yakuhai kotsu (any yakuhai tile at counts ≥ 3 in counts_14)
+    // Any of these → yaku guaranteed without per-wait score_tsumo.
+    {
+        let bakaze = norm_wind_for_yakuhai(dp.input.bakaze);
+        let jikaze = norm_wind_for_yakuhai(dp.input.jikaze);
+        let mut yh = [31u8, 32, 33, 0, 0];
+        let mut n_yh = 3usize;
+        if (27..=30).contains(&bakaze) { yh[n_yh] = bakaze; n_yh += 1; }
+        if (27..=30).contains(&jikaze) && jikaze != bakaze { yh[n_yh] = jikaze; n_yh += 1; }
+        let yakuhai_in_meld = dp.input.melds.iter().any(|m| {
+            m.tiles.iter().any(|&t| yh[..n_yh].contains(&(t / 4)))
+        });
+        if yakuhai_in_meld {
+            dp.yaku_tenpai_cache.insert(key, true);
+            return true;
+        }
+        // In-hand yakuhai kotsu (≥3 in counts_14 — a kotsu survives at least
+        // one discard if there are still ≥2 left after).
+        for i in 0..n_yh {
+            if counts_14[yh[i] as usize] >= 3 {
+                dp.yaku_tenpai_cache.insert(key, true);
+                return true;
+            }
+        }
+        let mut full = *counts_14;
+        for meld in &dp.input.melds {
+            for &t136 in &meld.tiles {
+                let tt = (t136 / 4) as usize;
+                if tt < TILE_MAX {
+                    full[tt] = full[tt].saturating_add(1);
+                }
+            }
+        }
+        let mut has_terminal = false;
+        let mut has_simple = false;
+        let mut suits_present = 0u8;
+        let mut any_singleton = false; // ≥1 tile at exactly count=1
+        for tile in 0..27usize {
+            let c = full[tile];
+            if c > 0 {
+                suits_present |= 1 << (tile / 9);
+                if tile % 9 == 0 || tile % 9 == 8 {
+                    has_terminal = true;
+                } else {
+                    has_simple = true;
+                }
+                if c == 1 { any_singleton = true; }
+            }
+        }
+        for tile in 27..34usize {
+            let c = full[tile];
+            if c > 0 {
+                has_terminal = true;
+                if c == 1 { any_singleton = true; }
+            }
+        }
+        let n_numbered = suits_present.count_ones();
+        let tanyao = !has_terminal;
+        let single_suit = n_numbered <= 1;
+        let all_yaocchi = !has_simple;
+        // Toitoi: shape allows only kotsu+pair (no shuntsu possible since
+        // shuntsu requires 3 different adjacent tiles, each at count ≥ 1 — so
+        // a singleton is required for any shuntsu). No singleton ⇒ toitoi.
+        let toitoi = !any_singleton;
+        // Sanshoku doukou: ≥3 of some same number across all 3 suits.
+        let mut sanshoku_doukou = false;
+        for n in 0..9usize {
+            if full[n] >= 3 && full[n + 9] >= 3 && full[n + 18] >= 3 {
+                sanshoku_doukou = true;
+                break;
+            }
+        }
+        if tanyao || single_suit || all_yaocchi || toitoi || sanshoku_doukou {
+            dp.yaku_tenpai_cache.insert(key, true);
+            return true;
+        }
+
+        // ── Yaku-impossibility check ────────────────────────────────────
+        // None of the immediate-fire yaku above applied. Now check whether
+        // ANY yaku could *possibly* fire under (best_discard, some wait).
+        // If not, return false directly — no Pass 1 / Pass 2 enumeration.
+        // This catches "no-yaku" hands (the dominant cost in open+other:
+        // hands with floating yaocchi that can't be reduced via 1-discard).
+        //
+        // For "yaku-possible" we need ≥ 1 of:
+        //   - tanyao_via_drop: yaocchi count in `full` ≤ 1 (= 1-discard
+        //     can clear all yaocchi).
+        //   - single-suit-via-drop: ≤ 1 numbered suit OR (2 suits + secondary
+        //     count ≤ 1 → can drop the secondary's 1 tile).
+        //   - toitoi-via-drop: singletons ≤ 1.
+        //   - honroutou-via-drop: simples ≤ 1.
+        //   - yakuhai_meld (already checked above).
+        //   - in-hand yakuhai count ≥ 2 (= shanpon-completion possible).
+        //   - sanshoku_doukou-via-add: some n with full[n], full[n+9],
+        //     full[n+18] all ≥ 2.
+        //   - sanshoku_doujun-via-add: some n with shuntsu candidates in
+        //     all 3 suits (each tile in (n, n+1, n+2) ≥ 1 in each suit).
+        //   - ittsu-via-add: some suit covers 1-9 with ≥ 1 each (or ≥ 0
+        //     with 1 missing tile fillable from remaining).
+        //   - sanankou-via-add: ≥ 2 kotsu in counts_14 (third can be added).
+        //   - junchan/chanta-via-shape: no "middle simple" (= no full[t]>0
+        //     for t with t<27 and t%9 ∈ {3,4,5}).
+        //
+        // We compute these from the same `full` we already built.
+        let mut yaocchi_count_full = 0u8;
+        let mut simple_count = 0u8;
+        let mut singleton_total = 0u8;
+        let mut middle_simple = false;
+        let mut secondary_suit_count = 0u8;
+        let mut suit_counts = [0u8; 3];
+        for t in 0..27usize {
+            let c = full[t];
+            if c == 0 { continue; }
+            suit_counts[t / 9] = suit_counts[t / 9].saturating_add(c);
+            if t % 9 == 0 || t % 9 == 8 {
+                yaocchi_count_full = yaocchi_count_full.saturating_add(c);
+            } else {
+                simple_count = simple_count.saturating_add(c);
+                if (t % 9) >= 3 && (t % 9) <= 5 {
+                    middle_simple = true;
+                }
+            }
+            if c == 1 { singleton_total += 1; }
+        }
+        for t in 27..34usize {
+            let c = full[t];
+            if c == 0 { continue; }
+            yaocchi_count_full = yaocchi_count_full.saturating_add(c);
+            if c == 1 { singleton_total += 1; }
+        }
+        // Smallest-non-zero numbered-suit count (= "secondary" after primary).
+        let mut sorted_suits = suit_counts;
+        sorted_suits.sort_unstable_by(|a, b| b.cmp(a));
+        if sorted_suits[1] > 0 {
+            secondary_suit_count = sorted_suits[1];
+        }
+
+        let tanyao_via_drop = yaocchi_count_full <= 1;
+        let single_suit_via_drop = secondary_suit_count <= 1; // primary + ≤1 secondary
+        let toitoi_via_drop = singleton_total <= 1;
+        let honroutou_via_drop = simple_count <= 1;
+
+        let mut yakuhai_count_in_counts = 0u8;
+        for i in 0..n_yh {
+            yakuhai_count_in_counts =
+                yakuhai_count_in_counts.saturating_add(counts_14[yh[i] as usize]);
+        }
+        let yakuhai_possible = yakuhai_count_in_counts >= 2;
+
+        let mut sanshoku_doukou_via_add = false;
+        for n in 0..9usize {
+            if full[n] >= 2 && full[n + 9] >= 2 && full[n + 18] >= 2 {
+                sanshoku_doukou_via_add = true;
+                break;
+            }
+        }
+        let mut sanshoku_doujun_via_add = false;
+        for n in 0..7usize {
+            let m_ok = full[n] >= 1 && full[n + 1] >= 1 && full[n + 2] >= 1;
+            let p_ok = full[n + 9] >= 1 && full[n + 10] >= 1 && full[n + 11] >= 1;
+            let s_ok = full[n + 18] >= 1 && full[n + 19] >= 1 && full[n + 20] >= 1;
+            if m_ok && p_ok && s_ok {
+                sanshoku_doujun_via_add = true;
+                break;
+            }
+        }
+        let ittsu_via_add = (0..9).all(|n| full[n] >= 1)
+            || (0..9).all(|n| full[n + 9] >= 1)
+            || (0..9).all(|n| full[n + 18] >= 1);
+
+        let mut kotsu_in_hand = 0u8;
+        for t in 0..TILE_MAX {
+            if counts_14[t] >= 3 { kotsu_in_hand += 1; }
+        }
+        let sanankou_via_add = kotsu_in_hand >= 2;
+
+        let junchan_chanta_via_shape = !middle_simple;
+
+        let any_yaku_possible = tanyao_via_drop
+            || single_suit_via_drop
+            || toitoi_via_drop
+            || honroutou_via_drop
+            || yakuhai_possible
+            || sanshoku_doukou_via_add
+            || sanshoku_doujun_via_add
+            || ittsu_via_add
+            || sanankou_via_add
+            || junchan_chanta_via_shape;
+
+        if !any_yaku_possible {
+            // Provably no yaku for any (best_discard, wait) — skip enumeration.
+            dp.yaku_tenpai_cache.insert(key, false);
+            return false;
         }
     }
 
-    let result = tenpai_counts.iter().any(|counts| {
-        (0..TILE_MAX).any(|tile| {
-            remaining[tile] > 0
-                && counts[tile] < 4
-                && dp
-                    .score_tsumo(counts, remaining, tile as u8, ScoreMods::default())
-                    .is_some()
+    // Non-riichi path: pick the best (= lowest-shanten) discard, then for each
+    // tenpai-shaped result check if some wait tile yields a yaku.
+    // Stack-allocated `tenpai_counts` (max 14 distinct discards keep the hand
+    // tenpai, so 14 slots suffice) avoids the per-call heap allocation.
+    let mut best_shanten = i8::MAX;
+    let mut tenpai_counts: [[u8; TILE_MAX]; 14] = [[0u8; TILE_MAX]; 14];
+    let mut tenpai_discards: [u8; 14] = [0u8; 14];
+    let mut n_tenpai = 0usize;
+    let mut next = *counts_14;
+
+    // Per-suit incremental shanten state for the tenpai_counts collection.
+    // Each iteration drops 1 tile from counts_14 → only that suit's k0 changes.
+    let coll_base_k0_m = crate::shanten::k0_shupai_for(&counts_14[0..9]);
+    let coll_base_k0_p = crate::shanten::k0_shupai_for(&counts_14[9..18]);
+    let coll_base_k0_s = crate::shanten::k0_shupai_for(&counts_14[18..27]);
+    let coll_base_k0_z = crate::shanten::k0_zipai_for(&counts_14[27..34]);
+    let coll_len_div3_drop = counts_14.iter().sum::<u8>().saturating_sub(1) / 3;
+    // Iterate yaocchi tiles first so the (likely tanyao-yielding) yaocchi-
+    // discard tenpai_count appears at low indices in `tenpai_counts`. This
+    // lets Pass 1 fire structural-tanyao on the first iteration for tanyao-
+    // bias hands where the only yaocchi was the just-drawn wait or a single
+    // floating yaocchi in the original tehai.
+    const TILE_ORDER_YAOCCHI_FIRST: [u8; 34] = [
+        // Yaocchi: 6 terminals + 7 honors
+        0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33,
+        // Then non-yaocchi: 21 simples
+        1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25,
+    ];
+    for &discard in &TILE_ORDER_YAOCCHI_FIRST {
+        let di = discard as usize;
+        if counts_14[di] == 0 {
+            continue;
+        }
+        next[di] -= 1;
+        let s = shanten_after_add_incremental(
+            &next,
+            di,
+            coll_base_k0_m,
+            coll_base_k0_p,
+            coll_base_k0_s,
+            coll_base_k0_z,
+            coll_len_div3_drop,
+        );
+        if s < best_shanten {
+            best_shanten = s;
+            n_tenpai = 0;
+        }
+        if s == best_shanten && s == 0 && n_tenpai < tenpai_counts.len() {
+            tenpai_counts[n_tenpai] = next;
+            tenpai_discards[n_tenpai] = discard;
+            n_tenpai += 1;
+        }
+        next[di] += 1;
+    }
+
+    // Per-tenpai_count structural+yakuhai short-circuits. Each tenpai_count is
+    // a 13-tile hand (post-best-discard from drawn). We refresh structural
+    // flags per tenpai_count since discarding a tile can flip them (e.g.,
+    // dropping the only yaocchi turns a non-tanyao 14-tile into tanyao).
+    let bakaze = norm_wind_for_yakuhai(dp.input.bakaze);
+    let jikaze = norm_wind_for_yakuhai(dp.input.jikaze);
+    let mut yakuhai_tiles = [31u8, 32, 33, 0, 0];
+    let mut n_yh = 3usize;
+    if (27..=30).contains(&bakaze) {
+        yakuhai_tiles[n_yh] = bakaze;
+        n_yh += 1;
+    }
+    if (27..=30).contains(&jikaze) && jikaze != bakaze {
+        yakuhai_tiles[n_yh] = jikaze;
+        n_yh += 1;
+    }
+
+    // Build the meld portion of `full` once (it's invariant across tenpai_counts).
+    let mut meld_full = [0u8; TILE_MAX];
+    for meld in &dp.input.melds {
+        for &t136 in &meld.tiles {
+            let tt = (t136 / 4) as usize;
+            if tt < TILE_MAX {
+                meld_full[tt] = meld_full[tt].saturating_add(1);
+            }
+        }
+    }
+
+    // Pre-compute full14 (= counts_14 + melds) features ONCE. Per-tenpai_count
+    // features are then derived in O(1) by adjusting for the single tile_X
+    // that was discarded — instead of re-scanning 34 tiles per tenpai_count.
+    // Identifies: per-suit count, yaocchi/simple totals, singleton count, etc.
+    let mut full14 = *counts_14;
+    for t in 0..TILE_MAX {
+        full14[t] = full14[t].saturating_add(meld_full[t]);
+    }
+    let mut full14_suit_counts = [0u8; 3];
+    let mut full14_z_count = 0u8;
+    let mut full14_yaocchi = 0u8;
+    let mut full14_simple = 0u8;
+    let mut full14_singletons = 0u8;
+    for t in 0..27usize {
+        let c = full14[t];
+        if c == 0 { continue; }
+        full14_suit_counts[t / 9] = full14_suit_counts[t / 9].saturating_add(c);
+        if t % 9 == 0 || t % 9 == 8 {
+            full14_yaocchi = full14_yaocchi.saturating_add(c);
+        } else {
+            full14_simple = full14_simple.saturating_add(c);
+        }
+        if c == 1 { full14_singletons += 1; }
+    }
+    for t in 27..34usize {
+        let c = full14[t];
+        if c == 0 { continue; }
+        full14_z_count = full14_z_count.saturating_add(c);
+        full14_yaocchi = full14_yaocchi.saturating_add(c);
+        if c == 1 { full14_singletons += 1; }
+    }
+
+    // Pass 1: cheap structural shape checks across ALL tenpai_counts.
+    // Per-tenpai_count features are O(1) deltas off full14's pre-computed flags.
+    let mut struct_yaku_found = false;
+    'pass1: for k in 0..n_tenpai {
+        let counts = &tenpai_counts[k];
+        let tile_x = tenpai_discards[k] as usize;
+        let cx = full14[tile_x]; // count of tile_X in full14
+        debug_assert!(cx >= 1);
+
+        // Hand-side yakuhai (kotsu in 13-tile = counts ≥ 3): wait-invariant.
+        for i in 0..n_yh {
+            if counts[yakuhai_tiles[i] as usize] >= 3 {
+                struct_yaku_found = true;
+                break 'pass1;
+            }
+        }
+
+        // Derive full13's structural flags from full14 by removing 1 of tile_X.
+        let tile_x_yaocchi = if tile_x < 27 {
+            tile_x % 9 == 0 || tile_x % 9 == 8
+        } else {
+            true
+        };
+        let tile_x_simple = !tile_x_yaocchi;
+        let tile_x_suit = if tile_x < 27 { Some((tile_x / 9) as u8) } else { None };
+
+        let yaocchi13 = if tile_x_yaocchi { full14_yaocchi - 1 } else { full14_yaocchi };
+        let simple13 = if tile_x_simple { full14_simple - 1 } else { full14_simple };
+        // Singletons: cx==1 → singleton drops to 0 (-1). cx==2 → was pair, now singleton (+1).
+        let singletons13 = if cx == 1 {
+            full14_singletons - 1
+        } else if cx == 2 {
+            full14_singletons + 1
+        } else {
+            full14_singletons
+        };
+        // Suit counts: subtract 1 from tile_X's suit (or honor pile).
+        let mut suit_counts13 = full14_suit_counts;
+        let mut z_count13 = full14_z_count;
+        if let Some(s) = tile_x_suit {
+            suit_counts13[s as usize] -= 1;
+        } else {
+            z_count13 -= 1;
+        }
+        let suits13_mask: u8 =
+              ((suit_counts13[0] > 0) as u8)
+            | (((suit_counts13[1] > 0) as u8) << 1)
+            | (((suit_counts13[2] > 0) as u8) << 2);
+        let n_suits13 = suits13_mask.count_ones();
+
+        // Sanshoku doukou pre-check (wait-invariant; depends on full13 only).
+        // counts of the 3 suits at the same n must all be ≥ 3 in full13.
+        // For incremental update: subtracting 1 from tile_X may break a
+        // pre-existing sanshoku-doukou-shape. Just check full13 fresh — it's
+        // 9 iters × 3 reads, much cheaper than computing full13.
+        // Build full13 inline by reading full14 with adjustment for tile_X.
+        let read_full13 = |t: usize| -> u8 {
+            if t == tile_x { full14[t] - 1 } else { full14[t] }
+        };
+        let mut sanshoku_doukou_full13 = false;
+        for n in 0..9usize {
+            if read_full13(n) >= 3 && read_full13(n + 9) >= 3 && read_full13(n + 18) >= 3 {
+                sanshoku_doukou_full13 = true;
+                break;
+            }
+        }
+        if sanshoku_doukou_full13 {
+            struct_yaku_found = true;
+            break 'pass1;
+        }
+
+        let main_suit = if n_suits13 == 1 {
+            Some(suits13_mask.trailing_zeros() as u8)
+        } else {
+            None
+        };
+
+        let can_tanyao = yaocchi13 == 0;
+        let can_single_suit = n_suits13 <= 1;
+        let can_honroutou = simple13 == 0;
+        let can_toitoi = singletons13 == 0;
+
+        if !can_tanyao && !can_single_suit && !can_honroutou && !can_toitoi {
+            // Only yakuhai-by-completion remains. Check the ≤5 yakuhai tiles
+            // directly (vs scanning all 34 in the wait loop).
+            for i in 0..n_yh {
+                let t = yakuhai_tiles[i] as usize;
+                if counts[t] == 2 && remaining[t] > 0 {
+                    struct_yaku_found = true;
+                    break 'pass1;
+                }
+            }
+            continue;
+        }
+
+        // Per-wait structural checks. Iterate tile properties precomputed by
+        // class (yaocchi-vs-simple, suit, honor) so each iteration is O(1).
+        for tile in 0..TILE_MAX {
+            if remaining[tile] == 0 || counts[tile] >= 4 { continue; }
+            let tile_u = tile as u8;
+            let tile_yaocchi = if tile < 27 { matches!(tile % 9, 0 | 8) } else { true };
+            let tile_honor = tile >= 27;
+            let tile_suit = if tile < 27 { Some((tile / 9) as u8) } else { None };
+            // Yakuhai by wait completing kotsu.
+            for i in 0..n_yh {
+                if tile_u == yakuhai_tiles[i] && counts[tile] == 2 {
+                    struct_yaku_found = true;
+                    break 'pass1;
+                }
+            }
+            // Tanyao.
+            if can_tanyao && !tile_yaocchi {
+                struct_yaku_found = true;
+                break 'pass1;
+            }
+            // Honitsu / Chinitsu (with honor allowed if z present in full13).
+            if can_single_suit
+                && match main_suit {
+                    Some(s) => tile_suit == Some(s) || (tile_honor && z_count13 > 0),
+                    None => tile_honor && z_count13 > 0,
+                }
+            {
+                struct_yaku_found = true;
+                break 'pass1;
+            }
+            // Honroutou-shape.
+            if can_honroutou && tile_yaocchi {
+                struct_yaku_found = true;
+                break 'pass1;
+            }
+            // Toitoi-shape + shanpon-completion.
+            if can_toitoi && counts[tile] == 2 {
+                struct_yaku_found = true;
+                break 'pass1;
+            }
+        }
+    }
+    let result = if struct_yaku_found {
+        true
+    } else {
+        // Pass 2: fallback to per-wait yaku-presence check.
+        // Use `base_score_tsumo` directly (cache key = counts + win_tile + akas)
+        // instead of `score_tsumo` (cache key adds 34-byte `remaining`). The
+        // smaller key trims hashing overhead by ~3× per call. Both return
+        // `Some` iff yaku exists; for presence-only check we don't need
+        // dora/aka/timing adjustments.
+        let akas = dp.input.akas_in_hand;
+        tenpai_counts[..n_tenpai].iter().any(|counts| {
+            (0..TILE_MAX).any(|tile| {
+                if remaining[tile] == 0 || counts[tile] >= 4 {
+                    return false;
+                }
+                dp.base_score_tsumo(counts, tile as u8, akas).is_some()
+            })
         })
-    });
+    };
     dp.yaku_tenpai_cache.insert(key, result);
     result
+}
+
+/// Normalize a wind-tile id to its 27..=30 (E/S/W/N) form so the yakuhai
+/// fast-path can compare to existing hand counts directly.
+#[inline]
+fn norm_wind_for_yakuhai(w: u8) -> u8 {
+    if (27..=30).contains(&w) {
+        w
+    } else {
+        27 + (w & 0b11)
+    }
 }
 
 fn probability_series(
@@ -974,10 +1863,22 @@ struct DpContext<'a> {
     /// leaf (tenpai) 時の点数表 (timing-han 0..=3).
     score_vec_cache: FxHashMap<ScoreVecKey, Option<[f32; 4]>>,
 
-    shanten_cache: FxHashMap<[u8; TILE_MAX], i8>,
     score_cache: FxHashMap<ScoreKey, Option<u32>>,
     base_score_cache: FxHashMap<BaseScoreKey, Option<BaseScore>>,
     yaku_tenpai_cache: FxHashMap<YakuTenpaiKey, bool>,
+
+    /// Once-per-SP-call structural yaku flags computed on the FULL pre-discard
+    /// 14-tile hand (`input.tehai + meld_tiles`). Lets the per-wait
+    /// `has_yaku_tenpai_after_best_discard` and `fused_tenpai_pass` skip the
+    /// per-call full-array build + 34-tile rescan when the structural property
+    /// is invariant under any (outer_discard, wait) pair.
+    base_full_no_yaocchi: bool,
+    base_full_single_suit: Option<u8>, // None = >1 numbered suit; Some(s) = only suit s
+    base_full_has_z: bool,
+    base_full_yakuhai_in_meld: bool,
+    /// Yakuhai tile types (3 dragons + bakaze + jikaze if wind tiles).
+    base_yakuhai: [u8; 5],
+    base_n_yakuhai: usize,
 }
 
 impl<'a> DpContext<'a> {
@@ -987,6 +1888,67 @@ impl<'a> DpContext<'a> {
         let n_left_tiles = remaining.iter().map(|&v| v as u32).sum::<u32>();
         let tsumo_prob = build_tsumo_prob_table(n_left_tiles, horizon);
         let not_tsumo_prob = build_not_tsumo_prob_table(n_left_tiles, horizon);
+
+        // Pre-compute once-per-call structural flags on `input.tehai + melds`.
+        let mut base_full = input.tehai;
+        for meld in &input.melds {
+            for &t136 in &meld.tiles {
+                let tt = (t136 / 4) as usize;
+                if tt < TILE_MAX {
+                    base_full[tt] = base_full[tt].saturating_add(1);
+                }
+            }
+        }
+        let mut suits = 0u8;
+        let mut has_yaocchi = false;
+        let mut has_simple = false;
+        let mut has_z = false;
+        for t in 0..27usize {
+            if base_full[t] > 0 {
+                suits |= 1 << (t / 9);
+                if t % 9 == 0 || t % 9 == 8 {
+                    has_yaocchi = true;
+                } else {
+                    has_simple = true;
+                }
+            }
+        }
+        for t in 27..34usize {
+            if base_full[t] > 0 {
+                has_z = true;
+                has_yaocchi = true;
+                break;
+            }
+        }
+        let n_suits = suits.count_ones();
+        let _ = has_simple;
+        let base_full_no_yaocchi = !has_yaocchi;
+        let base_full_has_z = has_z;
+        let base_full_single_suit = if n_suits == 1 {
+            Some(suits.trailing_zeros() as u8)
+        } else {
+            None
+        };
+
+        let bakaze = norm_wind_for_yakuhai(input.bakaze);
+        let jikaze = norm_wind_for_yakuhai(input.jikaze);
+        let mut base_yakuhai = [31u8, 32, 33, 0, 0];
+        let mut base_n_yakuhai = 3usize;
+        if (27..=30).contains(&bakaze) {
+            base_yakuhai[base_n_yakuhai] = bakaze;
+            base_n_yakuhai += 1;
+        }
+        if (27..=30).contains(&jikaze) && jikaze != bakaze {
+            base_yakuhai[base_n_yakuhai] = jikaze;
+            base_n_yakuhai += 1;
+        }
+        let base_full_yakuhai_in_meld = input.melds.iter().any(|m| {
+            m.tiles.iter().any(|&t| {
+                let tt = t / 4;
+                base_yakuhai[..base_n_yakuhai].contains(&tt)
+            })
+        });
+
         Self {
             input,
             horizon,
@@ -996,20 +1958,26 @@ impl<'a> DpContext<'a> {
             discard_cache: Default::default(),
             draw_cache: Default::default(),
             score_vec_cache: FxHashMap::default(),
-            shanten_cache: FxHashMap::default(),
             score_cache: FxHashMap::default(),
             base_score_cache: FxHashMap::default(),
             yaku_tenpai_cache: FxHashMap::default(),
+            base_full_no_yaocchi,
+            base_full_single_suit,
+            base_full_has_z,
+            base_full_yakuhai_in_meld,
+            base_yakuhai,
+            base_n_yakuhai,
         }
     }
 
     fn shanten(&mut self, counts: &[u8; TILE_MAX]) -> i8 {
-        if let Some(&cached) = self.shanten_cache.get(counts) {
-            return cached;
-        }
-        let shanten = shanten_of_counts(counts);
-        self.shanten_cache.insert(*counts, shanten);
-        shanten
+        #[cfg(feature = "debug_mortal_sp")]
+        __profile::bump_shanten_calls();
+        // Direct compute: empirically the [u8; 34] cache lookup overhead
+        // (~12 ns hash+probe) is comparable to `calc_normal`'s nyanten cascade
+        // on a warm L1, so the cache amortizes only marginally. Removing it
+        // also frees ~2 KB of hashbrown table per SP run.
+        shanten_of_counts(counts)
     }
 
     fn score_tsumo(
@@ -1360,15 +2328,33 @@ impl<'a> DpContext<'a> {
         let mut best_exp = [f32::MIN; SP_MAX_TURNS];
         let mut any_valid = false;
 
+        // Per-suit incremental shanten state for the discard enumeration.
+        // Each iteration drops 1 tile from key.counts → only that suit's k0
+        // refreshes. Saves 3 hashes per shanten check inside the DP recursion.
+        let dd_base_k0_m = crate::shanten::k0_shupai_for(&key.counts[0..9]);
+        let dd_base_k0_p = crate::shanten::k0_shupai_for(&key.counts[9..18]);
+        let dd_base_k0_s = crate::shanten::k0_shupai_for(&key.counts[18..27]);
+        let dd_base_k0_z = crate::shanten::k0_zipai_for(&key.counts[27..34]);
+        let dd_len_div3_drop = key.counts.iter().sum::<u8>().saturating_sub(1) / 3;
+        let mut next_counts = key.counts;
+
         for tile in 0..TILE_MAX {
             if key.counts[tile] == 0 {
                 continue;
             }
-            let mut next_counts = key.counts;
             next_counts[tile] -= 1;
-            let s = self.shanten(&next_counts);
+            let s = shanten_after_add_incremental(
+                &next_counts,
+                tile,
+                dd_base_k0_m,
+                dd_base_k0_p,
+                dd_base_k0_s,
+                dd_base_k0_z,
+                dd_len_div3_drop,
+            );
             if s != shanten {
                 // 向聴維持のみ。向聴落としは現状サポートしない。
+                next_counts[tile] += 1;
                 continue;
             }
             // Aka tracking: when the only copy of a 5x in hand is discarded
@@ -1389,6 +2375,8 @@ impl<'a> DpContext<'a> {
                 }
             }
             any_valid = true;
+            // Restore for next iteration.
+            next_counts[tile] += 1;
         }
 
         let mut out = Values::default();
@@ -1423,9 +2411,19 @@ impl<'a> DpContext<'a> {
         let last_turn_idx = horizon - 1;
 
         // 有効牌を列挙し、合計枚数を計算する。
+        // Per-suit incremental shanten: cache base k0 once, recompute only
+        // the affected suit per candidate tile. For shanten ≥ 2 hands this
+        // path is called millions of times by the DP recursion — saving 3
+        // hash_shupai/zipai per iteration is significant.
+        let dp_base_k0_m = crate::shanten::k0_shupai_for(&key.counts[0..9]);
+        let dp_base_k0_p = crate::shanten::k0_shupai_for(&key.counts[9..18]);
+        let dp_base_k0_s = crate::shanten::k0_shupai_for(&key.counts[18..27]);
+        let dp_base_k0_z = crate::shanten::k0_zipai_for(&key.counts[27..34]);
+        let dp_len_div3_next = (key.counts.iter().sum::<u8>() + 1) / 3;
         let mut effective: [(u8, u8); 34] = [(0, 0); 34];
         let mut n_eff: usize = 0;
         let mut sum_required: u32 = 0;
+        let mut next_counts = key.counts;
         for tile in 0..TILE_MAX {
             let count = key.remaining[tile];
             if count == 0 || key.counts[tile] >= 4 {
@@ -1434,13 +2432,21 @@ impl<'a> DpContext<'a> {
             // Pre-filter: a tile cannot reduce shanten unless it's adjacent to
             // an existing hand tile. For honors, "adjacent" means count >= 1.
             // For numbered tiles, anywhere within ±2 in the same suit. This
-            // filters ~50% of tiles before paying the (cached) shanten lookup.
+            // filters ~50% of tiles before paying the shanten lookup.
             if !potentially_effective_for_draw(&key.counts, tile) {
                 continue;
             }
-            let mut next_counts = key.counts;
             next_counts[tile] += 1;
-            let s_after = self.shanten(&next_counts);
+            let s_after = shanten_after_add_incremental(
+                &next_counts,
+                tile,
+                dp_base_k0_m,
+                dp_base_k0_p,
+                dp_base_k0_s,
+                dp_base_k0_z,
+                dp_len_div3_next,
+            );
+            next_counts[tile] -= 1;
             if s_after < shanten {
                 effective[n_eff] = (tile as u8, count);
                 n_eff += 1;
@@ -1694,7 +2700,7 @@ impl<'a> DpContext<'a> {
         debug_assert_eq!(base.honba, 0, "SP base score must have honba=0");
         let calc_with_han = |delta: u32| -> f32 {
             let han = (base.han + delta).min(13);
-            sp_tsumo_total_fast(han, base.fu, base.is_oya) as f32
+            sp_tsumo_total_lut(han, base.fu, base.is_oya) as f32
         };
 
         let mut out = [0.0f32; 4];
@@ -1926,6 +2932,10 @@ fn potentially_effective_for_draw(counts: &[u8; TILE_MAX], tile: usize) -> bool 
 /// Fast inline equivalent of `score::calculate_score(han, fu, is_oya, tsumo=true,
 /// honba=0, 4-player) → tsumo_total_for_sp(...)`. Avoids the `Score` struct
 /// allocation and the honba/ron branches.
+///
+/// Hot path callers should prefer `sp_tsumo_total_lut` (table lookup, ~1ns)
+/// instead of this branchy O(N) implementation. This function remains as the
+/// authoritative source of truth and is used to populate the LUT itself.
 #[inline]
 fn sp_tsumo_total_fast(han: u32, fu: u32, is_oya: bool) -> u32 {
     let base_points: u32 = if han >= 5 {
@@ -1957,6 +2967,77 @@ fn sp_tsumo_total_fast(han: u32, fu: u32, is_oya: bool) -> u32 {
         // Non-dealer tsumo: oya pays pay_oya, 2 ko pay pay_ko each.
         pay_oya + pay_ko.saturating_mul(2)
     }
+}
+
+// ─────────────── Tsumo score lookup table ────────────────────────────
+// `score_vector_for_win_compute` and `score_from_base` evaluate
+// `sp_tsumo_total_fast` 4..(4 × ura_dist.len()) times **per wait tile**.
+// At tenpai with ~65 unique waits per sample × ~8 invocations ≈ 520 calls
+// per sample, the branchy arithmetic shows up in the profile. A static
+// LUT indexed by (han, fu_idx, is_oya) collapses each call into a single
+// array load — ~1.3KB total, fits in L1 alongside the agari_table working
+// set and the SP DP scratch state.
+
+/// Maximum han we need to index. Han caps at 13 (kazoe yakuman) but the
+/// caller saturates upstream; we add 1 slot for safety.
+const TSUMO_LUT_HAN: usize = 14;
+
+/// Distinct fu values that appear in 4-player riichi: 20, 25, 30, 40, 50,
+/// 60, 70, 80, 90, 100, 110. We add a 12-th slot for 120 just for safety
+/// (some non-standard rule sets) and `fu_to_lut_idx` returns 11 for any
+/// out-of-range value so the LUT lookup is always in-bounds.
+const TSUMO_LUT_FU: usize = 12;
+
+const FU_FOR_LUT_IDX: [u32; TSUMO_LUT_FU] =
+    [20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
+
+#[inline]
+fn fu_to_lut_idx(fu: u32) -> usize {
+    // Tight match — `match` lowers to a small jump table or branch chain
+    // (LLVM emits a bit-test sequence for this dense set), faster than
+    // searching `FU_FOR_LUT_IDX` linearly.
+    match fu {
+        20 => 0,
+        25 => 1,
+        30 => 2,
+        40 => 3,
+        50 => 4,
+        60 => 5,
+        70 => 6,
+        80 => 7,
+        90 => 8,
+        100 => 9,
+        110 => 10,
+        _ => 11,
+    }
+}
+
+/// LUT[han][fu_idx][is_oya]. Indexed by absolute han 0..=13 (caller must
+/// `.min(13)` first), fu_idx via `fu_to_lut_idx`, and `is_oya as usize`.
+/// Built once at first access via `LazyLock` — ~1.3KB resident in L1.
+static TSUMO_SCORE_LUT: std::sync::LazyLock<[[[u32; 2]; TSUMO_LUT_FU]; TSUMO_LUT_HAN]> =
+    std::sync::LazyLock::new(|| {
+        let mut t = [[[0u32; 2]; TSUMO_LUT_FU]; TSUMO_LUT_HAN];
+        for han in 0..TSUMO_LUT_HAN {
+            for fu_idx in 0..TSUMO_LUT_FU {
+                let fu = FU_FOR_LUT_IDX[fu_idx];
+                t[han][fu_idx][0] = sp_tsumo_total_fast(han as u32, fu, false);
+                t[han][fu_idx][1] = sp_tsumo_total_fast(han as u32, fu, true);
+            }
+        }
+        t
+    });
+
+/// Hot-path tsumo score query. Replaces direct `sp_tsumo_total_fast` calls
+/// in score_vector_for_win_compute / score_from_base / base_score_tsumo.
+/// Caller is responsible for passing valid `fu` (one of the canonical values)
+/// — non-canonical fu falls through to the slot-11 default which holds 120-fu
+/// scores; this is unreachable in correct inputs.
+#[inline]
+fn sp_tsumo_total_lut(han: u32, fu: u32, is_oya: bool) -> u32 {
+    let han_idx = (han as usize).min(TSUMO_LUT_HAN - 1);
+    let fu_idx = fu_to_lut_idx(fu);
+    TSUMO_SCORE_LUT[han_idx][fu_idx][is_oya as usize]
 }
 
 fn base_score_tsumo(
@@ -1991,9 +3072,8 @@ fn base_score_tsumo(
             crate::sp_yaku::compute_for_sp_tsumo(input, counts_13, win_tile, akas_in_hand)
         && lean.han > 0
     {
-        // Inline + table-driven version of score::calculate_score with the SP
-        // hot-path constants (tsumo, 4 players, honba=0, no ura) baked in.
-        let base_total = sp_tsumo_total_fast(lean.han, lean.fu, is_oya);
+        // LUT-driven score (SP hot path: tsumo, 4 players, honba=0, no ura).
+        let base_total = sp_tsumo_total_lut(lean.han, lean.fu, is_oya);
         return Some(BaseScore {
             total: base_total,
             han: lean.han,
@@ -2051,7 +3131,7 @@ fn score_from_base(
         base.total as f32
     } else {
         let han = base.han.saturating_add(extra_han).min(13);
-        sp_tsumo_total_fast(han, base.fu, base.is_oya) as f32
+        sp_tsumo_total_lut(han, base.fu, base.is_oya) as f32
     };
     if !base.apply_ura {
         return base_total;
@@ -2086,7 +3166,7 @@ fn score_from_base(
             .saturating_add(extra_han)
             .saturating_add(ura_count as u32)
             .min(13);
-        expected += prob * sp_tsumo_total_fast(han, base.fu, base.is_oya) as f32;
+        expected += prob * sp_tsumo_total_lut(han, base.fu, base.is_oya) as f32;
     }
     expected.max(base_total)
 }
@@ -2139,68 +3219,104 @@ fn exact_score_tsumo(
         .then_some(tsumo_total_for_sp(result.tsumo_agari_oya, result.tsumo_agari_ko) as f32)
 }
 
+/// 裏ドラ枚数の確率分布。返り値は `[f32; URA_DIST_LEN]` で、
+/// `dist[u]` が「裏ドラがちょうど u 枚乗る確率」。
+/// インデックスは 0..=20 (= D=5 表示牌すべて4枚乗りの最大ケース) をカバーする。
+///
+/// D=0: dist[0] = 1.0
+/// D=1 (= 通常リーチの 83%): O(34) のクローズドフォーム。`gain_counts[u] / N` で終わり。
+/// D≥2:   stack-only な反復畳み込み (state[d][u] を gain bucket ごとに更新)。
+///        以前は再帰だったが、再帰呼び出しのオーバヘッドと `combination_f64` の
+///        インライン化を兼ねて多項式畳み込み形式に書き直した。
+const URA_DIST_LEN: usize = 21;
+
 fn ura_distribution(
     full_counts: &[u8; TILE_MAX],
     remaining: &[u8; TILE_MAX],
     num_indicators: usize,
-) -> Vec<f32> {
-    let total_remaining = remaining.iter().map(|&count| count as usize).sum::<usize>();
+) -> [f32; URA_DIST_LEN] {
+    let mut dist = [0.0f32; URA_DIST_LEN];
+    let total_remaining: usize = remaining.iter().map(|&c| c as usize).sum();
     let draws = num_indicators.min(5).min(total_remaining);
-    let max_ura = draws * 4;
-    let mut dist = vec![0.0f32; max_ura + 1];
     if draws == 0 {
         dist[0] = 1.0;
         return dist;
     }
 
-    let mut gain_counts = [0usize; 5];
+    // 各表示牌候補について、それを引いたとき対応する裏ドラ牌が手牌に
+    // 何枚あるか (= gain) を集計し、gain 値ごとの「該当する表示牌の山残数」を
+    // 5 要素のバケットに詰める。
+    let mut gain_counts = [0u32; 5];
     for indicator in 0..TILE_MAX {
         let dora_tile = next_dora_tile(indicator as u8) as usize;
         let gain = full_counts[dora_tile] as usize;
-        gain_counts[gain] += remaining[indicator] as usize;
+        if gain < 5 {
+            gain_counts[gain] += remaining[indicator] as u32;
+        }
     }
 
+    // Fast path: D=1 はバケットに 1 枚引くだけなので分布は自明。
+    if draws == 1 {
+        let inv_n = 1.0 / total_remaining as f32;
+        for u in 0..5 {
+            dist[u] = gain_counts[u] as f32 * inv_n;
+        }
+        return dist;
+    }
+
+    // 一般ケース (D = 2..=5): state[d][u] を gain bucket ごとに更新する。
+    // state[d][u] = 「これまでに d 枚の表示牌を選び、対応する手牌枚数の
+    //               総和が u になる場合の重み (= 各バケットからの組合せ数の積)」
+    let mut state = [[0f64; URA_DIST_LEN]; 6];
+    state[0][0] = 1.0;
+    for g in 0..5usize {
+        let bucket = gain_counts[g] as usize;
+        if bucket == 0 {
+            continue;
+        }
+        let mut new_state = [[0f64; URA_DIST_LEN]; 6];
+        for d in 0..=draws {
+            for u in 0..URA_DIST_LEN {
+                let w = state[d][u];
+                if w == 0.0 {
+                    continue;
+                }
+                let max_take = bucket.min(draws - d);
+                // C(bucket, take) を逐次更新: C(b, t+1) = C(b, t) * (b-t) / (t+1)
+                let mut comb = 1.0f64;
+                for take in 0..=max_take {
+                    let new_u = u + g * take;
+                    if new_u >= URA_DIST_LEN {
+                        break;
+                    }
+                    new_state[d + take][new_u] += w * comb;
+                    if take < max_take {
+                        comb = comb * (bucket - take) as f64 / (take + 1) as f64;
+                    }
+                }
+            }
+        }
+        state = new_state;
+    }
+
+    // 正規化。分母 C(N, D) でスケールしたあと、丸め誤差の補正に sum で再正規化。
     let denom = combination_f64(total_remaining, draws);
     if denom <= 0.0 {
         dist[0] = 1.0;
         return dist;
     }
-
-    fn visit(
-        gain: usize,
-        gain_counts: &[usize; 5],
-        draws_left: usize,
-        ura_sum: usize,
-        weight: f64,
-        denom: f64,
-        dist: &mut [f32],
-    ) {
-        if gain == gain_counts.len() {
-            if draws_left == 0 {
-                dist[ura_sum] += (weight / denom) as f32;
-            }
-            return;
-        }
-
-        let max_take = gain_counts[gain].min(draws_left);
-        for take in 0..=max_take {
-            visit(
-                gain + 1,
-                gain_counts,
-                draws_left - take,
-                ura_sum + gain * take,
-                weight * combination_f64(gain_counts[gain], take),
-                denom,
-                dist,
-            );
-        }
+    let denom_inv = 1.0 / denom;
+    let max_ura = (draws * 4).min(URA_DIST_LEN - 1);
+    let mut sum = 0.0f32;
+    for u in 0..=max_ura {
+        let p = (state[draws][u] * denom_inv) as f32;
+        dist[u] = p;
+        sum += p;
     }
-
-    visit(0, &gain_counts, draws, 0, 1.0, denom, &mut dist);
-    let sum = dist.iter().sum::<f32>();
-    if sum > 0.0 {
-        for prob in &mut dist {
-            *prob /= sum;
+    if sum > 0.0 && (sum - 1.0).abs() > 1e-6 {
+        let inv_sum = 1.0 / sum;
+        for p in &mut dist[..=max_ura] {
+            *p *= inv_sum;
         }
     }
     dist

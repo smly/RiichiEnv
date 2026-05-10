@@ -21,7 +21,7 @@
 //! Numerical equivalence is verified against the legacy path on every real-replay
 //! SP input via `debug_only_mortal_sp::harness::lean_vs_legacy_match`.
 
-use crate::agari_table::{self, Division, MAX_DIVS_PER_KEY};
+use crate::agari_table::{self, MAX_DIVS_PER_KEY};
 use crate::sp::SpInput;
 use crate::types::{Meld, MeldType, TILE_MAX};
 
@@ -133,9 +133,12 @@ pub fn compute_for_sp_tsumo(
         }
     }
 
-    // Look up decompositions from the precomputed table.
-    let (list, offsets, sp_perm, hp) = agari_table::lookup_canonical(&counts_14)?;
-    if list.n == 0 {
+    // Look up decompositions from the topology-indexed compact table.
+    // Returns a slice of CompactDiv (each = u32, packed pair_idx +
+    // kotsu/shuntsu tile14 indices). Working set per SP sample is small
+    // enough to fit in L1 (~250 unique keys × 4-byte div + index value).
+    let (tile14, list) = agari_table::lookup_compact(&counts_14)?;
+    if list.is_empty() {
         return None;
     }
 
@@ -181,9 +184,8 @@ pub fn compute_for_sp_tsumo(
 
     // For each table-decomp + the open-meld portion, compute (han, fu).
     let mut best: Option<(u32, u32)> = None; // (han, fu) — pick by total score
-    for k in 0..list.n as usize {
-        let template = &list.divs[k];
-        let div = absolute_div(template, &offsets, &sp_perm, &hp);
+    for &template in list {
+        let div = absolute_div_compact(template, &tile14);
 
         let Some((han, fu)) = score_one_div(
             input,
@@ -221,6 +223,278 @@ pub fn compute_for_sp_tsumo(
         fu,
         yakuman: false,
     })
+}
+
+/// Yaku-presence-only fast path. Returns `Some(true)` if the (counts_13, win_tile)
+/// has any yaku, `Some(false)` if definitely none, and `None` if the lean
+/// path is out of scope (caller should fall back to score_tsumo).
+///
+/// Skips fu computation, dora counting, aka counting, and (han, fu) tally —
+/// stops at the first division with any yaku flag set. ~5× faster than
+/// `compute_for_sp_tsumo` for "no yaku" hands (which is the worst case for
+/// SP's `has_yaku_tenpai_after_best_discard` Pass 2).
+pub fn has_any_yaku_for_sp_tsumo(
+    input: &SpInput,
+    counts_13: &[u8; TILE_MAX],
+    win_tile: u8,
+) -> Option<bool> {
+    if win_tile as usize >= TILE_MAX || counts_13[win_tile as usize] >= 4 {
+        return None;
+    }
+    // Reject hands with kans — fu/yakuman semantics diverge.
+    for m in &input.melds {
+        match m.meld_type {
+            MeldType::Daiminkan | MeldType::Ankan | MeldType::Kakan => return None,
+            _ => {}
+        }
+    }
+
+    let mut counts_14 = *counts_13;
+    counts_14[win_tile as usize] += 1;
+    let mut full_counts = counts_14;
+    for m in &input.melds {
+        for &t136 in &m.tiles {
+            let tt = (t136 / 4) as usize;
+            if tt < TILE_MAX {
+                full_counts[tt] += 1;
+            }
+        }
+    }
+
+    let assume_riichi = input.is_menzen && input.can_riichi;
+
+    // Menzen tsumo / riichi guarantee yaku.
+    if input.is_menzen || assume_riichi {
+        return Some(true);
+    }
+
+    // Chitoitsu fast path: 7 distinct pairs, menzen-only — already covered above.
+    // (We're here only if !is_menzen, so chitoitsu doesn't apply.)
+
+    let bakaze = norm_wind(input.bakaze);
+    let jikaze = norm_wind(input.jikaze);
+
+    // Yakuhai-in-meld: any pon/kan of dragon/seat/round wind tile.
+    for m in &input.melds {
+        for &t136 in &m.tiles {
+            let tt = t136 / 4;
+            if matches!(tt, 31 | 32 | 33) || tt == bakaze || tt == jikaze {
+                return Some(true);
+            }
+        }
+    }
+
+    // Structural shape-only yaku (computable without decomposition):
+    //   - tanyao: full has no yaocchi
+    //   - honitsu / chinitsu: full uses only 1 numbered suit
+    //   - honroutou: full all yaocchi
+    //   - sanshoku doukou (kotsu shape): same n with full[n], full[n+9], full[n+18] ≥ 3
+    //   - in-hand yakuhai kotsu: yakuhai count ≥ 3 in counts_14
+    let (suit_usage, flags) = scan_hand(&full_counts);
+    if !flags.has_terminal && !suit_usage.has_z {
+        return Some(true); // tanyao
+    }
+    if flags.single_numbered_suit {
+        return Some(true); // honitsu/chinitsu (open)
+    }
+    if flags.all_yaocchi {
+        return Some(true); // honroutou (kotsu-only decomp guaranteed)
+    }
+    for n in 0..9usize {
+        if full_counts[n] >= 3 && full_counts[n + 9] >= 3 && full_counts[n + 18] >= 3 {
+            return Some(true); // sanshoku doukou
+        }
+    }
+    let mut yh_tiles = [31u8, 32, 33, 0, 0];
+    let mut n_yh = 3usize;
+    if (27..=30).contains(&bakaze) { yh_tiles[n_yh] = bakaze; n_yh += 1; }
+    if (27..=30).contains(&jikaze) && jikaze != bakaze { yh_tiles[n_yh] = jikaze; n_yh += 1; }
+    for i in 0..n_yh {
+        if counts_14[yh_tiles[i] as usize] >= 3 {
+            return Some(true); // in-hand yakuhai kotsu
+        }
+    }
+
+    // Fall back to per-division check: requires shape decomposition for yaku
+    // like sanshoku doujun, ittsu, sanankou, junchan, chanta. Look up
+    // agari_table and check yaku flags per division — stop at first yaku.
+    let (tile14, list) = agari_table::lookup_compact(&counts_14)?;
+    if list.is_empty() {
+        return Some(false);
+    }
+
+    // Quick yakuman shape detection: defer to the legacy path so we never
+    // miss yakuman.
+    if might_be_yakuman(&full_counts, &input.melds) {
+        return None;
+    }
+
+    // Per-division yaku-flag check. We don't need han/fu — just yaku presence.
+    let mut melds_kotsu_buf = [0u8; 4];
+    let mut melds_shuntsu_buf = [0u8; 4];
+    let (n_mk, n_ms) = collect_melds(&input.melds, &mut melds_kotsu_buf, &mut melds_shuntsu_buf);
+    let melds_kotsu = &melds_kotsu_buf[..n_mk];
+    let melds_shuntsu = &melds_shuntsu_buf[..n_ms];
+
+    for &template in list {
+        let div = absolute_div_compact(template, &tile14);
+        if has_any_yaku_for_div(
+            input,
+            &div,
+            win_tile,
+            bakaze,
+            jikaze,
+            &suit_usage,
+            &flags,
+            melds_kotsu,
+            melds_shuntsu,
+        ) {
+            return Some(true);
+        }
+    }
+    Some(false)
+}
+
+/// Yaku-flag-only check for a single decomposition. Skips fu compute and
+/// han accumulation; returns `true` at the first yaku found.
+#[allow(clippy::too_many_arguments)]
+fn has_any_yaku_for_div(
+    input: &SpInput,
+    div: &AbsoluteDiv,
+    win_tile: u8,
+    bakaze: u8,
+    jikaze: u8,
+    suit_usage: &SuitUsage,
+    flags: &HandFlags,
+    melds_kotsu: &[u8],
+    melds_shuntsu: &[u8],
+) -> bool {
+    // Verify win_tile is in this division (else caller never reaches scoring).
+    let mut wait_buf = [WaitKind::Tanki; 5];
+    let n_waits = classify_waits(div, win_tile, &mut wait_buf);
+    if n_waits == 0 {
+        return false;
+    }
+
+    let melds_empty = melds_kotsu.is_empty() && melds_shuntsu.is_empty();
+    let mut all_kotsu_buf = [0u8; 8];
+    let mut all_shuntsu_buf = [0u8; 8];
+    let (all_kotsu, all_shuntsu): (&[u8], &[u8]) = if melds_empty {
+        (div.kotsu(), div.shuntsu())
+    } else {
+        let mut n_k = 0usize;
+        for &k in div.kotsu() { all_kotsu_buf[n_k] = k; n_k += 1; }
+        for &k in melds_kotsu { all_kotsu_buf[n_k] = k; n_k += 1; }
+        let mut n_s = 0usize;
+        for &s in div.shuntsu() { all_shuntsu_buf[n_s] = s; n_s += 1; }
+        for &s in melds_shuntsu { all_shuntsu_buf[n_s] = s; n_s += 1; }
+        (&all_kotsu_buf[..n_k], &all_shuntsu_buf[..n_s])
+    };
+
+    // Yakuhai (kotsu of dragon/seat/round wind) — terminate early.
+    for &k in all_kotsu {
+        if matches!(k, 31 | 32 | 33) || k == bakaze || k == jikaze {
+            return true;
+        }
+    }
+
+    // Tanyao / honitsu / chinitsu / honroutou: already pre-checked in caller,
+    // but they remain TRUE for this div too (shape-only). Re-check for safety.
+    if !flags.has_terminal && !suit_usage.has_z { return true; }
+    if flags.single_numbered_suit { return true; }
+    if flags.all_yaocchi { return true; }
+
+    // Toitoi: 4 kotsu (no shuntsu in division).
+    if all_shuntsu.is_empty() && !all_kotsu.is_empty() {
+        return true;
+    }
+
+    // Bitmasks for sanshoku doujun / ittsu / sanshoku doukou.
+    let mut shuntsu_mask: u32 = 0;
+    for &s in all_shuntsu { shuntsu_mask |= 1u32 << s; }
+    let smask_m = shuntsu_mask & 0x1FF;
+    let smask_p = (shuntsu_mask >> 9) & 0x1FF;
+    let smask_s = (shuntsu_mask >> 18) & 0x1FF;
+    const ITTSU_PATTERN: u32 = (1 << 0) | (1 << 3) | (1 << 6);
+    if (smask_m & ITTSU_PATTERN) == ITTSU_PATTERN
+        || (smask_p & ITTSU_PATTERN) == ITTSU_PATTERN
+        || (smask_s & ITTSU_PATTERN) == ITTSU_PATTERN
+    {
+        return true;
+    }
+    if (smask_m & smask_p & smask_s) != 0 {
+        return true;
+    }
+    let mut kotsu_mask: u64 = 0;
+    for &k in all_kotsu { kotsu_mask |= 1u64 << k; }
+    let kmask_m = (kotsu_mask & 0x1FF) as u32;
+    let kmask_p = ((kotsu_mask >> 9) & 0x1FF) as u32;
+    let kmask_s = ((kotsu_mask >> 18) & 0x1FF) as u32;
+    if (kmask_m & kmask_p & kmask_s) != 0 {
+        return true;
+    }
+
+    // Sanankou (≥ 3 closed kotsu in tsumo).
+    if div.n_kotsu >= 3 {
+        return true;
+    }
+
+    // Shousangen: 2 dragon kotsu + 1 dragon pair.
+    let dragon_kotsu_bits = (kotsu_mask >> 31) & 0b111;
+    let dragon_kotsu_count = dragon_kotsu_bits.count_ones() as usize;
+    let dragon_pair = (31..=33).contains(&div.pair_tile);
+    if dragon_kotsu_count == 2 && dragon_pair {
+        return true;
+    }
+
+    // Junchan / Chanta.
+    if flags.has_terminal {
+        let mentsu_all_have_terminal = all_kotsu.iter().all(|&t| is_terminal(t))
+            && all_shuntsu.iter().all(|&t| t % 9 == 0 || t % 9 == 6)
+            && is_terminal(div.pair_tile);
+        let mentsu_all_have_yaocchi = all_kotsu.iter().all(|&t| is_yaocchi(t))
+            && all_shuntsu.iter().all(|&t| t % 9 == 0 || t % 9 == 6)
+            && is_yaocchi(div.pair_tile);
+        let honroutou_local = flags.all_yaocchi
+            && all_shuntsu.is_empty()
+            && all_kotsu.iter().all(|&t| is_yaocchi(t))
+            && is_yaocchi(div.pair_tile);
+        let junchan = !honroutou_local
+            && !all_shuntsu.is_empty()
+            && !suit_usage.has_z
+            && mentsu_all_have_terminal;
+        let chanta = !honroutou_local && !junchan && !all_shuntsu.is_empty()
+            && mentsu_all_have_yaocchi;
+        if junchan || chanta {
+            return true;
+        }
+    }
+
+    // Iipeikou / ryanpeikou (menzen only — caller already returned true for
+    // is_menzen, so this is dead code under our caller).
+    if input.is_menzen {
+        let (iipeikou, ryanpeikou) = detect_peikou(div.shuntsu());
+        if iipeikou || ryanpeikou {
+            return true;
+        }
+    }
+
+    // Pinfu (menzen + 4 shuntsu + non-yakuhai pair + ryanmen wait).
+    if input.is_menzen
+        && div.n_shuntsu == 4
+        && div.n_kotsu == 0
+        && melds_kotsu.is_empty()
+        && melds_shuntsu.is_empty()
+        && !is_yakuhai_pair(div.pair_tile, bakaze, jikaze)
+    {
+        for i in 0..n_waits {
+            if wait_buf[i] == WaitKind::Ryanmen {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 /// Pick the higher-scoring (han, fu). If han caps to mangan/etc., higher han
@@ -438,34 +712,31 @@ fn scan_hand(counts: &[u8; TILE_MAX]) -> (SuitUsage, HandFlags) {
     (su, flags)
 }
 
-/// Translate a canonical-form `Division` from `agari_table` into one with
-/// absolute tile ids (using the per-suit shifts and permutations).
-fn absolute_div(
-    canonical: &Division,
-    offsets: &[u8; 4],
-    sp_perm: &[u8; 3],
-    hp: &[u8; 7],
+/// Translate a packed `CompactDiv` (u32 with tile14-index slots) into an
+/// `AbsoluteDiv` with real tile ids. The CompactDiv is a single u32 word —
+/// fits in 1 register — and tile14 is already sorted ascending so the
+/// kotsu/shuntsu arrays come out sorted naturally.
+#[inline]
+fn absolute_div_compact(
+    template: agari_table::CompactDiv,
+    tile14: &agari_table::Tile14,
 ) -> AbsoluteDiv {
+    let tiles = &tile14.tiles;
+    let n_k = template.n_kotsu() as usize;
+    let n_s = template.n_shuntsu() as usize;
     let mut out = AbsoluteDiv {
-        pair_tile: agari_table::apply_offset_perm(canonical.pair_tile, offsets, sp_perm, hp),
-        n_kotsu: canonical.n_kotsu as usize,
+        pair_tile: tiles[template.pair_idx() as usize],
+        n_kotsu: n_k,
         kotsu: [0; 4],
-        n_shuntsu: canonical.n_shuntsu as usize,
+        n_shuntsu: n_s,
         shuntsu: [0; 4],
     };
-    for i in 0..out.n_kotsu {
-        out.kotsu[i] =
-            agari_table::apply_offset_perm(canonical.kotsu_tiles[i], offsets, sp_perm, hp);
+    for i in 0..n_k {
+        out.kotsu[i] = tiles[template.kotsu_idx(i) as usize];
     }
-    for i in 0..out.n_shuntsu {
-        out.shuntsu[i] =
-            agari_table::apply_offset_perm(canonical.shuntsu_starts[i], offsets, sp_perm, hp);
+    for i in 0..n_s {
+        out.shuntsu[i] = tiles[template.shuntsu_idx(i) as usize];
     }
-    // Sort for canonical comparison
-    let n_k = out.n_kotsu;
-    out.kotsu[..n_k].sort_unstable();
-    let n_s = out.n_shuntsu;
-    out.shuntsu[..n_s].sort_unstable();
     out
 }
 

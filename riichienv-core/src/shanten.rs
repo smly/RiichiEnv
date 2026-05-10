@@ -195,6 +195,47 @@ fn calc_normal(tiles: &[u8; TILE_MAX], len_div3: u8) -> i8 {
     (replacement as i8) - 1
 }
 
+/// Per-suit "k0 byte" lookup. Used by SP to memoize per-suit profiles when an
+/// inner loop perturbs a single suit at a time — the other 3 suits' k0 stay
+/// constant, so only 1 hash + 3 KEYS reads are needed per iteration instead of
+/// 4 hashes + 3 KEYS reads.
+#[inline]
+pub(crate) fn k0_shupai_for(tiles_9: &[u8]) -> u8 {
+    SHUPAI_KEYS[hash_shupai(tiles_9)]
+}
+
+#[inline]
+pub(crate) fn k0_zipai_for(tiles_7: &[u8]) -> u8 {
+    ZIPAI_KEYS[hash_zipai(tiles_7)]
+}
+
+/// Compose pre-computed per-suit k0 bytes into a normal-form shanten.
+/// SP callers pass cached k0s for the unchanged suits and a freshly recomputed
+/// k0 for the changed suit. `len_div3` = total tile count / 3 (4 for 13/14-tile).
+#[inline]
+pub(crate) fn shanten_normal_from_k0s(
+    k0_m: u8,
+    k0_p: u8,
+    k0_s: u8,
+    k0_z: u8,
+    len_div3: u8,
+) -> i8 {
+    let m = len_div3 as usize;
+    let k1 = KEYS1[(k0_m as usize) * 126 + k0_p as usize] as usize;
+    let k2 = KEYS2[k1 * 126 + k0_s as usize] as usize;
+    let replacement = KEYS3[(k2 * 55 + k0_z as usize) * 5 + m];
+    (replacement as i8) - 1
+}
+
+/// Combined chitoi/kokushi shanten for hands at len_div3 ≥ 4. SP uses this
+/// to top off the per-suit normal-shanten path.
+#[inline]
+pub(crate) fn shanten_chitoi_kokushi_floor(tiles: &[u8; TILE_MAX]) -> i8 {
+    let chi = calc_chitoi(tiles);
+    if chi <= 0 { return chi; }
+    chi.min(calc_kokushi(tiles))
+}
+
 fn calc_chitoi(tiles: &[u8; TILE_MAX]) -> i8 {
     let mut pairs = 0u8;
     let mut kinds = 0u8;

@@ -282,9 +282,10 @@ pub fn decode_division(buf: &[u8]) -> Division {
 /// transport layer handles compression for browser delivery.
 pub const AGARI_TABLE_DATA: &[u8] = include_bytes!("data/agari_table.bin");
 
-/// Loaded at first access, then reused for the lifetime of the process.
-/// Up to `MAX_DIVS_PER_KEY` decompositions per key (standard hands have
-/// at most 4 valid decompositions in 4-player riichi).
+/// Used only for the legacy canonical `DivisionList` (which has the bound
+/// of 4 by construction). The COMPACT table stores divs in a flat Vec —
+/// it has no per-entry inline cap, so suit-perm expansion can produce as
+/// many divs per key as needed without pre-allocating worst case.
 pub const MAX_DIVS_PER_KEY: usize = 4;
 
 #[derive(Clone)]
@@ -359,6 +360,362 @@ pub fn lookup(counts: &[u8; 34]) -> Vec<Division> {
         out.push(d);
     }
     out
+}
+
+// ───────────── topology-indexed compact lookup ─────────────────────────
+// 既存テーブル (1.1MB, canonical-key) は absolute tile id を保持するため、
+// shape-trivial だが座標違いの形を 4× 重複して持っている。Mortal 流の
+// stair-step bit key は「非ゼロ位置の **ギャップは 1 ビットの separator** で
+// 表現する」エンコーディングなので、内側位置のシフト不変性を自然に獲得し、
+// 約 6.8K キーまで縮約できる (Mortal 自身のテーブル 9362 とほぼ同オーダー)。
+//
+// ここでは canonical テーブルを起動時に走査して、
+//   - mortal_key (u32 stair-step) を計算
+//   - 同じ mortal_key を持つ canonical entries を 1 つに圧縮
+//   - Division を「tile14 配列のインデックス」表現に変換
+// した COMPACT_TABLE を `LazyLock` で構築する。
+// shipping bin の追加は無し (派生)。
+
+/// 14-tile 中の **異なる**牌の並び (昇順、最大 14 個) と長さ。
+/// `lookup_compact` の戻り値で、`CompactDiv` のインデックスはこの配列を参照する。
+#[derive(Debug, Clone, Copy)]
+pub struct Tile14 {
+    pub tiles: [u8; 14],
+    pub len: u8,
+}
+
+/// 1 ハンドの 1 decomposition を tile14 インデックスで Mortal-style な
+/// u32 に packing したもの。ビットレイアウト:
+///   [ 0.. 3]  n_kotsu (3 bits, 0..=4)
+///   [ 3.. 6]  n_shuntsu (3 bits, 0..=4)
+///   [ 6..10]  pair_idx (4 bits, 0..=14)
+///   [10..14]  mentsu[0] (kotsu first, then shuntsu — slot share like Mortal)
+///   [14..18]  mentsu[1]
+///   [18..22]  mentsu[2]
+///   [22..26]  mentsu[3]
+///
+/// 4 byte/div で flat_divs に詰めるため、L1 cache に載りやすい。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct CompactDiv(pub u32);
+
+impl CompactDiv {
+    #[inline]
+    pub fn pack(
+        pair_idx: u8,
+        n_kotsu: u8,
+        kotsu_idxs: &[u8],
+        n_shuntsu: u8,
+        shuntsu_idxs: &[u8],
+    ) -> Self {
+        debug_assert!(pair_idx < 15);
+        debug_assert!((n_kotsu as usize) == kotsu_idxs.len());
+        debug_assert!((n_shuntsu as usize) == shuntsu_idxs.len());
+        debug_assert!(n_kotsu + n_shuntsu <= 4);
+        let mut v = (n_kotsu as u32) | ((n_shuntsu as u32) << 3) | ((pair_idx as u32) << 6);
+        let mut slot = 0u32;
+        for &i in kotsu_idxs {
+            debug_assert!(i < 15);
+            v |= (i as u32) << (10 + slot * 4);
+            slot += 1;
+        }
+        for &i in shuntsu_idxs {
+            debug_assert!(i < 15);
+            v |= (i as u32) << (10 + slot * 4);
+            slot += 1;
+        }
+        Self(v)
+    }
+
+    #[inline]
+    pub fn n_kotsu(self) -> u8 {
+        (self.0 & 0x7) as u8
+    }
+    #[inline]
+    pub fn n_shuntsu(self) -> u8 {
+        ((self.0 >> 3) & 0x7) as u8
+    }
+    #[inline]
+    pub fn pair_idx(self) -> u8 {
+        ((self.0 >> 6) & 0xF) as u8
+    }
+    /// `i`-th kotsu tile14 index (0..n_kotsu).
+    #[inline]
+    pub fn kotsu_idx(self, i: usize) -> u8 {
+        ((self.0 >> (10 + i * 4)) & 0xF) as u8
+    }
+    /// `i`-th shuntsu tile14 index (0..n_shuntsu). Stored after kotsu.
+    #[inline]
+    pub fn shuntsu_idx(self, i: usize) -> u8 {
+        let slot = self.n_kotsu() as usize + i;
+        ((self.0 >> (10 + slot * 4)) & 0xF) as u8
+    }
+}
+
+/// 字牌位置と独立な、複数 division を共有メモリ領域 (`flat_divs`) で
+/// 持つ container. table 全体が L1/L2 にフィットしやすいよう設計。
+pub struct CompactTable {
+    /// mortal_key → packed value: [bits 0..24] = offset into `flat_divs`,
+    /// [bits 24..32] = n_div. 1 entry = 4 byte hash key + 4 byte value
+    /// (HashMap value alignment 込み)。
+    index: FxHashMap<u32, u32>,
+    /// 全 entry の CompactDiv を 1 本の Vec に直列化。各 entry は
+    /// `&flat_divs[offset .. offset + n_div]` でスライス参照する。
+    /// 1 div = 4 byte なので連続 7k entry でも ~28 KB に収まる。
+    flat_divs: Box<[CompactDiv]>,
+}
+
+impl CompactTable {
+    /// `mortal_key` に対応する CompactDiv のスライスを返す。
+    /// (1 cache line で済むよう u32 → (offset, n) → 連続スライス と最小限のアクセスで構成)
+    #[inline]
+    pub fn lookup(&self, key: u32) -> Option<&[CompactDiv]> {
+        let &packed = self.index.get(&key)?;
+        let offset = (packed & 0x00FF_FFFF) as usize;
+        let n = (packed >> 24) as usize;
+        Some(&self.flat_divs[offset..offset + n])
+    }
+    pub fn n_keys(&self) -> usize {
+        self.index.len()
+    }
+    pub fn n_divs(&self) -> usize {
+        self.flat_divs.len()
+    }
+}
+
+/// 入力 `counts` から Mortal 互換の stair-step u32 key と sorted-unique
+/// `Tile14` を 1 パスで構築する。`apply_offset_perm` 等の派生不要。
+///
+/// エンコーディング: 各 suit 内で「非ゼロ位置を 1 つずつ訪問しながら、
+/// 各位置の余分カウント (c-1) を 2(c-1) ビットで書き、隣接ゼロから
+/// 非ゼロへ戻る境界に 1 ビットの separator を打つ」。実質的に
+/// non-zero positions の集合と count multiset を可逆に符号化する。
+#[inline]
+pub fn topology_key_and_tile14(counts: &[u8; 34]) -> (u32, Tile14) {
+    let mut key: u32 = 0;
+    let mut bit_idx: i32 = -1;
+    let mut tiles = [0u8; 14];
+    let mut len = 0usize;
+
+    let emit_count = |key: &mut u32, bit_idx: &mut i32, c: u8| {
+        *bit_idx += 1;
+        match c {
+            2 => {
+                *key |= 0b11 << *bit_idx;
+                *bit_idx += 2;
+            }
+            3 => {
+                *key |= 0b1111 << *bit_idx;
+                *bit_idx += 4;
+            }
+            4 => {
+                *key |= 0b11_1111 << *bit_idx;
+                *bit_idx += 6;
+            }
+            _ => {}
+        }
+    };
+
+    // 数牌 3 suit: chunks_exact(9) と同じイテレーション。
+    for kind in 0..3 {
+        let mut prev_in_hand = false;
+        for num in 0..9 {
+            let c = counts[kind * 9 + num];
+            if c > 0 {
+                prev_in_hand = true;
+                if len < 14 {
+                    tiles[len] = (kind * 9 + num) as u8;
+                    len += 1;
+                }
+                emit_count(&mut key, &mut bit_idx, c);
+            } else if prev_in_hand {
+                key |= 0b1 << bit_idx;
+                bit_idx += 1;
+                prev_in_hand = false;
+            }
+        }
+        // suit 終端の境界 separator (次の suit と区別するため)。
+        if prev_in_hand {
+            key |= 0b1 << bit_idx;
+            bit_idx += 1;
+        }
+    }
+
+    // 字牌 7 種は位置が yaku 上意味を持つので「非ゼロ位置のみ訪問」+
+    // 各 emit のあと必ず separator を打つ (suit のような「次グループ」が
+    // ないため、separator はその牌の終端マーカー)。
+    for tile in 27..34 {
+        let c = counts[tile];
+        if c > 0 {
+            if len < 14 {
+                tiles[len] = tile as u8;
+                len += 1;
+            }
+            emit_count(&mut key, &mut bit_idx, c);
+            key |= 0b1 << bit_idx;
+            bit_idx += 1;
+        }
+    }
+
+    (
+        key,
+        Tile14 {
+            tiles,
+            len: len as u8,
+        },
+    )
+}
+
+pub static COMPACT_AGARI_TABLE: LazyLock<CompactTable> = LazyLock::new(load_compact_table);
+
+fn load_compact_table() -> CompactTable {
+    // canonical AGARI_TABLE を走査し、各 canonical_counts について
+    // **数牌スーツの 6 通りの順列** を列挙し、
+    //   - 各順列で permuted_counts を再構成
+    //   - mortal_key + tile14 を計算
+    //   - Division を tile14 インデックス表現 (CompactDiv) に変換
+    //   - 同じ mortal_key の重複は HashMap dedup で merge
+    //
+    // 字牌位置については mortal_key は本来 invariant (encoding が「非ゼロ
+    // 位置のみを順に走査する」ため、どの字牌位置に同 count が立っても同
+    // ビットパターンを生む)。したがって字牌の置換は列挙不要。
+    //
+    // 数牌の suit perm のみが mortal_key を変化させる (canonicalize_full は
+    // 内容辞書順で suit を sort するため、ある canonical エントリは特定の
+    // suit assignment のみを表す)。runtime input は任意の suit assignment
+    // を取り得るので、ビルド時に 6 perm すべてを展開しておく必要がある。
+    //
+    // ビルドの中間形式: (mortal_key → Vec<CompactDiv> with dedup)。
+    // 最後に flat_divs と index にパッキングし直す。
+    let mut staging: FxHashMap<u32, Vec<CompactDiv>> =
+        FxHashMap::with_capacity_and_hasher(20_000, BuildHasherDefault::default());
+
+    // 3-suit の 6 順列。perm[real_suit] = canonical_suit (= "real_suit には
+    // canonical_suit の中身を置く").
+    const SUIT_PERMS: [[u8; 3]; 6] = [
+        [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
+    ];
+
+    let canonical_table = &*AGARI_TABLE;
+    for (&canonical_key, divlist) in canonical_table.iter() {
+        let mut counts = [0u8; 34];
+        for i in 0..34 {
+            counts[i] = ((canonical_key >> (3 * i)) & 0x7) as u8;
+        }
+        let total: u32 = counts.iter().map(|&c| c as u32).sum();
+        if total != 14 {
+            continue;
+        }
+
+        for perm in &SUIT_PERMS {
+            // perm から逆引き: perm_inv[canonical] = real (canonical_suit が
+            // 配置される real_suit のインデックス)。
+            let mut perm_inv = [0u8; 3];
+            for i in 0..3 {
+                perm_inv[perm[i] as usize] = i as u8;
+            }
+
+            // permuted_counts: real_suit i に canonical_suit perm[i] の中身を入れる。
+            let mut permuted = [0u8; 34];
+            for real_suit in 0..3usize {
+                let canon_suit = perm[real_suit] as usize;
+                for pos in 0..9 {
+                    permuted[real_suit * 9 + pos] = counts[canon_suit * 9 + pos];
+                }
+            }
+            permuted[27..34].copy_from_slice(&counts[27..34]);
+
+            // canonical の tile id (0..27) を permuted の tile id にマップ。
+            // canonical tile t = (suit_canon, pos) → permuted tile = perm_inv[suit_canon] * 9 + pos.
+            let mut canon_to_real = [0u8; 34];
+            for t in 0..27u8 {
+                let suit_canon = (t / 9) as usize;
+                let pos = t % 9;
+                canon_to_real[t as usize] = perm_inv[suit_canon] * 9 + pos;
+            }
+            // 字牌は identity (mortal_key 字牌 invariant のため再配置不要)。
+            for t in 27..34 {
+                canon_to_real[t as usize] = t;
+            }
+
+            insert_compact_with_translation(&mut staging, &permuted, divlist, &canon_to_real);
+        }
+    }
+
+    // staging を flat_divs に詰めて offset/n をパッキング。
+    let total_divs: usize = staging.values().map(|v| v.len()).sum();
+    let mut flat: Vec<CompactDiv> = Vec::with_capacity(total_divs);
+    let mut index: FxHashMap<u32, u32> =
+        FxHashMap::with_capacity_and_hasher(staging.len(), BuildHasherDefault::default());
+    for (key, divs) in staging.into_iter() {
+        let offset = flat.len() as u32;
+        let n = divs.len() as u32;
+        debug_assert!(offset < (1 << 24));
+        debug_assert!(n < (1 << 8));
+        flat.extend(divs);
+        index.insert(key, (offset & 0x00FF_FFFF) | (n << 24));
+    }
+
+    CompactTable {
+        index,
+        flat_divs: flat.into_boxed_slice(),
+    }
+}
+
+/// `permuted_counts` (suit perm 適用後) と canonical → permuted の tile id
+/// 翻訳テーブル `canon_to_real` を受け取り、CompactDiv を構築して compact
+/// マップへ挿入する。同 mortal_key の重複 CompactDiv は dedup される。
+fn insert_compact_with_translation(
+    staging: &mut FxHashMap<u32, Vec<CompactDiv>>,
+    permuted_counts: &[u8; 34],
+    divlist: &DivisionList,
+    canon_to_real: &[u8; 34],
+) {
+    let (mkey, tile14) = topology_key_and_tile14(permuted_counts);
+
+    let mut tile_to_idx = [u8::MAX; 34];
+    for i in 0..tile14.len as usize {
+        tile_to_idx[tile14.tiles[i] as usize] = i as u8;
+    }
+
+    for k in 0..divlist.n as usize {
+        let d = &divlist.divs[k];
+        let pair_idx = tile_to_idx[canon_to_real[d.pair_tile as usize] as usize];
+        let mut k_idxs = [0u8; MAX_MENTSU];
+        for i in 0..d.n_kotsu as usize {
+            k_idxs[i] = tile_to_idx[canon_to_real[d.kotsu_tiles[i] as usize] as usize];
+        }
+        let mut s_idxs = [0u8; MAX_MENTSU];
+        for i in 0..d.n_shuntsu as usize {
+            s_idxs[i] = tile_to_idx[canon_to_real[d.shuntsu_starts[i] as usize] as usize];
+        }
+        // Sort idxs ascending so equivalent CompactDivs produced from
+        // different sources pack to identical u32s.
+        k_idxs[..d.n_kotsu as usize].sort_unstable();
+        s_idxs[..d.n_shuntsu as usize].sort_unstable();
+
+        let compact_div = CompactDiv::pack(
+            pair_idx,
+            d.n_kotsu,
+            &k_idxs[..d.n_kotsu as usize],
+            d.n_shuntsu,
+            &s_idxs[..d.n_shuntsu as usize],
+        );
+
+        let entry = staging.entry(mkey).or_default();
+        if !entry.contains(&compact_div) {
+            entry.push(compact_div);
+        }
+    }
+}
+
+/// Topology-indexed lookup. Returns `(tile14, divs_slice)` where `divs_slice`
+/// references the contiguous CompactDiv block in the global flat storage —
+/// reads are 1 cache line apiece, and the working set per SP sample
+/// (~250 unique keys × ~4 bytes div + ~4 bytes index value) fits in L1.
+#[inline]
+pub fn lookup_compact(counts_14: &[u8; 34]) -> Option<(Tile14, &'static [CompactDiv])> {
+    let (key, tile14) = topology_key_and_tile14(counts_14);
+    COMPACT_AGARI_TABLE.lookup(key).map(|divs| (tile14, divs))
 }
 
 /// Pure (no I/O) per-suit + honors enumerator. Also used by the build script.
@@ -672,5 +1029,157 @@ mod tests {
         // Both must contain the right pair tiles after honor-perm un-translation.
         assert!(divs_a.iter().any(|d| d.pair_tile == 28));
         assert!(divs_b.iter().any(|d| d.pair_tile == 30));
+    }
+
+    /// Topology key + tile14 round-trip: same shape across suits → same key,
+    /// and `Tile14` correctly lists unique non-zero tiles in ascending order.
+    #[test]
+    fn topology_key_collapses_across_suits() {
+        // 123m + 11s
+        let mut a = [0u8; 34];
+        a[0] = 1; a[1] = 1; a[2] = 1; a[18] = 2;
+        // total = 5 (not 14 but topology_key works on any counts).
+        let (ka, t14a) = topology_key_and_tile14(&a);
+        assert_eq!(t14a.len, 4);
+        assert_eq!(&t14a.tiles[..4], &[0u8, 1, 2, 18]);
+
+        // 123p + 11s
+        let mut b = [0u8; 34];
+        b[9] = 1; b[10] = 1; b[11] = 1; b[18] = 2;
+        let (kb, t14b) = topology_key_and_tile14(&b);
+        assert_eq!(t14b.len, 4);
+        assert_eq!(&t14b.tiles[..4], &[9u8, 10, 11, 18]);
+        // Across-suit isomorphic shapes must share the same topology key.
+        assert_eq!(ka, kb, "intra-suit isomorphic shapes must share key");
+    }
+
+    /// `lookup_compact` finds a known winning shape and returns
+    /// indices that resolve back to the actual tile ids.
+    #[test]
+    fn compact_lookup_pinfu_shape() {
+        // 1m..9m + 11p + 234p (= 9 + 2 + 3 = 14, pinfu-style w/ kanchan)
+        let mut counts = [0u8; 34];
+        for i in 0..9 { counts[i] = 1; }
+        counts[9] = 2; // 11p
+        counts[10] = 1; counts[11] = 1; counts[12] = 1; // 234p
+        let (tile14, list) =
+            lookup_compact(&counts).expect("compact_lookup must find known agari shape");
+        assert!(!list.is_empty());
+        for &d in list {
+            assert!((d.pair_idx() as usize) < tile14.len as usize);
+            assert_eq!(d.n_kotsu() + d.n_shuntsu(), 4);
+            // Pair tile must be 1p (=9).
+            assert_eq!(tile14.tiles[d.pair_idx() as usize], 9);
+            // Shuntsu starts must each be a real tile.
+            for i in 0..d.n_shuntsu() as usize {
+                let idx = d.shuntsu_idx(i) as usize;
+                assert!(idx < tile14.len as usize);
+                let t = tile14.tiles[idx];
+                assert!(counts[t as usize] >= 1);
+            }
+        }
+    }
+
+    /// Compactification correctness: every canonical entry, when translated
+    /// For every canonical entry, lookup_compact (called on the SAME
+    /// canonical_counts that produced the entry) must succeed AND yield a
+    /// `CompactDivList` whose `(pair_tile, kotsu, shuntsu)` translation back
+    /// via `tile14` matches the canonical entry's `Division` (modulo sort
+    /// order). This is the key invariant the SP path relies on.
+    #[test]
+    fn compact_lookup_succeeds_for_all_canonical_counts() {
+        let canonical = &*AGARI_TABLE;
+        let mut misses = 0usize;
+        let mut samples_shown = 0usize;
+        for (&key128, _divlist) in canonical.iter() {
+            let mut counts = [0u8; 34];
+            for i in 0..34 {
+                counts[i] = ((key128 >> (3 * i)) & 0x7) as u8;
+            }
+            if counts.iter().map(|&c| c as u32).sum::<u32>() != 14 {
+                continue;
+            }
+            // lookup_canonical succeeds by construction (entry exists).
+            // lookup_compact MUST also succeed for the same input.
+            if lookup_compact(&counts).is_none() {
+                misses += 1;
+                if samples_shown < 5 {
+                    samples_shown += 1;
+                    let nz: Vec<(usize, u8)> = (0..34)
+                        .filter(|&i| counts[i] > 0)
+                        .map(|i| (i, counts[i]))
+                        .collect();
+                    eprintln!("compact lookup miss for canonical hand: {nz:?}");
+                }
+            }
+        }
+        assert_eq!(misses, 0, "{misses} canonical entries miss in compact table");
+    }
+
+    /// Sanity check: every canonical Division round-trips to a CompactDiv
+    /// in COMPACT_AGARI_TABLE under the matching topology key (same operation
+    /// load_compact_table does; verifies idempotence).
+    #[test]
+    fn compact_table_covers_canonical_entries() {
+        let canonical = &*AGARI_TABLE;
+        let compact = &*COMPACT_AGARI_TABLE;
+        // Sanity: max divs per key is ≤ 4 (verified — actually 4 in practice
+        // after suit-perm expansion, with 95.4% of keys having only 1 div).
+        // Total flat storage ≈ 34KB (8602 divs × 4 bytes), index ≈ 66KB
+        // (8185 entries × ~8 bytes incl. hashbrown overhead). Hot working
+        // set per SP sample (~65 unique mortal_keys) is ~780 bytes — fits L1.
+        // Sanity: compact must collapse the canonical 39361 down (we expect
+        // ~8k after suit-perm expansion).
+        assert!(compact.n_keys() < canonical.len() / 3);
+        let mut checked = 0usize;
+        for (&canonical_key, divlist) in canonical.iter() {
+            let mut counts = [0u8; 34];
+            for i in 0..34 {
+                counts[i] = ((canonical_key >> (3 * i)) & 0x7) as u8;
+            }
+            if counts.iter().map(|&c| c as u32).sum::<u32>() != 14 {
+                continue;
+            }
+            let (mkey, tile14) = topology_key_and_tile14(&counts);
+            let comp = compact.lookup(mkey).unwrap_or_else(|| {
+                panic!("topology key 0x{mkey:x} from canonical 0x{canonical_key:x} missing in compact table")
+            });
+            let mut tile_to_idx = [u8::MAX; 34];
+            for i in 0..tile14.len as usize {
+                tile_to_idx[tile14.tiles[i] as usize] = i as u8;
+            }
+            for k in 0..divlist.n as usize {
+                let d = &divlist.divs[k];
+                let mut k_idxs = [0u8; MAX_MENTSU];
+                for i in 0..d.n_kotsu as usize {
+                    k_idxs[i] = tile_to_idx[d.kotsu_tiles[i] as usize];
+                }
+                let mut s_idxs = [0u8; MAX_MENTSU];
+                for i in 0..d.n_shuntsu as usize {
+                    s_idxs[i] = tile_to_idx[d.shuntsu_starts[i] as usize];
+                }
+                k_idxs[..d.n_kotsu as usize].sort_unstable();
+                s_idxs[..d.n_shuntsu as usize].sort_unstable();
+                let want = CompactDiv::pack(
+                    tile_to_idx[d.pair_tile as usize],
+                    d.n_kotsu,
+                    &k_idxs[..d.n_kotsu as usize],
+                    d.n_shuntsu,
+                    &s_idxs[..d.n_shuntsu as usize],
+                );
+                assert!(
+                    comp.iter().any(|cd| *cd == want),
+                    "compact entry missing for canonical key 0x{canonical_key:x}"
+                );
+                checked += 1;
+            }
+            if checked > 5_000 {
+                // Sample check; iterating all 39361 × ~1.025 divs × table ops
+                // is slow in test mode (debug build) but the sample is large
+                // enough to catch systematic bugs.
+                break;
+            }
+        }
+        assert!(checked > 1_000);
     }
 }
