@@ -310,92 +310,9 @@ fn aka_after_discard(
     if akas[red_idx] && counts[tile as usize] == 1 {
         let mut next = akas;
         next[red_idx] = false;
-        #[cfg(feature = "debug_mortal_sp")]
-        debug_aka_log::record_aka_drop(tile, red_idx);
         next
     } else {
         akas
-    }
-}
-
-#[cfg(feature = "debug_mortal_sp")]
-pub mod debug_aka_log {
-    use std::cell::Cell;
-    thread_local! {
-        static DROPS: Cell<u32> = const { Cell::new(0) };
-    }
-    pub fn record_aka_drop(_tile: u8, _red_idx: usize) {
-        DROPS.with(|c| c.set(c.get() + 1));
-    }
-    pub fn drain_drops() -> u32 {
-        DROPS.with(|c| {
-            let v = c.get();
-            c.set(0);
-            v
-        })
-    }
-}
-
-/// DEBUG-ONLY: thread-local log of all (counts_13, win_tile, han, fu, total)
-/// triples observed at DP leaves during a single calculate_sp call. The
-/// Mortal-comparison harness drains this to localize EV diffs.
-#[cfg(feature = "debug_mortal_sp")]
-pub mod debug_leaf_log {
-    use super::TILE_MAX;
-    use std::cell::RefCell;
-
-    #[derive(Clone)]
-    pub struct LeafEntry {
-        pub counts_13: [u8; TILE_MAX],
-        pub win_tile: u8,
-        pub han: u32,
-        pub fu: u32,
-        pub total: u32,
-    }
-
-    thread_local! {
-        static LOG: RefCell<Vec<LeafEntry>> = const { RefCell::new(Vec::new()) };
-    }
-
-    pub fn record(
-        counts_13: &[u8; TILE_MAX],
-        win_tile: u8,
-        han: u32,
-        fu: u32,
-        total: u32,
-    ) {
-        LOG.with(|l| {
-            l.borrow_mut().push(LeafEntry {
-                counts_13: *counts_13,
-                win_tile,
-                han,
-                fu,
-                total,
-            })
-        });
-    }
-
-    thread_local! {
-        static AKA_LOG: RefCell<Vec<([u8; TILE_MAX], u8, [bool; 3])>> =
-            const { RefCell::new(Vec::new()) };
-    }
-    pub fn record_with_akas(
-        counts_13: &[u8; TILE_MAX],
-        win_tile: u8,
-        akas: [bool; 3],
-        han: u32,
-        fu: u32,
-        total: u32,
-    ) {
-        AKA_LOG.with(|l| l.borrow_mut().push((*counts_13, win_tile, akas)));
-        record(counts_13, win_tile, han, fu, total);
-    }
-    pub fn drain_akas() -> Vec<([u8; TILE_MAX], u8, [bool; 3])> {
-        AKA_LOG.with(|l| std::mem::take(&mut *l.borrow_mut()))
-    }
-
-    pub fn drain() -> Vec<LeafEntry> {
-        LOG.with(|l| std::mem::take(&mut *l.borrow_mut()))
     }
 }
 
@@ -445,13 +362,9 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
         let (required_tiles, mut scoring, yaku_progress_tiles) = if shanten_after == 0 {
             fused_tenpai_pass(&mut dp, &after_discard, &remaining)
         } else {
-            #[cfg(feature = "debug_mortal_sp")]
-            let _t0 = std::time::Instant::now();
             let req = required_tiles(&mut dp, &after_discard, &remaining, shanten_after);
             let sc = score_waits(&mut dp, &after_discard, &remaining);
             let yp = yaku_progress_tiles(&mut dp, &after_discard, &remaining, shanten_after);
-            #[cfg(feature = "debug_mortal_sp")]
-            __profile::add_shanten_down_ns(_t0.elapsed().as_nanos() as u64);
             (req, sc, yp)
         };
         let num_required_tiles = required_tiles.iter().sum::<f32>();
@@ -471,9 +384,7 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
 
         let (tenpai_probs, win_probs, exp_values) = if is_optimal {
             let waits = (shanten_after == 0).then_some(&required_tiles);
-            #[cfg(feature = "debug_mortal_sp")]
-            let _t0 = std::time::Instant::now();
-            let r = series_for_candidate(
+            series_for_candidate(
                 &mut dp,
                 &after_discard,
                 &remaining,
@@ -484,10 +395,7 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
                 total_remaining,
                 post_discard_akas,
                 waits,
-            );
-            #[cfg(feature = "debug_mortal_sp")]
-            __profile::add_series_ns(_t0.elapsed().as_nanos() as u64);
-            r
+            )
         } else {
             // Shanten-down discard: skip the expensive DP and use the
             // closed-form probability_series approximation. Same code path the
@@ -544,111 +452,6 @@ pub fn encode_sp(result: &SpResult) -> Vec<f32> {
     let mut buf = vec![0.0f32; SP_CHANNELS * TILE_MAX];
     encode_sp_into(result, &mut buf, 0);
     buf
-}
-
-// ─────────────── debug-only per-section accumulators ────────────────
-#[cfg(feature = "debug_mortal_sp")]
-#[doc(hidden)]
-pub mod __profile {
-    use std::cell::Cell;
-    thread_local! {
-        static SHANTEN_DOWN_NS: Cell<u64> = const { Cell::new(0) };
-        static SERIES_NS: Cell<u64> = const { Cell::new(0) };
-        static SHANTEN_CALLS: Cell<u64> = const { Cell::new(0) };
-        static SHANTEN_HITS: Cell<u64> = const { Cell::new(0) };
-    }
-    pub fn add_shanten_down_ns(n: u64) {
-        SHANTEN_DOWN_NS.with(|c| c.set(c.get() + n));
-    }
-    pub fn add_series_ns(n: u64) {
-        SERIES_NS.with(|c| c.set(c.get() + n));
-    }
-    pub fn bump_shanten_calls() {
-        SHANTEN_CALLS.with(|c| c.set(c.get() + 1));
-    }
-    pub fn bump_shanten_hits() {
-        SHANTEN_HITS.with(|c| c.set(c.get() + 1));
-    }
-    pub fn drain_shanten_down_ns() -> u64 {
-        SHANTEN_DOWN_NS.with(|c| {
-            let v = c.get();
-            c.set(0);
-            v
-        })
-    }
-    pub fn drain_series_ns() -> u64 {
-        SERIES_NS.with(|c| {
-            let v = c.get();
-            c.set(0);
-            v
-        })
-    }
-    pub fn drain_shanten_calls() -> u64 {
-        SHANTEN_CALLS.with(|c| {
-            let v = c.get();
-            c.set(0);
-            v
-        })
-    }
-    pub fn drain_shanten_hits() -> u64 {
-        SHANTEN_HITS.with(|c| {
-            let v = c.get();
-            c.set(0);
-            v
-        })
-    }
-}
-
-// ─────────────────────── debug-only bench hooks ─────────────────────────
-// 公開 API ではなく、`debug_mortal_sp` feature 限定で内部関数の per-section
-// プロファイリングを可能にするための薄い wrapper。
-#[cfg(feature = "debug_mortal_sp")]
-#[doc(hidden)]
-pub struct __DpContextHandle<'a>(DpContext<'a>);
-
-#[cfg(feature = "debug_mortal_sp")]
-#[doc(hidden)]
-pub fn __bench_new_dp_context(input: &SpInput) -> __DpContextHandle<'_> {
-    __DpContextHandle(DpContext::new(input))
-}
-
-#[cfg(feature = "debug_mortal_sp")]
-#[doc(hidden)]
-pub fn __bench_ensure_prob_tables(handle: &mut __DpContextHandle<'_>, input: &SpInput) {
-    let remaining = remaining_counts(input);
-    let n_left = remaining.iter().map(|&v| v as u32).sum::<u32>();
-    let horizon = (input.tsumos_left as usize).min(SP_MAX_TURNS).max(1);
-    handle.0.ensure_prob_tables(n_left, horizon);
-}
-
-#[cfg(feature = "debug_mortal_sp")]
-#[doc(hidden)]
-pub fn __bench_shanten(handle: &mut __DpContextHandle<'_>, counts: &[u8; TILE_MAX]) -> i8 {
-    handle.0.shanten(counts)
-}
-
-#[cfg(feature = "debug_mortal_sp")]
-#[doc(hidden)]
-pub fn __bench_fused_tenpai_pass(
-    handle: &mut __DpContextHandle<'_>,
-    input: &SpInput,
-    after_discard: &[u8; TILE_MAX],
-) -> ([f32; TILE_MAX], [f32; TILE_MAX]) {
-    let remaining = remaining_counts(input);
-    let (req, _scoring, yaku) = fused_tenpai_pass(&mut handle.0, after_discard, &remaining);
-    (req, yaku)
-}
-
-#[cfg(feature = "debug_mortal_sp")]
-#[doc(hidden)]
-pub fn __bench_yaku_progress_tiles(
-    handle: &mut __DpContextHandle<'_>,
-    input: &SpInput,
-    after_discard: &[u8; TILE_MAX],
-    current_shanten: i8,
-) -> [f32; TILE_MAX] {
-    let remaining = remaining_counts(input);
-    yaku_progress_tiles(&mut handle.0, after_discard, &remaining, current_shanten)
 }
 
 pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
@@ -2254,8 +2057,6 @@ impl<'a> DpContext<'a> {
     }
 
     fn shanten(&mut self, counts: &[u8; TILE_MAX]) -> i8 {
-        #[cfg(feature = "debug_mortal_sp")]
-        __profile::bump_shanten_calls();
         // Direct compute: empirically the [u8; 34] cache lookup overhead
         // (~12 ns hash+probe) is comparable to `calc_normal`'s nyanten cascade
         // on a warm L1, so the cache amortizes only marginally. Removing it
@@ -2348,8 +2149,8 @@ impl<'a> DpContext<'a> {
     }
 
     /// `series[i]`: 「i+1 巡先までに到達する各事象の確率/期待値」を返す。
-    /// 内部では Mortal 流の「ターン位置 i に対する Values<MAX_TSUMOS>」を一回だけ計算し、
-    /// `series[i] = Values[N - 1 - i]` として読み出す。
+    /// 内部の `Values<MAX_TSUMOS>` を `series[i] = Values[N - 1 - i]` として読み出す。
+    #[cfg(test)]
     fn series(
         &mut self,
         counts: &[u8; TILE_MAX],
@@ -2991,10 +2792,6 @@ impl<'a> DpContext<'a> {
         akas_in_hand: [bool; 3],
     ) -> Option<[f32; 4]> {
         let base = self.base_score_tsumo(counts_13, win_tile, akas_in_hand)?;
-        #[cfg(feature = "debug_mortal_sp")]
-        debug_leaf_log::record_with_akas(
-            counts_13, win_tile, akas_in_hand, base.han, base.fu, base.total,
-        );
 
         // SP DP always builds `BaseScore` with `honba=0` (both lean and legacy
         // paths bake this in), so we can use the inlined `sp_tsumo_total_fast`
@@ -3187,37 +2984,12 @@ fn score_tsumo_with_mods(
         })
 }
 
-#[cfg(feature = "debug_mortal_sp")]
-pub mod base_score_calls {
-    use std::cell::Cell;
-    thread_local! {
-        static N: Cell<u64> = const { Cell::new(0) };
-    }
-    pub fn bump() {
-        N.with(|c| c.set(c.get() + 1));
-    }
-    pub fn drain() -> u64 {
-        N.with(|c| {
-            let v = c.get();
-            c.set(0);
-            v
-        })
-    }
-}
-
-/// Pre-filter for `draw_dp_slow`: returns true if drawing `tile` could possibly
-/// reduce shanten. Honor tiles can only help if already in the hand. Numbered
-/// tiles must have a neighbor (or self) within ±2 in the same suit. Filters out
-/// truly isolated tiles before paying even the cached shanten lookup.
-#[inline]
-/// Discard-priority lookup matching Mortal's `cmp_discard_priority` semantics
-/// (libriichi/src/tile.rs). Higher = preferred for discard. Used as a
-/// tie-breaker in `discard_dp_slow` when two candidate discards score equal
-/// EV at integer-yen precision.
+/// Discard-priority tie-break: honors > terminals > inner numbered. Used in
+/// `discard_dp_slow` when two candidate discards score equal EV at integer-yen
+/// precision.
 ///
 /// Layout: honors (7) > terminals (6) > 2/8 (5) > 3/7 (4) > 4/6 (3) > 5 (2).
-/// Aka 5x maps to its deakaized 5x (priority 2) since this function takes
-/// 0..34 tile_type indices, not 136-form ids.
+/// Takes 0..34 tile_type indices, not 136-form ids.
 #[inline]
 fn discard_priority(tile: u8) -> u8 {
     if tile >= 27 {
@@ -3393,8 +3165,6 @@ fn base_score_tsumo(
     if counts_13[win_tile as usize] >= 4 {
         return None;
     }
-    #[cfg(feature = "debug_mortal_sp")]
-    base_score_calls::bump();
 
     // Phase 3 lean fast path: bypasses HandEvaluator + yaku::calculate_yaku for
     // standard 14-tile tsumo wins. Verified equivalent to the legacy path on

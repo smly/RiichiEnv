@@ -18,9 +18,6 @@
 //!   - Hands containing kans (kan fu / suukantsu).
 //!   - Ura dora distribution (caller computes it on top of our base score).
 //!
-//! Numerical equivalence is verified against the legacy path on every real-replay
-//! SP input via `debug_only_mortal_sp::harness::lean_vs_legacy_match`.
-
 use crate::agari_table::{self, MAX_DIVS_PER_KEY};
 use crate::sp::SpInput;
 use crate::types::{Meld, MeldType, TILE_MAX};

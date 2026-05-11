@@ -21,12 +21,6 @@ pub mod shanten;
 pub mod sp;
 pub mod drev;
 pub mod state;
-
-// DEBUG-ONLY: links against AGPL Mortal libriichi for SP feature numerical
-// comparison. Gated behind `debug_mortal_sp` feature; never enabled in
-// release/wheel builds. See src/debug_only_mortal_sp/.
-#[cfg(feature = "debug_mortal_sp")]
-mod debug_only_mortal_sp;
 pub mod state_3p;
 #[cfg(feature = "python")]
 mod yaku_checker;
