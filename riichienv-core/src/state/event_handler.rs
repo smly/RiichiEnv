@@ -16,6 +16,45 @@ pub trait GameStateEventHandler {
 
 impl GameStateEventHandler for GameState {
     fn apply_mjai_event(&mut self, event: MjaiEvent) {
+        // ── Same-turn / riichi furiten on implicit pass ──────────────────
+        // The raw event-ingestion path does NOT run the reaction-resolution
+        // logic that the live `step()` (mod.rs WaitResponse) and the replay
+        // iterator (`_collect_pass_observations`) use to flag a missed ron.
+        // When we leave a pending reaction (`WaitResponse`) phase because the
+        // next event arrived, every player who had a Ron offer in
+        // `current_claims` but is not the one claiming now has passed their
+        // ron → same-turn furiten (and, if already in riichi, the permanent
+        // riichi furiten). A Hora ends the round, so furiten there is moot.
+        if self.phase == Phase::WaitResponse && !self.current_claims.is_empty() {
+            let round_ends = matches!(&event, MjaiEvent::Hora { .. });
+            if !round_ends {
+                let claimer: Option<u8> = match &event {
+                    MjaiEvent::Pon { actor, .. }
+                    | MjaiEvent::Chi { actor, .. }
+                    | MjaiEvent::Kan { actor, .. } => Some(*actor as u8),
+                    _ => None,
+                };
+                let offerers: Vec<u8> = self
+                    .current_claims
+                    .iter()
+                    .filter(|(_, legals)| {
+                        legals
+                            .iter()
+                            .any(|a| a.action_type == crate::action::ActionType::Ron)
+                    })
+                    .map(|(&pid, _)| pid)
+                    .collect();
+                for pid in offerers {
+                    if Some(pid) == claimer {
+                        continue;
+                    }
+                    self.players[pid as usize].missed_agari_doujun = true;
+                    if self.players[pid as usize].riichi_declared {
+                        self.players[pid as usize].missed_agari_riichi = true;
+                    }
+                }
+            }
+        }
         match event {
             MjaiEvent::StartGame { .. } => {
                 // Clear stale state from constructor's reset() so that
@@ -120,6 +159,8 @@ impl GameStateEventHandler for GameState {
                 self.players[actor].discards.push(tile);
                 self.last_discard = Some((actor as u8, tile));
                 self.drawn_tile = None;
+                // Reset the discarder's own same-turn furiten
+                self.players[actor].missed_agari_doujun = false;
 
                 if self.players[actor].riichi_stage {
                     self.players[actor].riichi_declared = true;
@@ -135,8 +176,13 @@ impl GameStateEventHandler for GameState {
                     if i == actor as u8 {
                         continue;
                     }
-                    let (legals, _missed) =
+                    let (legals, missed) =
                         self._get_claim_actions_for_player(i, actor as u8, tile);
+                    // A win-shape with no yaku also induces same-turn furiten
+                    // (mirrors the live step path / GC's CurrentTurnZhenTing).
+                    if missed {
+                        self.players[i as usize].missed_agari_doujun = true;
+                    }
                     if !legals.is_empty() {
                         claim_active.push(i);
                         self.current_claims.insert(i, legals);
