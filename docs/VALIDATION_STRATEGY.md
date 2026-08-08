@@ -147,5 +147,17 @@ Optimization order is:
 - real-browser smoke coverage for the bundled web-target WASM loader.
 - pure Rust `ReplayLog`/borrowed kyoku cursor with tracked-corpus coverage;
 - shared 4P `FeatureContext` preprocessing for combined extended/SP/DREV.
+- public-`GameEngine` rule regressions for 4P chi/pon and 3P pon, including
+  `kuikae_forbidden` ON/OFF and live/replay parity;
+- public-`GameEngine` kan lifecycle coverage for ankan, daiminkan, and kakan in
+  both variants, including rinshan draws, dora timing, ippatsu cancellation,
+  the post-rinshan discard boundary, and kakan interrupted by chankan;
+- differential SP yaku/fu checks against `HandEvaluator` over the committed
+  winning-hand corpus, explicit kan/open-hand fallback checks, and exact
+  without-replacement probability oracles for tenpai and one-shanten paths.
 
-The remaining items are migration gates, not permission to remove legacy APIs.
+The next rule-heavy priorities are kokushi-only chankan around closed kans,
+multiple kans and four-kan abortive draws, riichi-time ankan restrictions,
+red-five kuikae variants, exhaustive/double-ron interactions after calls, and
+replay trace differentials that cover complete multi-kyoku games. These
+remaining items are migration gates, not permission to remove legacy APIs.

@@ -9,12 +9,12 @@
 //!   - All common Mahjong yaku (riichi/menzen tsumo/yakuhai/tanyao/pinfu/
 //!     iipeikou/honitsu/chinitsu/toitoi/sanankou/sanshoku doujun/sanshoku doukou/
 //!     ittsu/junchan/chanta/honroutou/shousangen/ryanpeikou).
-//!   - Open hands without kans.
 //!   - Aka dora + regular dora.
 //!
 //! Out of scope (returns `None`, falls back):
 //!   - Yakuman shapes (caller's HandEvaluator path handles these).
 //!   - Chitoitsu / Kokushi (not in `agari_table`).
+//!   - Open hands (the compact agari table is keyed by 14 concealed tiles).
 //!   - Hands containing kans (kan fu / suukantsu).
 //!   - Ura dora distribution (caller computes it on top of our base score).
 //!

@@ -1267,9 +1267,9 @@ impl GameState {
                 self.active_players = vec![claimer];
                 self.players[claimer as usize].forbidden_discards.clear();
 
-                if action.action_type == ActionType::Pon {
+                if self.rule.kuikae_forbidden && action.action_type == ActionType::Pon {
                     self.players[claimer as usize].forbidden_discards.push(tile);
-                } else if action.action_type == ActionType::Chi {
+                } else if self.rule.kuikae_forbidden && action.action_type == ActionType::Chi {
                     self.players[claimer as usize].forbidden_discards.push(tile);
                     let t34 = tile / 4;
                     let mut consumed_34: Vec<u8> =

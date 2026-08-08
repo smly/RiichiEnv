@@ -2090,7 +2090,6 @@ impl<'a> DpContext<'a> {
     }
 
     /// `series[i]`: 「i+1 巡先までに到達する各事象の確率/期待値」を返す。
-    /// 内部の `Values<MAX_TSUMOS>` を `series[i] = Values[N - 1 - i]` として読み出す。
     #[cfg(test)]
     fn series(
         &mut self,
@@ -2136,6 +2135,16 @@ impl<'a> DpContext<'a> {
             return (tenpai, win, ev);
         }
 
+        // The generic DP stores values indexed by the absolute draw at which
+        // a state is entered.  For an already-tenpai hand, the public series
+        // is instead the cumulative probability from the current draw
+        // through each horizon.  Use the closed-form path so the first
+        // channel has denominator `n_left`, not `n_left - horizon + 1`.
+        if s == 0 {
+            let waits = required_tiles(self, counts, remaining, s);
+            return self.tenpai_series_from_waits(counts, remaining, &waits, akas_in_hand);
+        }
+
         let key = DpKey {
             counts: *counts,
             remaining: *remaining,
@@ -2150,12 +2159,6 @@ impl<'a> DpContext<'a> {
             tenpai[i] = values.tenpai[v_idx];
             win[i] = values.win[v_idx];
             ev[i] = values.exp[v_idx];
-        }
-        if s == 0 {
-            // すでに聴牌している場合は tenpai_probs を 1 で埋める
-            for i in 0..horizon {
-                tenpai[i] = 1.0;
-            }
         }
         (tenpai, win, ev)
     }
@@ -2212,17 +2215,17 @@ impl<'a> DpContext<'a> {
         let total_idx = (sum_required as usize).min(self.not_tsumo_prob.len() - 1);
         let not_tsumo: [f32; SP_MAX_TURNS] = self.not_tsumo_prob[total_idx];
 
-        // Internal accumulators are absolute-turn indexed (matches `draw_dp_slow`'s
-        // `Values`); we reverse-map to horizon-distance at the end.
-        let mut win_abs = [0.0f32; SP_MAX_TURNS];
-        let mut exp_abs = [0.0f32; SP_MAX_TURNS];
+        // Exact first-win probabilities by draw.  Prefix-summing these below
+        // yields P(win within h draws), matching the public feature contract.
+        let mut win_at = [0.0f32; SP_MAX_TURNS];
+        let mut exp_at = [0.0f32; SP_MAX_TURNS];
 
         let accumulate = |dp: &mut Self,
                           tile: u8,
                           sub_count: u32,
                           scoring_akas: [bool; 3],
-                          win_abs: &mut [f32; SP_MAX_TURNS],
-                          exp_abs: &mut [f32; SP_MAX_TURNS]| {
+                          win_at: &mut [f32; SP_MAX_TURNS],
+                          exp_at: &mut [f32; SP_MAX_TURNS]| {
             if sub_count == 0 {
                 return;
             }
@@ -2230,60 +2233,17 @@ impl<'a> DpContext<'a> {
             let Some(scores) = scores else { return };
             let tsumo_row: [f32; SP_MAX_TURNS] =
                 dp.tsumo_prob[(sub_count as usize - 1).min(3)];
-            // Per-i: sum the (i, j) probabilities once with the BASE han
-            // contribution, then add correction terms only at the special
-            // positions (ippatsu when j==i, haitei when j==last). This
-            // restructure removes per-iteration branches inside the j loop,
-            // letting LLVM vectorize the inner sum and trims ~5ns/iter.
-            for i in 0..horizon {
-                let m = not_tsumo[i];
-                if m == 0.0 {
-                    break;
+            for draw in 0..horizon {
+                let prob = tsumo_row[draw] * not_tsumo[draw];
+                if prob == 0.0 {
+                    continue;
                 }
-                let m_inv = 1.0 / m;
-                let dbl_at_i = if calc_double_riichi && i == 0 { 1usize } else { 0 };
-                let s_base = scores[dbl_at_i.min(3)];
-
-                // Tight inner loop: branch-free per-iteration.
-                let mut sum_prob = 0.0f32;
-                let mut sum_exp = 0.0f32;
-                let mut max_j_seen = i;
-                for j in i..horizon {
-                    let n = not_tsumo[j];
-                    if n == 0.0 {
-                        break;
-                    }
-                    let prob = tsumo_row[j] * n * m_inv;
-                    sum_prob += prob;
-                    sum_exp += prob;
-                    max_j_seen = j;
-                }
-                win_abs[i] += sum_prob;
-                exp_abs[i] += sum_exp * s_base;
-
-                // Corrections at special positions. The base loop assigned
-                // s_base = scores[dbl_at_i] to every (i, j); these patches
-                // upgrade to higher han_plus where ippatsu (j == i AND
-                // assume_riichi) or haitei (j == last_turn_idx) applies.
-                let n_at_i = not_tsumo[i];
-                if n_at_i != 0.0 && i <= max_j_seen {
-                    let ipp = assume_riichi as usize;
-                    let hai = (i == last_turn_idx) as usize;
-                    let bonus = ipp + hai;
-                    if bonus > 0 {
-                        let prob = tsumo_row[i] * n_at_i * m_inv;
-                        let han_plus = (dbl_at_i + bonus).min(3);
-                        exp_abs[i] += prob * (scores[han_plus] - s_base);
-                    }
-                }
-                if last_turn_idx > i && last_turn_idx <= max_j_seen {
-                    let n_last = not_tsumo[last_turn_idx];
-                    if n_last != 0.0 {
-                        let prob = tsumo_row[last_turn_idx] * n_last * m_inv;
-                        let han_plus = (dbl_at_i + 1).min(3);
-                        exp_abs[i] += prob * (scores[han_plus] - s_base);
-                    }
-                }
+                let han_plus = (calc_double_riichi as usize
+                    + (assume_riichi && draw == 0) as usize
+                    + (draw == last_turn_idx) as usize)
+                    .min(3);
+                win_at[draw] += prob;
+                exp_at[draw] += prob * scores[han_plus];
             }
         };
 
@@ -2308,19 +2268,21 @@ impl<'a> DpContext<'a> {
                 let mut akas_red = akas_in_hand;
                 akas_red[i] = true;
                 if count >= 2 {
-                    accumulate(self, tile, count - 1, akas_in_hand, &mut win_abs, &mut exp_abs);
+                    accumulate(self, tile, count - 1, akas_in_hand, &mut win_at, &mut exp_at);
                 }
-                accumulate(self, tile, 1, akas_red, &mut win_abs, &mut exp_abs);
+                accumulate(self, tile, 1, akas_red, &mut win_at, &mut exp_at);
             } else {
-                accumulate(self, tile, count, akas_in_hand, &mut win_abs, &mut exp_abs);
+                accumulate(self, tile, count, akas_in_hand, &mut win_at, &mut exp_at);
             }
         }
 
-        // Map absolute turn → horizon distance:  ours[i] = abs[N - 1 - i].
-        for i in 0..horizon {
-            let v_idx = horizon - 1 - i;
-            win_out[i] = win_abs[v_idx].clamp(0.0, 1.0);
-            exp_out[i] = exp_abs[v_idx].max(0.0);
+        let mut cumulative_win = 0.0f32;
+        let mut cumulative_exp = 0.0f32;
+        for draw in 0..horizon {
+            cumulative_win += win_at[draw];
+            cumulative_exp += exp_at[draw];
+            win_out[draw] = cumulative_win.clamp(0.0, 1.0);
+            exp_out[draw] = cumulative_exp.max(0.0);
         }
         (tenpai_out, win_out, exp_out)
     }
@@ -4029,6 +3991,61 @@ mod tests {
         assert!(tenpai[0] > 0.0);
         assert_eq!(win[0], 0.0);
         assert!(win[1] > 0.0);
+        assert!(ev[1] > 0.0);
+    }
+
+    #[test]
+    fn tenpai_series_matches_without_replacement_probability_oracle() {
+        // Two winning 3p remain among ten unknown tiles. Once tenpai, missing
+        // on each draw leaves a smaller without-replacement population, so
+        // P(win by h) = 1 - C(8, h) / C(10, h).
+        let input = input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 18], 3);
+        let counts = input.tehai;
+        let mut remaining = [0u8; TILE_MAX];
+        remaining[11] = 2;
+        remaining[20] = 4;
+        remaining[21] = 4;
+
+        let mut dp = DpContext::new(&input);
+        let (tenpai, win, ev) = dp.series(&counts, &remaining, 3);
+
+        let mut miss = 1.0f32;
+        for turn in 0..3 {
+            miss *= (8 - turn) as f32 / (10 - turn) as f32;
+            let expected_win = 1.0 - miss;
+            assert!((tenpai[turn] - 1.0).abs() < 1e-6);
+            assert!(
+                (win[turn] - expected_win).abs() < 1e-6,
+                "turn {turn}: got {}, expected {expected_win}",
+                win[turn]
+            );
+            assert!(ev[turn] > 0.0);
+        }
+    }
+
+    #[test]
+    fn one_shanten_two_draw_series_matches_exact_path_enumeration() {
+        // 123456789m 1p 11s 8s needs both 2p and 3p. The two winning
+        // two-draw orders are [2p, 3p] and [3p, 2p] among 10 * 9 ordered
+        // draws, hence P(win by draw 2) = 2 / 90 = 1 / 45.
+        let input = input_from_tiles(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 18, 25], 2);
+        let counts = input.tehai;
+        let mut remaining = [0u8; TILE_MAX];
+        remaining[10] = 1;
+        remaining[11] = 1;
+        remaining[20] = 4;
+        remaining[21] = 4;
+
+        let mut dp = DpContext::new(&input);
+        let (_tenpai, win, ev) = dp.series(&counts, &remaining, 2);
+
+        assert_eq!(win[0], 0.0);
+        assert!(
+            (win[1] - 1.0 / 45.0).abs() < 1e-6,
+            "got {}, expected {}",
+            win[1],
+            1.0 / 45.0
+        );
         assert!(ev[1] > 0.0);
     }
 
