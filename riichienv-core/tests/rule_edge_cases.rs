@@ -164,6 +164,66 @@ fn has_discard(decisions: &[Decision], player_id: u8, tile: u8) -> bool {
     .is_some()
 }
 
+fn open_pon(tile_type: u8, from_who: i8) -> Meld {
+    let first = tile_type * 4;
+    Meld::new(
+        MeldType::Pon,
+        vec![first, first + 1, first + 2],
+        true,
+        from_who,
+        Some(first),
+    )
+}
+
+fn set_wall_boundary(engine: &mut GameEngine, drawable_count: u8, next_tile: u8) {
+    match engine.state_mut() {
+        GameStateVariant::FourPlayer(state) => {
+            state.wall.drawable_count = drawable_count;
+            *state.wall.tiles.last_mut().expect("initialized wall") = next_tile;
+        }
+        GameStateVariant::ThreePlayer(state) => {
+            state.wall.drawable_count = drawable_count;
+            *state.wall.tiles.last_mut().expect("initialized wall") = next_tile;
+        }
+    }
+}
+
+fn set_nagashi_eligibility(engine: &mut GameEngine, eligible: &[bool]) {
+    match engine.state_mut() {
+        GameStateVariant::FourPlayer(state) => {
+            for (player, &value) in state.players.iter_mut().zip(eligible) {
+                player.nagashi_eligible = value;
+            }
+        }
+        GameStateVariant::ThreePlayer(state) => {
+            for (player, &value) in state.players.iter_mut().zip(eligible) {
+                player.nagashi_eligible = value;
+            }
+        }
+    }
+}
+
+fn nagashi_eligible(engine: &GameEngine, player_id: usize) -> bool {
+    match engine.state() {
+        GameStateVariant::FourPlayer(state) => state.players[player_id].nagashi_eligible,
+        GameStateVariant::ThreePlayer(state) => state.players[player_id].nagashi_eligible,
+    }
+}
+
+fn pao_payer(engine: &GameEngine, player_id: usize, yaku_id: u8) -> Option<u8> {
+    match engine.state() {
+        GameStateVariant::FourPlayer(state) => state.players[player_id].pao.get(&yaku_id).copied(),
+        GameStateVariant::ThreePlayer(state) => state.players[player_id].pao.get(&yaku_id).copied(),
+    }
+}
+
+fn ryukyoku_reason(outcome: &StepOutcome) -> Option<String> {
+    parsed_events(outcome)
+        .into_iter()
+        .find(|event| event["type"] == "ryukyoku")
+        .and_then(|event| event["reason"].as_str().map(str::to_owned))
+}
+
 #[test]
 fn kokushi_can_rob_ankan_only_when_the_rule_allows_it() {
     for mode in [GameMode::FourPlayerSingle, GameMode::ThreePlayerSingle] {
@@ -534,6 +594,212 @@ fn response_priority_is_ron_then_pon_then_chi() {
             assert!(!events.iter().any(|event| event["type"] == "chi"));
             assert_eq!(outcome.snapshot.phase, Phase::WaitAct);
             assert_eq!(outcome.snapshot.active_players, [2]);
+        }
+    }
+}
+
+#[test]
+fn final_dragon_and_wind_daiminkan_establish_pao_in_both_variants() {
+    struct Fixture {
+        existing_meld_types: &'static [u8],
+        called_tile: u8,
+        yaku_id: u8,
+    }
+
+    let fixtures = [
+        Fixture {
+            existing_meld_types: &[31, 32],
+            called_tile: 132,
+            yaku_id: 37,
+        },
+        Fixture {
+            existing_meld_types: &[27, 28, 29],
+            called_tile: 120,
+            yaku_id: 50,
+        },
+    ];
+
+    for mode in [GameMode::FourPlayerSingle, GameMode::ThreePlayerSingle] {
+        for fixture in &fixtures {
+            let mut game = engine(mode, GameRule::default_tenhou());
+            let num_players = mode.num_players() as usize;
+            let mut hands = vec![vec![]; num_players];
+            let mut melds = vec![vec![]; num_players];
+            let called_type = fixture.called_tile / 4;
+
+            hands[0] = vec![
+                called_type * 4 + 1,
+                called_type * 4 + 2,
+                called_type * 4 + 3,
+                40,
+                44,
+                48,
+                52,
+            ];
+            hands[1] = vec![
+                fixture.called_tile,
+                0,
+                32,
+                40,
+                44,
+                48,
+                52,
+                56,
+                60,
+                72,
+                76,
+                80,
+                84,
+                88,
+            ];
+            melds[0] = fixture
+                .existing_meld_types
+                .iter()
+                .enumerate()
+                .map(|(index, &tile_type)| open_pon(tile_type, (index + 1) as i8))
+                .collect();
+            prepare_wait_act(&mut game, 1, fixture.called_tile, &hands, &melds);
+
+            let discard = require_action(&game.decisions(), 1, ActionType::Discard, |action| {
+                action.tile == Some(fixture.called_tile)
+            });
+            let response = step_one(&mut game, 1, discard);
+            let daiminkan =
+                require_action(&response.decisions, 0, ActionType::Daiminkan, |action| {
+                    action.tile == Some(fixture.called_tile)
+                });
+            let after_kan = step_one(&mut game, 0, daiminkan);
+
+            assert_eq!(
+                event_types(&after_kan),
+                ["daiminkan", "tsumo"],
+                "final honor daiminkan lifecycle differs in {mode:?}"
+            );
+            assert_eq!(
+                pao_payer(&game, 0, fixture.yaku_id),
+                Some(1),
+                "final honor daiminkan must assign the discarder in {mode:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn exhaustive_draw_after_a_last_live_call_invalidates_nagashi_and_starts_next_kyoku() {
+    for mode in [GameMode::FourPlayerEast, GameMode::ThreePlayerEast] {
+        let mut game = engine(mode, GameRule::default_tenhou());
+        let num_players = mode.num_players() as usize;
+        let mut hands = vec![vec![]; num_players];
+        hands[0] = vec![36, 0, 32, 40, 44, 48, 72, 76, 80, 96, 100, 104, 108, 112];
+        hands[1] = vec![37, 38, 40, 44, 48, 52, 56, 60, 64, 84, 88, 92, 128];
+        hands[2] = vec![0, 32, 40, 44, 48, 52, 56, 60, 64, 72, 76, 80, 84];
+        if num_players == 4 {
+            hands[3] = vec![0, 32, 40, 44, 48, 52, 56, 60, 64, 72, 76, 80, 84];
+        }
+        prepare_wait_act(&mut game, 0, 36, &hands, &vec![vec![]; num_players]);
+        set_nagashi_eligibility(
+            &mut game,
+            &(0..num_players).map(|index| index == 0).collect::<Vec<_>>(),
+        );
+        set_wall_boundary(&mut game, 1, 124);
+
+        let discard = require_action(&game.decisions(), 0, ActionType::Discard, |action| {
+            action.tile == Some(36)
+        });
+        let response = step_one(&mut game, 0, discard);
+        let pon = require_action(&response.decisions, 1, ActionType::Pon, |action| {
+            action.consume_tiles == [37, 38]
+        });
+        let after_pon = step_one(&mut game, 1, pon);
+        assert!(
+            !nagashi_eligible(&game, 0),
+            "a called terminal discard must invalidate nagashi in {mode:?}"
+        );
+
+        let post_call_discard =
+            require_action(&after_pon.decisions, 1, ActionType::Discard, |action| {
+                action.tile == Some(128)
+            });
+        let last_draw = step_one(&mut game, 1, post_call_discard);
+        assert_eq!(event_types(&last_draw), ["dahai", "tsumo"]);
+        assert_eq!(last_draw.snapshot.active_players, [2]);
+        assert_eq!(last_draw.snapshot.wall_tiles_remaining, 0);
+
+        let last_tile = require_action(&last_draw.decisions, 2, ActionType::Discard, |action| {
+            action.tile == Some(124)
+        });
+        let outcome = step_one(&mut game, 2, last_tile);
+        assert_eq!(
+            ryukyoku_reason(&outcome).as_deref(),
+            Some("exhaustive_draw")
+        );
+        let types = event_types(&outcome);
+        let draw_index = types
+            .iter()
+            .position(|event_type| event_type == "ryukyoku")
+            .expect("exhaustive draw event");
+        assert_eq!(types[draw_index + 1], "end_kyoku");
+        assert_eq!(types[draw_index + 2], "start_kyoku");
+        assert_eq!(types[draw_index + 3], "tsumo");
+        assert_eq!(outcome.snapshot.phase, Phase::WaitAct);
+    }
+}
+
+#[test]
+fn nagashi_mangan_requires_only_uncalled_terminal_or_honor_discards() {
+    for mode in [GameMode::FourPlayerSingle, GameMode::ThreePlayerSingle] {
+        for (discarded_tile, expected_reason) in [(108, "nagashimangan"), (40, "exhaustive_draw")] {
+            let mut game = engine(mode, GameRule::default_tenhou());
+            let num_players = mode.num_players() as usize;
+            let mut hands = vec![vec![]; num_players];
+            hands[0] = vec![
+                discarded_tile,
+                0,
+                32,
+                44,
+                48,
+                52,
+                56,
+                60,
+                72,
+                76,
+                80,
+                84,
+                88,
+                92,
+            ];
+            for hand in &mut hands[1..] {
+                *hand = vec![0, 32, 40, 44, 48, 52, 56, 60, 64, 72, 76, 80, 84];
+            }
+            prepare_wait_act(
+                &mut game,
+                0,
+                discarded_tile,
+                &hands,
+                &vec![vec![]; num_players],
+            );
+            set_nagashi_eligibility(
+                &mut game,
+                &(0..num_players).map(|index| index == 0).collect::<Vec<_>>(),
+            );
+            set_wall_boundary(&mut game, 0, 124);
+            let scores_before = game.snapshot().scores;
+
+            let discard = require_action(&game.decisions(), 0, ActionType::Discard, |action| {
+                action.tile == Some(discarded_tile)
+            });
+            let outcome = step_one(&mut game, 0, discard);
+            assert_eq!(ryukyoku_reason(&outcome).as_deref(), Some(expected_reason));
+
+            if expected_reason == "nagashimangan" {
+                assert!(outcome.snapshot.scores[0] > scores_before[0]);
+                assert!(
+                    outcome.snapshot.scores[1..]
+                        .iter()
+                        .zip(&scores_before[1..])
+                        .all(|(after, before)| after < before)
+                );
+            }
         }
     }
 }

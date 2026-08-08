@@ -156,11 +156,22 @@ Optimization order is:
   wait-preserving ankan, fourth-kan ownership, and red-five chi/pon kuikae;
 - complete multi-responder action batches for 4P triple ron (including the
   `sanchaho_is_draw` switch), 3P double ron, and 4P ron/pon/chi priority;
+- public-`GameEngine` pao establishment when the final dragon or wind set is
+  completed by daiminkan, for daisangen/daisuushii in both variants;
+- last-live-tile call coverage from pon through the final draw and discard,
+  including called-discard nagashi invalidation, ordinary exhaustive draw,
+  `end_kyoku`, and next-kyoku initialization ordering;
+- 4P/3P nagashi mangan checks for eligible terminal/honor discards and
+  invalidation by a non-terminal discard or a call;
+- two-kyoku 4P/3P JSONL integration coverage shared by `ReplayLog` and
+  `EventJournal`, including score continuity, typed action order, cursor seek,
+  completed spans, and whole-kyoku spectator delay;
 - differential SP yaku/fu checks against `HandEvaluator` over the committed
   winning-hand corpus, explicit kan/open-hand fallback checks, and exact
   without-replacement probability oracles for tenpai and one-shanten paths.
 
-The next rule-heavy priorities are pao established by the final dragon/wind
-kan, exhaustive draws immediately after calls, nagashi mangan invalidation,
-and replay trace differentials that cover complete multi-kyoku games. These
-remaining items are migration gates, not permission to remove legacy APIs.
+The next rule-heavy priorities are pao payment settlement for ron/tsumo and
+honba/kyotaku combinations, exhaustive-draw tenpai/noten payments and dealer
+continuation, engine-generated multi-kyoku trace differentials, and deeper SP
+s2/s3 probability oracles. These remaining items are migration gates, not
+permission to remove legacy APIs.
