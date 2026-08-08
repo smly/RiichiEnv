@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
 
-use crate::action::ActionType;
+use crate::feature_context::FeatureContext;
 use crate::hand_evaluator::HandEvaluator;
 use crate::observation::Observation;
 use crate::shanten;
@@ -182,65 +182,13 @@ pub struct SpResult {
 
 impl SpInput {
     pub fn from_observation(obs: &Observation) -> Self {
-        let player_idx = obs.player_id as usize;
-        let mut tehai = [0u8; TILE_MAX];
-        let mut akas_in_hand = [false; 3];
-        for &tile in &obs.hands[player_idx] {
-            let tile_type = (tile / 4) as usize;
-            if tile_type < TILE_MAX {
-                tehai[tile_type] = tehai[tile_type].saturating_add(1);
-            }
-            match tile {
-                16 => akas_in_hand[0] = true,
-                52 => akas_in_hand[1] = true,
-                88 => akas_in_hand[2] = true,
-                _ => {}
-            }
-        }
+        let context = FeatureContext::new_unchecked(obs);
+        Self::from_feature_context(&context)
+    }
 
-        let mut tiles_seen = [0u8; TILE_MAX];
-        let mut akas_seen = akas_in_hand;
-        let mut mark_aka = |t: u32| match t {
-            16 => akas_seen[0] = true,
-            52 => akas_seen[1] = true,
-            88 => akas_seen[2] = true,
-            _ => {}
-        };
-        for &tile in &obs.hands[player_idx] {
-            add_seen(&mut tiles_seen, tile);
-        }
-        for melds in &obs.melds {
-            for meld in melds {
-                for &tile in &meld.tiles {
-                    add_seen(&mut tiles_seen, tile as u32);
-                    mark_aka(tile as u32);
-                }
-            }
-        }
-        for discards in &obs.discards {
-            for &tile in discards {
-                add_seen(&mut tiles_seen, tile);
-                mark_aka(tile);
-            }
-        }
-        for &tile in &obs.dora_indicators {
-            add_seen(&mut tiles_seen, tile);
-            mark_aka(tile);
-        }
-        drop(mark_aka);
-
-        let mut discard_candidates = Vec::new();
-        for action in &obs._legal_actions {
-            if matches!(action.action_type, ActionType::Discard)
-                && let Some(tile) = action.tile
-            {
-                let tile_type = tile / 4;
-                if !discard_candidates.contains(&tile_type) {
-                    discard_candidates.push(tile_type);
-                }
-            }
-        }
-        discard_candidates.sort_unstable();
+    pub fn from_feature_context(context: &FeatureContext<'_>) -> Self {
+        let obs = context.observation();
+        let player_idx = context.player_index();
 
         let rel_seat = (obs.player_id + 4 - obs.oya) % 4;
         let can_riichi = obs.riichi_declared[player_idx] || obs.scores[player_idx] >= 1000;
@@ -249,10 +197,10 @@ impl SpInput {
             && obs.melds.iter().all(Vec::is_empty);
 
         Self {
-            tehai,
-            akas_in_hand,
-            tiles_seen,
-            akas_seen,
+            tehai: *context.hand_counts(),
+            akas_in_hand: context.akas_in_hand(),
+            tiles_seen: *context.visible_counts_capped(),
+            akas_seen: context.akas_seen(),
             dora_indicators: obs.dora_indicators.iter().map(|&x| x as u8).collect(),
             melds: obs.melds[player_idx].clone(),
             bakaze: obs.round_wind,
@@ -261,7 +209,7 @@ impl SpInput {
             can_riichi,
             can_double_riichi,
             tsumos_left: remaining_self_draws(obs),
-            discard_candidates,
+            discard_candidates: context.discard_candidates().to_vec(),
         }
     }
 }
@@ -601,13 +549,6 @@ struct ScoringSummary {
     /// of scored waits whose tsumo total ≥ `target_points::TARGETS[k]`.
     /// Divide by `wait_count` to get achievement probability.
     point_buckets: [f32; target_points::N],
-}
-
-fn add_seen(tiles_seen: &mut [u8; TILE_MAX], tile: u32) {
-    let tile_type = (tile / 4) as usize;
-    if tile_type < TILE_MAX {
-        tiles_seen[tile_type] = tiles_seen[tile_type].saturating_add(1).min(4);
-    }
 }
 
 fn remaining_self_draws(obs: &Observation) -> u8 {

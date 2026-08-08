@@ -1,8 +1,12 @@
 import base64
+import json
+from pathlib import Path
 
 import pytest
 
-from riichienv import Action, ActionType, Observation, Phase, RiichiEnv
+from riichienv import Action, ActionType, Observation, Observation3P, Phase, RiichiEnv
+
+CONTRACT_DIR = Path(__file__).parent / "contracts" / "v0.4.8"
 
 
 def _get_initial_obs(seed=42):
@@ -39,6 +43,23 @@ def _assert_legal_actions_equal(original, restored):
 
 
 class TestObservationSerialization:
+    @pytest.mark.parametrize(
+        ("filename", "observation_type", "game_mode"),
+        [
+            ("observation_4p.b64", Observation, "4p-red-single"),
+            ("observation_3p.b64", Observation3P, "3p-red-single"),
+        ],
+    )
+    def test_v048_wire_fixture_remains_decodable_and_stable(self, filename, observation_type, game_mode):
+        fixture = (CONTRACT_DIR / filename).read_text(encoding="ascii").strip()
+        restored = observation_type.deserialize_from_base64(fixture)
+
+        assert restored.player_id == 0
+        assert restored.serialize_to_base64() == fixture
+
+        current = RiichiEnv(game_mode=game_mode, seed=42).reset()[0]
+        assert current.serialize_to_base64() == fixture
+
     def test_round_trip_initial(self):
         """Serialize then deserialize an initial observation; fields must match."""
         _, obs = _get_initial_obs()
@@ -143,6 +164,95 @@ class TestObservationSerialization:
         bad_json = base64.b64encode(b"not json").decode()
         with pytest.raises(ValueError):
             Observation.deserialize_from_base64(bad_json)
+
+    @pytest.mark.parametrize(
+        ("filename", "observation_type", "invalid_player_id"),
+        [
+            ("observation_4p.b64", Observation, 4),
+            ("observation_3p.b64", Observation3P, 3),
+        ],
+    )
+    def test_out_of_range_player_id_is_rejected(self, filename, observation_type, invalid_player_id):
+        fixture = (CONTRACT_DIR / filename).read_text(encoding="ascii").strip()
+        payload = json.loads(base64.b64decode(fixture))
+        payload["player_id"] = invalid_player_id
+        invalid = base64.b64encode(json.dumps(payload).encode()).decode()
+
+        with pytest.raises(ValueError, match="player_id"):
+            observation_type.deserialize_from_base64(invalid)
+
+    @pytest.mark.parametrize(
+        ("filename", "observation_type"),
+        [
+            ("observation_4p.b64", Observation),
+            ("observation_3p.b64", Observation3P),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            lambda payload: (
+                payload["hands"].__setitem__(0, []),
+                payload.__setitem__("_legal_actions", []),
+            ),
+            lambda payload: payload["hands"].__setitem__(0, [0] * 8 + [4] * 5),
+            lambda payload: payload["melds"].__setitem__(
+                1,
+                [
+                    {
+                        "meld_type": "Pon",
+                        "tiles": [255, 255, 255],
+                        "opened": True,
+                        "from_who": 0,
+                        "called_tile": 255,
+                    }
+                ],
+            ),
+            lambda payload: payload["melds"].__setitem__(
+                1,
+                [
+                    {
+                        "meld_type": "Pon",
+                        "tiles": [],
+                        "opened": True,
+                        "from_who": 0,
+                        "called_tile": 0,
+                    }
+                ],
+            ),
+        ],
+        ids=["empty-hand", "duplicate-hand-tiles", "invalid-meld-tile", "empty-meld"],
+    )
+    def test_malformed_observation_payload_is_rejected_without_panic(self, filename, observation_type, mutation):
+        fixture = (CONTRACT_DIR / filename).read_text(encoding="ascii").strip()
+        payload = json.loads(base64.b64decode(fixture))
+        mutation(payload)
+        invalid = base64.b64encode(json.dumps(payload).encode()).decode()
+
+        with pytest.raises(ValueError):
+            observation_type.deserialize_from_base64(invalid)
+
+    @pytest.mark.parametrize(
+        ("filename", "observation_type"),
+        [
+            ("observation_4p.b64", Observation),
+            ("observation_3p.b64", Observation3P),
+        ],
+    )
+    def test_action_selection_only_observation_wire_remains_decodable(self, filename, observation_type):
+        fixture = (CONTRACT_DIR / filename).read_text(encoding="ascii").strip()
+        payload = json.loads(base64.b64decode(fixture))
+        payload["hands"][0] = []
+        encoded = base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
+
+        restored = observation_type.deserialize_from_base64(encoded)
+
+        assert restored.hand == []
+        assert restored.legal_actions()
+        with pytest.raises(ValueError, match="effective self hand length"):
+            restored.encode()
+        with pytest.raises(ValueError, match="effective self hand length"):
+            restored.encode_extended()
 
     @pytest.mark.parametrize("seed", [0, 1, 99, 12345, 999999])
     def test_round_trip_multiple_seeds(self, seed):

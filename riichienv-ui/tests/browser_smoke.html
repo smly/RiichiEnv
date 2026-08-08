@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>RiichiEnv browser WASM smoke test</title>
+    </head>
+    <body data-result="pending">
+        <script type="module">
+            import { initWasm, isWasmReady } from '../dist/viewer.esm.js';
+
+            try {
+                if (isWasmReady()) throw new Error('WASM should initialize lazily');
+                await initWasm();
+                if (!isWasmReady()) throw new Error('WASM did not become ready');
+                document.body.dataset.result = 'passed';
+            } catch (error) {
+                document.body.dataset.result = 'failed';
+                document.body.textContent = String(error);
+            }
+        </script>
+    </body>
+</html>

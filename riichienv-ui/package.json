@@ -4,8 +4,10 @@
   "description": "Replay viewer and live game visualizer for RiichiEnv",
   "main": "dist/viewer.js",
   "module": "dist/viewer.esm.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/viewer.esm.js"
     }
   },
@@ -14,10 +16,11 @@
     "build:tiles": "node scripts/gen_tiles.js",
     "build:bundle": "esbuild src/index.ts --bundle --minify --outfile=dist/viewer.js --format=iife --loader:.wasm=binary",
     "build:esm": "esbuild src/index.ts --bundle --minify --outfile=dist/viewer.esm.js --format=esm --loader:.wasm=binary",
+    "build:types": "tsc -p tsconfig.build.json",
     "build:compress": "node scripts/compress.js",
     "build:copy": "cp dist/viewer.js.gz ../src/riichienv/visualizer/assets/viewer.js.gz",
-    "build": "npm run build:wasm && npm run build:tiles && npm run build:bundle && npm run build:esm && npm run build:compress && npm run build:copy",
-    "build:no-wasm": "npm run build:tiles && npm run build:bundle && npm run build:esm && npm run build:compress && npm run build:copy",
+    "build": "npm run build:wasm && npm run build:tiles && npm run build:bundle && npm run build:esm && npm run build:types && npm run build:compress && npm run build:copy",
+    "build:no-wasm": "npm run build:tiles && npm run build:bundle && npm run build:esm && npm run build:types && npm run build:compress && npm run build:copy",
     "watch": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --loader:.wasm=binary --global-name=RiichiEnvViewer --watch",
     "dev": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --loader:.wasm=binary --servedir=.",
     "lint": "biome check src/",

@@ -757,6 +757,7 @@ dependencies = [
 name = "riichienv-python"
 version = "0.4.8"
 dependencies = [
+ "flate2",
  "pyo3",
  "riichienv-core",
  "serde_json",

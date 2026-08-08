@@ -166,8 +166,36 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Build and smoke-test the real Node WASM package
+        run: |
+          wasm-pack build riichienv-wasm --target nodejs --out-dir /tmp/riichienv-wasm-node --no-opt
+          node riichienv-wasm/tests/node_smoke.cjs /tmp/riichienv-wasm-node
+
       - name: Build UI
         run: |
           cd riichienv-ui
           npm ci
           npm run build
+          test -f dist/index.d.ts
+
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Smoke-test the bundled web WASM loader in Chrome
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: |
+          python3 -m http.server 4173 --directory riichienv-ui >/tmp/riichienv-browser-smoke-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for _ in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:4173/tests/browser_smoke.html >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          "$CHROME_PATH" --headless=new --no-sandbox --disable-gpu --dump-dom \
+            http://127.0.0.1:4173/tests/browser_smoke.html \
+            | tee /tmp/riichienv-browser-smoke-dom.html
+          grep -q 'data-result="passed"' /tmp/riichienv-browser-smoke-dom.html

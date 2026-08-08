@@ -1,8 +1,5 @@
-#[cfg(feature = "python")]
 mod encode;
-#[cfg(feature = "python")]
-pub use encode::OBS_EXTENDED_CHANNELS;
-#[cfg(feature = "python")]
+pub use encode::{OBS_BASE_CHANNELS, OBS_EXTENDED_CHANNELS, OBS_TILE_TYPES};
 pub(crate) mod helpers;
 #[cfg(feature = "python")]
 pub(crate) mod mjai_select;
@@ -16,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::action::{Action, ActionEncoder, ActionType};
 use crate::errors::{RiichiError, RiichiResult};
-use crate::types::Meld;
+use crate::types::{Meld, MeldType, TILES_4P};
 
 #[cfg_attr(
     feature = "python",
@@ -116,6 +113,166 @@ impl Observation {
         self._legal_actions.clone()
     }
 
+    /// Validate indices and physical tile IDs before an externally supplied
+    /// observation enters feature encoders or action selection.
+    pub fn validate(&self) -> RiichiResult<()> {
+        self.validate_impl(false)
+    }
+
+    /// Preserve the historical constructor/base64 use-case where callers
+    /// build an action-selection-only observation with no hand. Feature
+    /// encoders still call strict `validate` and reject that synthetic DTO.
+    pub(crate) fn validate_action_selection_compat(&self) -> RiichiResult<()> {
+        self.validate_impl(true)
+    }
+
+    fn validate_impl(&self, allow_action_only_empty_hand: bool) -> RiichiResult<()> {
+        if self.player_id >= 4 {
+            return Err(invalid_observation(format!(
+                "player_id {} is out of range for 4 players",
+                self.player_id
+            )));
+        }
+        if self.oya >= 4 {
+            return Err(invalid_observation(format!(
+                "oya {} is out of range for 4 players",
+                self.oya
+            )));
+        }
+        if self.round_wind >= 4 {
+            return Err(invalid_observation(format!(
+                "round_wind {} is out of range; expected 0..=3",
+                self.round_wind
+            )));
+        }
+        let player = self.player_id as usize;
+        if self
+            .hands
+            .iter()
+            .enumerate()
+            .any(|(index, hand)| index != player && !hand.is_empty())
+        {
+            return Err(invalid_observation(
+                "opponent hands must be concealed in a player observation".to_string(),
+            ));
+        }
+        if self.melds.iter().any(|melds| melds.len() > 4) {
+            return Err(invalid_observation(
+                "a player cannot have more than 4 melds".to_string(),
+            ));
+        }
+        if self.discards.iter().any(|discards| discards.len() > 24) {
+            return Err(invalid_observation(
+                "a player discard list cannot exceed 24 tiles".to_string(),
+            ));
+        }
+        if self.dora_indicators.len() > 5 {
+            return Err(invalid_observation(
+                "dora_indicators cannot exceed 5 tiles".to_string(),
+            ));
+        }
+        let effective_hand_len = self.hands[player].len() + self.melds[player].len() * 3;
+        let is_action_only = allow_action_only_empty_hand
+            && self.hands[player].is_empty()
+            && self.melds[player].is_empty()
+            && !self._legal_actions.is_empty();
+        if !is_action_only && !matches!(effective_hand_len, 13 | 14) {
+            return Err(invalid_observation(format!(
+                "effective self hand length is {effective_hand_len}; expected 13 or 14"
+            )));
+        }
+
+        for (name, tile) in self
+            .hands
+            .iter()
+            .flatten()
+            .map(|&tile| ("hand", tile))
+            .chain(
+                self.discards
+                    .iter()
+                    .flatten()
+                    .map(|&tile| ("discard", tile)),
+            )
+            .chain(
+                self.dora_indicators
+                    .iter()
+                    .map(|&tile| ("dora indicator", tile)),
+            )
+        {
+            validate_physical_tile(tile, name)?;
+        }
+        for meld in self.melds.iter().flatten() {
+            validate_meld_shape(meld)?;
+            for &tile in &meld.tiles {
+                validate_physical_tile(u32::from(tile), "meld")?;
+            }
+            if let Some(tile) = meld.called_tile {
+                validate_physical_tile(u32::from(tile), "called meld")?;
+            }
+        }
+        // Replay reconstruction may map repeated MJAI tile strings to the same
+        // representative 136-id. The semantic invariant required by shanten
+        // tables is therefore per tile type, not physical-id uniqueness.
+        validate_tile_type_counts(self.hands[player].iter().copied(), 4, "self hand")?;
+        validate_visible_tile_counts(
+            self.hands
+                .iter()
+                .flatten()
+                .copied()
+                .chain(self.discards.iter().flatten().copied())
+                .chain(
+                    self.melds
+                        .iter()
+                        .flatten()
+                        .flat_map(|meld| meld.tiles.iter().copied().map(u32::from)),
+                )
+                .chain(self.dora_indicators.iter().copied()),
+        )?;
+        for (name, tile) in self
+            .riichi_sutehais
+            .iter()
+            .flatten()
+            .map(|&tile| ("riichi discard", tile))
+            .chain(
+                self.last_tedashis
+                    .iter()
+                    .flatten()
+                    .map(|&tile| ("last tedashi", tile)),
+            )
+            .chain(self.drawn_tile.map(|tile| ("drawn tile", tile)))
+        {
+            validate_physical_tile(u32::from(tile), name)?;
+        }
+        if let Some(tile) = self.last_discard {
+            validate_physical_tile(tile, "last discard")?;
+        }
+        if let Some(&wait) = self
+            .waits
+            .iter()
+            .find(|&&wait| wait as usize >= OBS_TILE_TYPES)
+        {
+            return Err(invalid_observation(format!(
+                "wait tile type {wait} is out of range"
+            )));
+        }
+        for action in &self._legal_actions {
+            if let Some(tile) = action.tile {
+                validate_physical_tile(u32::from(tile), "action tile")?;
+            }
+            for &tile in &action.consume_tiles {
+                validate_physical_tile(u32::from(tile), "action consumed tile")?;
+            }
+            if let Some(actor) = action.actor
+                && actor >= 4
+            {
+                return Err(invalid_observation(format!(
+                    "action actor {actor} is out of range for 4 players"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn find_action(&self, action_id: usize) -> Option<Action> {
         let encoder = ActionEncoder::FourPlayer;
         // Prefer non-red-five candidates so that 5m/5p/5s discards do not
@@ -165,8 +322,90 @@ impl Observation {
             serde_json::from_slice(&bytes).map_err(|e| RiichiError::Serialization {
                 message: format!("JSON deserialize failed: {e}"),
             })?;
+        obs.validate_action_selection_compat()
+            .map_err(|error| RiichiError::Serialization {
+                message: format!("invalid observation payload: {error}"),
+            })?;
         Ok(obs)
     }
+}
+
+fn invalid_observation(message: String) -> RiichiError {
+    RiichiError::InvalidState { message }
+}
+
+fn validate_physical_tile(tile: u32, context: &str) -> RiichiResult<()> {
+    if tile as usize >= TILES_4P {
+        return Err(invalid_observation(format!(
+            "{context} contains invalid physical tile id {tile}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_meld_shape(meld: &Meld) -> RiichiResult<()> {
+    let expected = match meld.meld_type {
+        MeldType::Chi | MeldType::Pon => 3,
+        MeldType::Daiminkan | MeldType::Ankan | MeldType::Kakan => 4,
+    };
+    if meld.tiles.len() != expected {
+        return Err(invalid_observation(format!(
+            "{:?} meld contains {} tiles; expected {expected}",
+            meld.meld_type,
+            meld.tiles.len()
+        )));
+    }
+    if let Some(called_tile) = meld.called_tile
+        && !meld.tiles.contains(&called_tile)
+    {
+        return Err(invalid_observation(format!(
+            "called meld tile {called_tile} is not present in the meld"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_visible_tile_counts(tiles: impl IntoIterator<Item = u32>) -> RiichiResult<()> {
+    let mut counts = [0u16; OBS_TILE_TYPES];
+    for tile in tiles {
+        let tile_type = tile as usize / 4;
+        let Some(count) = counts.get_mut(tile_type) else {
+            return Err(invalid_observation(format!(
+                "visible zone contains invalid physical tile id {tile}"
+            )));
+        };
+        *count += 1;
+        // Four physical copies plus at most four duplicated called tiles.
+        if *count > 8 {
+            return Err(invalid_observation(format!(
+                "tile type {tile_type} appears too many times in visible zones"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_tile_type_counts(
+    tiles: impl IntoIterator<Item = u32>,
+    maximum: u8,
+    context: &str,
+) -> RiichiResult<()> {
+    let mut counts = [0u8; OBS_TILE_TYPES];
+    for tile in tiles {
+        let tile_type = tile as usize / 4;
+        let Some(count) = counts.get_mut(tile_type) else {
+            return Err(invalid_observation(format!(
+                "{context} contains invalid physical tile id {tile}"
+            )));
+        };
+        *count += 1;
+        if *count > maximum {
+            return Err(invalid_observation(format!(
+                "tile type {tile_type} appears more than {maximum} times in {context}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn is_red_five_discard(action: &Action) -> bool {

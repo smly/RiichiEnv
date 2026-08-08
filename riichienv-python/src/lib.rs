@@ -1,6 +1,9 @@
 use pyo3::prelude::*;
 
+mod engine;
 mod env;
+mod event_journal;
+mod features;
 
 #[pyfunction]
 #[pyo3(name = "calculate_score", signature = (han, fu, is_oya, is_tsumo, honba, num_players=4))]
@@ -61,6 +64,9 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<riichienv_core::replay::mjsoul_replay::KyokuIterator>()?;
     m.add_class::<riichienv_core::replay::WinResultContext>()?;
     m.add_class::<riichienv_core::replay::WinResultContextIterator>()?;
+    m.add_class::<event_journal::EventJournal>()?;
+    m.add_class::<engine::GameEngine>()?;
+    m.add_class::<engine::BatchGameEngine>()?;
     m.add_class::<riichienv_core::rule::GameRule>()?;
     m.add_class::<riichienv_core::yaku::Yaku>()?;
 
@@ -79,6 +85,16 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_riichi_candidates_py, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_shanten_py, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_shanten_3p_py, m)?)?;
+    m.add_function(wrap_pyfunction!(features::encode_base_batch_py, m)?)?;
+    m.add_function(wrap_pyfunction!(features::encode_extended_batch_py, m)?)?;
+    m.add_function(wrap_pyfunction!(features::encode_sp_batch_py, m)?)?;
+    m.add_function(wrap_pyfunction!(features::encode_drev_batch_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        features::encode_extended_with_sp_batch_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(features::encode_base_batch_3p_py, m)?)?;
+    m.add_function(wrap_pyfunction!(features::encode_extended_batch_3p_py, m)?)?;
     m.add_function(wrap_pyfunction!(
         riichienv_core::yaku::get_yaku_by_id_py,
         m

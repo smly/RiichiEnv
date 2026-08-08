@@ -1,6 +1,5 @@
-#[cfg(feature = "python")]
 mod encode;
-#[cfg(feature = "python")]
+pub use encode::{OBS_3P_BASE_CHANNELS, OBS_3P_EXTENDED_CHANNELS, OBS_3P_TILE_TYPES};
 pub(crate) mod helpers;
 #[cfg(feature = "python")]
 mod python;
@@ -10,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::action::{Action, Action3P, ActionType};
 use crate::errors::{RiichiError, RiichiResult};
-use crate::types::Meld;
+use crate::types::{Meld, MeldType, TILES_4P, is_sanma_excluded_tile};
 
 #[cfg_attr(
     feature = "python",
@@ -106,6 +105,160 @@ impl Observation3P {
         self._legal_actions.clone()
     }
 
+    /// Validate indices and sanma physical tile IDs before encoding an
+    /// externally supplied observation.
+    pub fn validate(&self) -> RiichiResult<()> {
+        self.validate_impl(false)
+    }
+
+    /// Preserve action-selection-only constructor/base64 observations while
+    /// keeping feature paths strict.
+    pub(crate) fn validate_action_selection_compat(&self) -> RiichiResult<()> {
+        self.validate_impl(true)
+    }
+
+    fn validate_impl(&self, allow_action_only_empty_hand: bool) -> RiichiResult<()> {
+        if self.player_id >= 3 {
+            return Err(invalid_observation(format!(
+                "player_id {} is out of range for 3 players",
+                self.player_id
+            )));
+        }
+        if self.oya >= 3 {
+            return Err(invalid_observation(format!(
+                "oya {} is out of range for 3 players",
+                self.oya
+            )));
+        }
+        if self.round_wind >= 4 {
+            return Err(invalid_observation(format!(
+                "round_wind {} is out of range; expected 0..=3",
+                self.round_wind
+            )));
+        }
+        let player = self.player_id as usize;
+        if self
+            .hands
+            .iter()
+            .enumerate()
+            .any(|(index, hand)| index != player && !hand.is_empty())
+        {
+            return Err(invalid_observation(
+                "opponent hands must be concealed in a player observation".to_string(),
+            ));
+        }
+        if self.melds.iter().any(|melds| melds.len() > 4) {
+            return Err(invalid_observation(
+                "a player cannot have more than 4 melds".to_string(),
+            ));
+        }
+        if self.discards.iter().any(|discards| discards.len() > 24) {
+            return Err(invalid_observation(
+                "a player discard list cannot exceed 24 tiles".to_string(),
+            ));
+        }
+        if self.dora_indicators.len() > 5 {
+            return Err(invalid_observation(
+                "dora_indicators cannot exceed 5 tiles".to_string(),
+            ));
+        }
+        let effective_hand_len = self.hands[player].len() + self.melds[player].len() * 3;
+        let is_action_only = allow_action_only_empty_hand
+            && self.hands[player].is_empty()
+            && self.melds[player].is_empty()
+            && !self._legal_actions.is_empty();
+        if !is_action_only && !matches!(effective_hand_len, 13 | 14) {
+            return Err(invalid_observation(format!(
+                "effective self hand length is {effective_hand_len}; expected 13 or 14"
+            )));
+        }
+
+        for (name, tile) in self
+            .hands
+            .iter()
+            .flatten()
+            .map(|&tile| ("hand", tile))
+            .chain(
+                self.discards
+                    .iter()
+                    .flatten()
+                    .map(|&tile| ("discard", tile)),
+            )
+            .chain(
+                self.dora_indicators
+                    .iter()
+                    .map(|&tile| ("dora indicator", tile)),
+            )
+        {
+            validate_physical_tile_3p(tile, name)?;
+        }
+        for meld in self.melds.iter().flatten() {
+            validate_meld_shape(meld)?;
+            for &tile in &meld.tiles {
+                validate_physical_tile_3p(u32::from(tile), "meld")?;
+            }
+            if let Some(tile) = meld.called_tile {
+                validate_physical_tile_3p(u32::from(tile), "called meld")?;
+            }
+        }
+        // Replay reconstruction may reuse a representative physical id for
+        // identical MJAI strings, so enforce the shanten-safe type count.
+        validate_tile_type_counts(self.hands[player].iter().copied(), 4, "self hand")?;
+        validate_visible_tile_counts(
+            self.hands
+                .iter()
+                .flatten()
+                .copied()
+                .chain(self.discards.iter().flatten().copied())
+                .chain(
+                    self.melds
+                        .iter()
+                        .flatten()
+                        .flat_map(|meld| meld.tiles.iter().copied().map(u32::from)),
+                )
+                .chain(self.dora_indicators.iter().copied()),
+        )?;
+        for (name, tile) in self
+            .riichi_sutehais
+            .iter()
+            .flatten()
+            .map(|&tile| ("riichi discard", tile))
+            .chain(
+                self.last_tedashis
+                    .iter()
+                    .flatten()
+                    .map(|&tile| ("last tedashi", tile)),
+            )
+            .chain(self.drawn_tile.map(|tile| ("drawn tile", tile)))
+        {
+            validate_physical_tile_3p(u32::from(tile), name)?;
+        }
+        if let Some(tile) = self.last_discard {
+            validate_physical_tile_3p(tile, "last discard")?;
+        }
+        if let Some(&wait) = self.waits.iter().find(|&&wait| tile34_is_invalid_3p(wait)) {
+            return Err(invalid_observation(format!(
+                "wait tile type {wait} is out of range for sanma"
+            )));
+        }
+        for action in &self._legal_actions {
+            if let Some(tile) = action.0.tile {
+                validate_physical_tile_3p(u32::from(tile), "action tile")?;
+            }
+            for &tile in &action.0.consume_tiles {
+                validate_physical_tile_3p(u32::from(tile), "action consumed tile")?;
+            }
+            if let Some(actor) = action.0.actor
+                && actor >= 3
+            {
+                return Err(invalid_observation(format!(
+                    "action actor {actor} is out of range for 3 players"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn find_action(&self, action_id: usize) -> Option<Action3P> {
         // Prefer non-red-five candidates so that 5m/5p/5s discards do not
         // accidentally drop the akadora when a normal 5 is also legal.
@@ -154,8 +307,93 @@ impl Observation3P {
             serde_json::from_slice(&bytes).map_err(|e| RiichiError::Serialization {
                 message: format!("JSON deserialize failed: {e}"),
             })?;
+        obs.validate_action_selection_compat()
+            .map_err(|error| RiichiError::Serialization {
+                message: format!("invalid observation payload: {error}"),
+            })?;
         Ok(obs)
     }
+}
+
+fn invalid_observation(message: String) -> RiichiError {
+    RiichiError::InvalidState { message }
+}
+
+fn tile34_is_invalid_3p(tile: u8) -> bool {
+    tile >= 34 || (1..=7).contains(&tile)
+}
+
+fn validate_physical_tile_3p(tile: u32, context: &str) -> RiichiResult<()> {
+    if tile as usize >= TILES_4P || is_sanma_excluded_tile(tile as u8) {
+        return Err(invalid_observation(format!(
+            "{context} contains invalid sanma physical tile id {tile}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_meld_shape(meld: &Meld) -> RiichiResult<()> {
+    let expected = match meld.meld_type {
+        MeldType::Chi | MeldType::Pon => 3,
+        MeldType::Daiminkan | MeldType::Ankan | MeldType::Kakan => 4,
+    };
+    if meld.tiles.len() != expected {
+        return Err(invalid_observation(format!(
+            "{:?} meld contains {} tiles; expected {expected}",
+            meld.meld_type,
+            meld.tiles.len()
+        )));
+    }
+    if let Some(called_tile) = meld.called_tile
+        && !meld.tiles.contains(&called_tile)
+    {
+        return Err(invalid_observation(format!(
+            "called meld tile {called_tile} is not present in the meld"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_visible_tile_counts(tiles: impl IntoIterator<Item = u32>) -> RiichiResult<()> {
+    let mut counts = [0u16; 34];
+    for tile in tiles {
+        let tile_type = tile as usize / 4;
+        let Some(count) = counts.get_mut(tile_type) else {
+            return Err(invalid_observation(format!(
+                "visible zone contains invalid physical tile id {tile}"
+            )));
+        };
+        *count += 1;
+        if *count > 8 {
+            return Err(invalid_observation(format!(
+                "tile type {tile_type} appears too many times in visible zones"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_tile_type_counts(
+    tiles: impl IntoIterator<Item = u32>,
+    maximum: u8,
+    context: &str,
+) -> RiichiResult<()> {
+    let mut counts = [0u8; 34];
+    for tile in tiles {
+        let tile_type = tile as usize / 4;
+        let Some(count) = counts.get_mut(tile_type) else {
+            return Err(invalid_observation(format!(
+                "{context} contains invalid physical tile id {tile}"
+            )));
+        };
+        *count += 1;
+        if *count > maximum {
+            return Err(invalid_observation(format!(
+                "tile type {tile_type} appears more than {maximum} times in {context}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn is_red_five_discard(action: &Action) -> bool {

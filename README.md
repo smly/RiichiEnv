@@ -45,6 +45,83 @@ uv run maturin develop --release
 
 ## 🚀 Usage
 
+### Engine facade for new integrations
+
+`GameEngine` is the strict 4-player/3-player facade for RL workers, servers,
+and language bindings. It returns structured step outcomes while the existing
+`RiichiEnv` API remains available for compatibility.
+
+```python
+from riichienv import GameEngine
+
+engine = GameEngine("4p-red-half", seed=42, event_log=False)
+observations = engine.decisions()
+
+while not engine.is_done:
+    actions = {
+        player_id: observation.legal_actions()[0]
+        for player_id, observation in observations.items()
+    }
+    outcome = engine.step(actions)
+    if outcome["error"] is not None:
+        raise RuntimeError(outcome["error"])
+    observations = outcome["observations"]
+```
+
+For serial self-play orchestration, `BatchGameEngine` flattens decisions as
+`(environment_index, player_id, observation)`. Batch feature functions such as
+`encode_extended_with_sp_batch()` return contiguous float32 buffers; the 4P
+combined layout is `[batch, 402, 34]`. Event logging defaults to off for this
+batch facade. The combined Rust encoder reuses a borrowed `FeatureContext` so
+hand counts, visible tiles, red-five flags, and discard candidates are gathered
+once per observation rather than independently for extended, SP, and DREV.
+
+### Replay and delayed spectators
+
+`EventJournal` loads plain or gzip-compressed MJAI JSONL, preserves raw unknown
+fields, indexes explicit kyoku boundaries, and supports monotonic cursor
+deltas. Schema-v1 delta envelopes use canonical raw JSON strings in `events`
+across Python, WASM, and TypeScript.
+
+```python
+from riichienv import EventJournal
+
+journal = EventJournal.from_jsonl("game.jsonl.gz")
+cursor, safe_events = journal.spectator_delta(0)
+```
+
+The default spectator view is delayed by one whole kyoku. While kyoku N is in
+progress it ends exactly at kyoku N-1's `end_kyoku`; the current
+`start_kyoku`, concealed hands, draws, and wall are withheld. A completed game
+exposes the full log when the event stream is structurally valid; malformed or
+truncated streams fail closed. Rust uses `riichienv_core::replay::EventJournal`,
+and the same cursor policy is exposed by the WASM and TypeScript journal
+adapters.
+
+For live delivery, append only authoritative engine/server events. The journal
+checks framing, duplicate keys, metadata types, and JavaScript-safe integer
+semantics, but no parser can authenticate a forged yet structurally complete
+transcript.
+
+For typed offline replay, Rust can build `replay::ReplayLog` directly from a
+string, any `BufRead`, or typed `MjaiEvent` values without enabling Python or
+opening a filesystem path. `ReplayLog::cursor()` is a borrowed, seekable kyoku
+cursor, and each `LogKyoku` exposes its typed actions. Python's compatible
+`MjaiReplay` now also accepts in-memory data:
+
+```python
+from riichienv import MjaiReplay
+
+replay = MjaiReplay.from_jsonl_text(jsonl)
+for kyoku in replay.take_kyokus():
+    for player_id, observation, action in kyoku.steps(skip_single_action=False):
+        ...
+```
+
+The WASM `GameEngine` accepts only pending action IDs, so browser callers do
+not construct Rust actions. `baseFeatures()` and `extendedFeatures()` return
+`Float32Array` values, while `actionMask()` returns a `Uint8Array`.
+
 ### Gym-style API
 
 ```python

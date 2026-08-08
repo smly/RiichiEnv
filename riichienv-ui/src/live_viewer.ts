@@ -1,5 +1,6 @@
 import { createGameConfig4P, createLayoutConfig4P, type GameConfig, type LayoutConfig } from './config';
 import { COLORS } from './constants';
+import { type JournalDeltaWire, parseJournalEvent } from './event_journal';
 import { GameState } from './game_state';
 import { ICON_EYE } from './icons';
 import { LiveController } from './live_controller';
@@ -218,11 +219,16 @@ export class LiveViewer {
     /**
      * Push multiple MJAI events and update the display once.
      */
-    pushEvents(events: MjaiEvent[]): void {
+    pushEvents(events: readonly MjaiEvent[]): void {
         for (const event of events) {
             this.gameState.appendEvent(event);
         }
         this.update();
+    }
+
+    /** Push a cursor delta returned by EventJournal. */
+    pushJournalDelta(delta: Pick<JournalDeltaWire, 'events'>): void {
+        this.pushEvents(delta.events.map(parseJournalEvent));
     }
 
     update(): void {

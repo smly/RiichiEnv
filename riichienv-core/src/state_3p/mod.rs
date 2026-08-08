@@ -186,9 +186,9 @@ impl GameState3P {
         };
         self.player_event_counts[pid] = full_log_len;
 
-        let calc = crate::hand_evaluator_3p::HandEvaluator3P::new(
-            self.players[pid].hand.clone(),
-            self.players[pid].melds.clone(),
+        let calc = crate::hand_evaluator_3p::HandEvaluator3P::new_borrowed(
+            &self.players[pid].hand,
+            &self.players[pid].melds,
         );
         let waits = calc.get_waits_u8();
         let is_tenpai = !waits.is_empty();
@@ -218,7 +218,11 @@ impl GameState3P {
             self.riichi_sutehais,
             self.last_tedashis,
             self.last_discard.map(|(tile, _pid)| tile as u32),
-            self.drawn_tile,
+            if player_id == self.current_player {
+                self.drawn_tile
+            } else {
+                None
+            },
         )
     }
 

@@ -197,10 +197,8 @@ export class RiichiViewer {
 
     // Events
     on<K extends keyof ViewerEventMap>(event: K, handler: EventHandler<ViewerEventMap[K]>): void {
-        if (!this._listeners[event]) {
-            this._listeners[event] = new Set();
-        }
-        (this._listeners[event] as Set<EventHandler<ViewerEventMap[K]>>).add(handler);
+        const listeners = this._listeners as Record<K, Set<EventHandler<ViewerEventMap[K]>> | undefined>;
+        (listeners[event] ??= new Set()).add(handler);
     }
 
     off<K extends keyof ViewerEventMap>(event: K, handler: EventHandler<ViewerEventMap[K]>): void {

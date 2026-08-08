@@ -1,5 +1,7 @@
 use crate::action::ActionType;
 use crate::drev::{self, DrevInput};
+use crate::errors::{RiichiError, RiichiResult};
+use crate::feature_context::FeatureContext;
 use crate::shanten;
 use crate::sp::{self, SpInput};
 use crate::types::MeldType;
@@ -10,26 +12,22 @@ use super::helpers::{add_val, broadcast_scalar, get_next_tile, set_val};
 /// Number of "extended observation" channels written by `encode_*_into` calls
 /// at offsets 0..215. The full feature block is
 /// `OBS_EXTENDED_CHANNELS + sp::SP_CHANNELS + drev::DREV_CHANNELS`.
+pub const OBS_BASE_CHANNELS: usize = 74;
 pub const OBS_EXTENDED_CHANNELS: usize = 215;
+pub const OBS_TILE_TYPES: usize = 34;
 
 /// Internal (non-PyO3) methods that write features directly into a flat f32 buffer.
 /// Buffer layout: channel-major, buf[(ch_offset + ch) * 34 + tile] = value.
 impl Observation {
-    /// Write 74 base encode channels into buf starting at ch_offset.
-    pub(crate) fn encode_base_into(&self, buf: &mut [f32], ch_offset: usize) {
+    fn encode_base_into_with_context(
+        &self,
+        buf: &mut [f32],
+        ch_offset: usize,
+        context: &FeatureContext<'_>,
+    ) {
         // Hand (ch 0-3) + Red (ch 4)
         {
-            let mut counts = [0u8; 34];
-            for &t in &self.hands[self.player_id as usize] {
-                let idx = (t as usize) / 4;
-                if idx < 34 {
-                    counts[idx] += 1;
-                    if t == 16 || t == 52 || t == 88 {
-                        set_val(buf, ch_offset, 4, idx, 1.0);
-                    }
-                }
-            }
-            for (i, &c) in counts.iter().enumerate() {
+            for (i, &c) in context.hand_counts().iter().enumerate() {
                 if c >= 1 {
                     set_val(buf, ch_offset, 0, i, 1.0);
                 }
@@ -41,6 +39,11 @@ impl Observation {
                 }
                 if c >= 4 {
                     set_val(buf, ch_offset, 3, i, 1.0);
+                }
+            }
+            for (red_index, present) in context.akas_in_hand().into_iter().enumerate() {
+                if present {
+                    set_val(buf, ch_offset, 4, 4 + red_index * 9, 1.0);
                 }
             }
         }
@@ -237,26 +240,7 @@ impl Observation {
         }
 
         // Tiles Seen (ch 63)
-        let mut seen = [0u8; 34];
-        for &t in &self.hands[self.player_id as usize] {
-            seen[(t as usize) / 4] += 1;
-        }
-        for mlist in &self.melds {
-            for m in mlist {
-                for &t in &m.tiles {
-                    seen[(t as usize) / 4] += 1;
-                }
-            }
-        }
-        for dlist in &self.discards {
-            for &t in dlist {
-                seen[(t as usize) / 4] += 1;
-            }
-        }
-        for &t in &self.dora_indicators {
-            seen[(t as usize) / 4] += 1;
-        }
-        for (i, &s) in seen.iter().enumerate() {
+        for (i, &s) in context.visible_counts_v0().iter().enumerate() {
             set_val(buf, ch_offset, 63, i, (s as f32) / 4.0);
         }
 
@@ -592,7 +576,17 @@ impl Observation {
 
     /// Write `sp::SP_CHANNELS` SP channels into buf starting at ch_offset.
     pub(crate) fn encode_sp_into(&self, buf: &mut [f32], ch_offset: usize) {
-        let input = SpInput::from_observation(self);
+        let context = FeatureContext::new_unchecked(self);
+        self.encode_sp_into_with_context(buf, ch_offset, &context);
+    }
+
+    fn encode_sp_into_with_context(
+        &self,
+        buf: &mut [f32],
+        ch_offset: usize,
+        context: &FeatureContext<'_>,
+    ) {
+        let input = SpInput::from_feature_context(context);
         let result = sp::calculate_sp(&input);
         sp::encode_sp_into(&result, buf, ch_offset);
     }
@@ -602,9 +596,181 @@ impl Observation {
     /// SP — orthogonal concept (opponent threat vs. own EV) so it has its
     /// own module and gets concatenated downstream.
     pub(crate) fn encode_drev_into(&self, buf: &mut [f32], ch_offset: usize) {
-        let input = DrevInput::from_observation(self);
+        let context = FeatureContext::new_unchecked(self);
+        self.encode_drev_into_with_context(buf, ch_offset, &context);
+    }
+
+    fn encode_drev_into_with_context(
+        &self,
+        buf: &mut [f32],
+        ch_offset: usize,
+        context: &FeatureContext<'_>,
+    ) {
+        let input = DrevInput::from_feature_context(context);
         let result = drev::calculate_drev(&input);
         drev::encode_drev_into(&result, buf, ch_offset);
+    }
+
+    /// Encode the stable 74-channel player observation as channel-major
+    /// `f32` values. This is the pure-Rust counterpart of Python's
+    /// `Observation.encode()` method.
+    pub fn encode_base_features(&self) -> RiichiResult<Vec<f32>> {
+        self.validate()?;
+        let mut buf = vec![0.0; OBS_BASE_CHANNELS * OBS_TILE_TYPES];
+        self.encode_base_features_into_unchecked(&mut buf);
+        Ok(buf)
+    }
+
+    /// Write the legacy 74-channel base-v0 layout into a caller-owned buffer.
+    ///
+    /// Base-v0 historically counts a called tile in both discards and melds
+    /// for channel 30. Extended-v0 uses the corrected wall estimate in
+    /// `encode_base_into`; the two frozen ABIs therefore intentionally differ
+    /// after a call.
+    pub fn encode_base_features_into(&self, buf: &mut [f32]) -> RiichiResult<()> {
+        let expected = OBS_BASE_CHANNELS * OBS_TILE_TYPES;
+        if buf.len() != expected {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "base-4p v0 output has length {}; expected {expected}",
+                    buf.len()
+                ),
+            });
+        }
+        self.validate()?;
+        self.encode_base_features_into_unchecked(buf);
+        Ok(())
+    }
+
+    pub(crate) fn encode_base_features_into_unchecked(&self, buf: &mut [f32]) {
+        debug_assert_eq!(buf.len(), OBS_BASE_CHANNELS * OBS_TILE_TYPES);
+        buf.fill(0.0);
+        let context = FeatureContext::new_unchecked(self);
+        self.encode_base_into_with_context(buf, 0, &context);
+
+        let tiles_used = self.discards.iter().map(Vec::len).sum::<usize>()
+            + self
+                .melds
+                .iter()
+                .flatten()
+                .map(|meld| meld.tiles.len())
+                .sum::<usize>()
+            + self.hands[self.player_id as usize].len()
+            + self.dora_indicators.len();
+        let tiles_left = (136_i32 - tiles_used as i32).max(0) as f32;
+        broadcast_scalar(buf, 0, 30, tiles_left / 70.0);
+    }
+
+    /// Encode the 215-channel observation block used by current training
+    /// pipelines. The returned layout is `[channel][tile_type]`.
+    pub fn encode_extended_features(&self) -> RiichiResult<Vec<f32>> {
+        self.validate()?;
+        let mut buf = vec![0.0; OBS_EXTENDED_CHANNELS * OBS_TILE_TYPES];
+        self.encode_extended_features_into_unchecked(&mut buf);
+        Ok(buf)
+    }
+
+    /// Write extended features into a caller-owned buffer. Keeping this
+    /// allocation-free entry point is important for batched self-play.
+    ///
+    pub fn encode_extended_features_into(&self, buf: &mut [f32]) -> RiichiResult<()> {
+        let expected = OBS_EXTENDED_CHANNELS * OBS_TILE_TYPES;
+        if buf.len() != expected {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "extended-4p v0 output has length {}; expected {expected}",
+                    buf.len()
+                ),
+            });
+        }
+        self.validate()?;
+        self.encode_extended_features_into_unchecked(buf);
+        Ok(())
+    }
+
+    pub(crate) fn encode_extended_features_into_unchecked(&self, buf: &mut [f32]) {
+        let context = FeatureContext::new_unchecked(self);
+        self.encode_extended_features_into_with_context(buf, &context);
+    }
+
+    fn encode_extended_features_into_with_context(
+        &self,
+        buf: &mut [f32],
+        context: &FeatureContext<'_>,
+    ) {
+        debug_assert_eq!(buf.len(), OBS_EXTENDED_CHANNELS * OBS_TILE_TYPES);
+        buf.fill(0.0);
+        self.encode_base_into_with_context(buf, 0, context);
+        self.encode_discard_decay_into(buf, 74);
+        self.encode_shanten_into(buf, 78);
+        self.encode_ankan_into(buf, 94);
+        self.encode_fuuro_into(buf, 98);
+        self.encode_action_avail_into(buf, 178);
+        self.encode_discard_cand_into(buf, 189);
+        self.encode_pass_ctx_into(buf, 194);
+        self.encode_last_ted_into(buf, 197);
+        self.encode_riichi_sute_into(buf, 206);
+    }
+
+    /// Encode only the SP feature block.
+    pub fn encode_sp_features(&self) -> RiichiResult<Vec<f32>> {
+        self.validate()?;
+        let mut buf = vec![0.0; crate::sp::SP_CHANNELS * OBS_TILE_TYPES];
+        self.encode_sp_into(&mut buf, 0);
+        Ok(buf)
+    }
+
+    /// Encode only the DREV feature block.
+    pub fn encode_drev_features(&self) -> RiichiResult<Vec<f32>> {
+        self.validate()?;
+        let mut buf = vec![0.0; crate::drev::DREV_CHANNELS * OBS_TILE_TYPES];
+        self.encode_drev_into(&mut buf, 0);
+        Ok(buf)
+    }
+
+    /// Encode extended, SP, and DREV features into one contiguous block.
+    pub fn encode_extended_with_sp_features(&self) -> RiichiResult<Vec<f32>> {
+        self.validate()?;
+        let channels = OBS_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + crate::drev::DREV_CHANNELS;
+        let mut buf = vec![0.0; channels * OBS_TILE_TYPES];
+        self.encode_extended_with_sp_features_into_unchecked(&mut buf);
+        Ok(buf)
+    }
+
+    /// Write the combined extended + SP + DREV v0 layout into caller memory.
+    pub fn encode_extended_with_sp_features_into(&self, buf: &mut [f32]) -> RiichiResult<()> {
+        let channels = OBS_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + crate::drev::DREV_CHANNELS;
+        let expected = channels * OBS_TILE_TYPES;
+        if buf.len() != expected {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "extended-sp-drev-4p v0 output has length {}; expected {expected}",
+                    buf.len()
+                ),
+            });
+        }
+        self.validate()?;
+        self.encode_extended_with_sp_features_into_unchecked(buf);
+        Ok(())
+    }
+
+    pub(crate) fn encode_extended_with_sp_features_into_unchecked(&self, buf: &mut [f32]) {
+        debug_assert_eq!(
+            buf.len(),
+            (OBS_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + crate::drev::DREV_CHANNELS)
+                * OBS_TILE_TYPES
+        );
+        let context = FeatureContext::new_unchecked(self);
+        self.encode_extended_features_into_with_context(
+            &mut buf[..OBS_EXTENDED_CHANNELS * OBS_TILE_TYPES],
+            &context,
+        );
+        self.encode_sp_into_with_context(buf, OBS_EXTENDED_CHANNELS, &context);
+        self.encode_drev_into_with_context(
+            buf,
+            OBS_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS,
+            &context,
+        );
     }
 }
 
@@ -715,18 +881,7 @@ mod tests {
 
         let total_channels = OBS_EXTENDED_CHANNELS + SP_CHANNELS + DREV_CHANNELS;
         let mut extended = vec![0.0f32; total_channels * 34];
-        obs.encode_base_into(&mut extended, 0);
-        obs.encode_discard_decay_into(&mut extended, 74);
-        obs.encode_shanten_into(&mut extended, 78);
-        obs.encode_ankan_into(&mut extended, 94);
-        obs.encode_fuuro_into(&mut extended, 98);
-        obs.encode_action_avail_into(&mut extended, 178);
-        obs.encode_discard_cand_into(&mut extended, 189);
-        obs.encode_pass_ctx_into(&mut extended, 194);
-        obs.encode_last_ted_into(&mut extended, 197);
-        obs.encode_riichi_sute_into(&mut extended, 206);
-        obs.encode_sp_into(&mut extended, OBS_EXTENDED_CHANNELS);
-        obs.encode_drev_into(&mut extended, OBS_EXTENDED_CHANNELS + SP_CHANNELS);
+        obs.encode_extended_with_sp_features_into_unchecked(&mut extended);
 
         let sp_start = OBS_EXTENDED_CHANNELS * 34;
         let sp_end = (OBS_EXTENDED_CHANNELS + SP_CHANNELS) * 34;

@@ -1,4 +1,5 @@
 use crate::action::ActionType;
+use crate::errors::{RiichiError, RiichiResult};
 use crate::shanten;
 use crate::types::MeldType;
 
@@ -9,6 +10,9 @@ use super::helpers::{
 
 const NP: usize = 3;
 const TOTAL_TILES: u32 = 108;
+pub const OBS_3P_BASE_CHANNELS: usize = 74;
+pub const OBS_3P_EXTENDED_CHANNELS: usize = 215;
+pub const OBS_3P_TILE_TYPES: usize = TILE_DIM_3P;
 
 /// Internal (non-PyO3) methods that write features directly into a flat f32 buffer.
 /// Buffer layout: channel-major, buf[(ch_offset + ch) * TILE_DIM_3P + tile] = value.
@@ -611,6 +615,91 @@ impl Observation3P {
             }
             opp_idx += 1;
         }
+    }
+
+    /// Encode the stable 74-channel sanma observation as channel-major
+    /// `f32` values using the compact 27-tile axis.
+    pub fn encode_base_features(&self) -> RiichiResult<Vec<f32>> {
+        self.validate()?;
+        let mut buf = vec![0.0; OBS_3P_BASE_CHANNELS * OBS_3P_TILE_TYPES];
+        self.encode_base_features_into_unchecked(&mut buf);
+        Ok(buf)
+    }
+
+    /// Write the legacy 74-channel base-v0 sanma layout into a caller-owned
+    /// buffer. See the 4P method for why channel 30 intentionally differs
+    /// from the extended-v0 prefix after a call.
+    pub fn encode_base_features_into(&self, buf: &mut [f32]) -> RiichiResult<()> {
+        let expected = OBS_3P_BASE_CHANNELS * OBS_3P_TILE_TYPES;
+        if buf.len() != expected {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "base-3p v0 output has length {}; expected {expected}",
+                    buf.len()
+                ),
+            });
+        }
+        self.validate()?;
+        self.encode_base_features_into_unchecked(buf);
+        Ok(())
+    }
+
+    pub(crate) fn encode_base_features_into_unchecked(&self, buf: &mut [f32]) {
+        debug_assert_eq!(buf.len(), OBS_3P_BASE_CHANNELS * OBS_3P_TILE_TYPES);
+        buf.fill(0.0);
+        self.encode_base_into(buf, 0);
+
+        let tiles_used = self.discards.iter().map(Vec::len).sum::<usize>()
+            + self
+                .melds
+                .iter()
+                .flatten()
+                .map(|meld| meld.tiles.len())
+                .sum::<usize>()
+            + self.hands[self.player_id as usize].len()
+            + self.dora_indicators.len();
+        let tiles_left = (TOTAL_TILES as i32 - tiles_used as i32).max(0) as f32;
+        broadcast_scalar(buf, 0, 30, tiles_left / 70.0);
+    }
+
+    /// Encode the 215-channel sanma observation block.
+    pub fn encode_extended_features(&self) -> RiichiResult<Vec<f32>> {
+        self.validate()?;
+        let mut buf = vec![0.0; OBS_3P_EXTENDED_CHANNELS * OBS_3P_TILE_TYPES];
+        self.encode_extended_features_into_unchecked(&mut buf);
+        Ok(buf)
+    }
+
+    /// Write extended sanma features into a caller-owned buffer.
+    ///
+    pub fn encode_extended_features_into(&self, buf: &mut [f32]) -> RiichiResult<()> {
+        let expected = OBS_3P_EXTENDED_CHANNELS * OBS_3P_TILE_TYPES;
+        if buf.len() != expected {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "extended-3p v0 output has length {}; expected {expected}",
+                    buf.len()
+                ),
+            });
+        }
+        self.validate()?;
+        self.encode_extended_features_into_unchecked(buf);
+        Ok(())
+    }
+
+    pub(crate) fn encode_extended_features_into_unchecked(&self, buf: &mut [f32]) {
+        debug_assert_eq!(buf.len(), OBS_3P_EXTENDED_CHANNELS * OBS_3P_TILE_TYPES);
+        buf.fill(0.0);
+        self.encode_base_into(buf, 0);
+        self.encode_discard_decay_into(buf, 74);
+        self.encode_shanten_into(buf, 78);
+        self.encode_ankan_into(buf, 94);
+        self.encode_fuuro_into(buf, 98);
+        self.encode_action_avail_into(buf, 178);
+        self.encode_discard_cand_into(buf, 189);
+        self.encode_pass_ctx_into(buf, 194);
+        self.encode_last_ted_into(buf, 197);
+        self.encode_riichi_sute_into(buf, 206);
     }
 }
 

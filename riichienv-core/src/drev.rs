@@ -18,6 +18,7 @@
 //! Future steps will add reach-state weighting, per-opponent breakdowns,
 //! and SP-derived deal-in EV.
 
+use crate::feature_context::FeatureContext;
 use crate::observation::Observation;
 use crate::types::TILE_MAX;
 
@@ -108,7 +109,13 @@ mod serde_tiles_seen {
 
 impl DrevInput {
     pub fn from_observation(obs: &Observation) -> Self {
-        let player_idx = obs.player_id as usize;
+        let context = FeatureContext::new_unchecked(obs);
+        Self::from_feature_context(&context)
+    }
+
+    pub fn from_feature_context(context: &FeatureContext<'_>) -> Self {
+        let obs = context.observation();
+        let player_idx = context.player_index();
         let mut opp_safe_mask = [0u64; 3];
         let mut opp_reach = [false; 3];
         let mut opp_open_melds = [0u8; 3];
@@ -142,38 +149,10 @@ impl DrevInput {
             opp_discard_count[slot] = obs.discards[opp_idx].len().min(255) as u8;
         }
 
-        let mut tiles_seen = [0u8; TILE_MAX];
-        let mut bump = |tile: u32| {
-            let tile_type = (tile / 4) as usize;
-            if tile_type < TILE_MAX {
-                tiles_seen[tile_type] = tiles_seen[tile_type].saturating_add(1).min(4);
-            }
-        };
-        for hand in obs.hands.iter() {
-            for &tile in hand {
-                bump(tile);
-            }
-        }
-        for melds in obs.melds.iter() {
-            for meld in melds {
-                for &tile in &meld.tiles {
-                    bump(tile as u32);
-                }
-            }
-        }
-        for discards in obs.discards.iter() {
-            for &tile in discards {
-                bump(tile);
-            }
-        }
-        for &tile in &obs.dora_indicators {
-            bump(tile);
-        }
-
         Self {
             opp_safe_mask,
             n_active_opponents,
-            tiles_seen,
+            tiles_seen: *context.all_observed_counts_capped(),
             opp_reach,
             opp_open_melds,
             opp_discard_count,

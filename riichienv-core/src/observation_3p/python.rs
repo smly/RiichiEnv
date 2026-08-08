@@ -1,4 +1,5 @@
 use ndarray::prelude::*;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
@@ -12,6 +13,15 @@ use super::helpers::{TILE_DIM_3P, get_next_tile_sanma, tile34_to_compact};
 
 const NP: usize = 3;
 const TOTAL_TILES: u32 = 108;
+
+fn exact_array<T, const N: usize>(values: Vec<T>, name: &str) -> PyResult<[T; N]> {
+    let actual = values.len();
+    values.try_into().map_err(|_| {
+        PyValueError::new_err(format!(
+            "{name} must contain exactly {N} entries, got {actual}"
+        ))
+    })
+}
 
 #[pymethods]
 impl Observation3P {
@@ -39,20 +49,15 @@ impl Observation3P {
         last_tedashis: Vec<Option<u8>>,
         last_discard: Option<u32>,
         drawn_tile: Option<u8>,
-    ) -> Self {
-        let hands: [Vec<u8>; 3] = hands.try_into().expect("expected 3 hands");
-        let melds: [Vec<Meld>; 3] = melds.try_into().expect("expected 3 melds");
-        let discards: [Vec<u8>; 3] = discards.try_into().expect("expected 3 discards");
-        let scores: [i32; 3] = scores.try_into().expect("expected 3 scores");
-        let riichi_declared: [bool; 3] = riichi_declared
-            .try_into()
-            .expect("expected 3 riichi_declared");
-        let riichi_sutehais: [Option<u8>; 3] = riichi_sutehais
-            .try_into()
-            .expect("expected 3 riichi_sutehais");
-        let last_tedashis: [Option<u8>; 3] =
-            last_tedashis.try_into().expect("expected 3 last_tedashis");
-        Self::new(
+    ) -> PyResult<Self> {
+        let hands = exact_array(hands, "hands")?;
+        let melds = exact_array(melds, "melds")?;
+        let discards = exact_array(discards, "discards")?;
+        let scores = exact_array(scores, "scores")?;
+        let riichi_declared = exact_array(riichi_declared, "riichi_declared")?;
+        let riichi_sutehais = exact_array(riichi_sutehais, "riichi_sutehais")?;
+        let last_tedashis = exact_array(last_tedashis, "last_tedashis")?;
+        let observation = Self::new(
             player_id,
             hands,
             melds,
@@ -73,7 +78,11 @@ impl Observation3P {
             last_tedashis,
             last_discard,
             drawn_tile,
-        )
+        );
+        observation
+            .validate_action_selection_compat()
+            .map_err(PyErr::from)?;
+        Ok(observation)
     }
 
     #[getter]
@@ -400,6 +409,7 @@ impl Observation3P {
     }
 
     pub fn encode<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        self.validate().map_err(PyErr::from)?;
         let num_channels = 74;
         let mut arr = Array2::<f32>::zeros((num_channels, TILE_DIM_3P));
 
@@ -711,6 +721,7 @@ impl Observation3P {
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        self.validate().map_err(PyErr::from)?;
         let mut arr = Array2::<f32>::zeros((NP, 4));
 
         let mut all_visible: Vec<u32> = Vec::new();
@@ -1060,6 +1071,7 @@ impl Observation3P {
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        self.validate().map_err(PyErr::from)?;
         let mut arr = Array1::<f32>::zeros(5);
 
         let player_idx = self.player_id as usize;
@@ -1118,21 +1130,9 @@ impl Observation3P {
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        let total = 215 * TILE_DIM_3P;
-        let mut buf = vec![0.0f32; total];
-
-        self.encode_base_into(&mut buf, 0);
-        self.encode_discard_decay_into(&mut buf, 74);
-        self.encode_shanten_into(&mut buf, 78);
-        self.encode_ankan_into(&mut buf, 94);
-        self.encode_fuuro_into(&mut buf, 98);
-        self.encode_action_avail_into(&mut buf, 178);
-        self.encode_discard_cand_into(&mut buf, 189);
-        self.encode_pass_ctx_into(&mut buf, 194);
-        self.encode_last_ted_into(&mut buf, 197);
-        self.encode_riichi_sute_into(&mut buf, 206);
-
-        let byte_len = total * std::mem::size_of::<f32>();
+        self.validate().map_err(PyErr::from)?;
+        let buf = self.encode_extended_features().map_err(PyErr::from)?;
+        let byte_len = std::mem::size_of_val(buf.as_slice());
         let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }

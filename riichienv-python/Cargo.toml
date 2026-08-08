@@ -9,6 +9,7 @@ name = "_riichienv"
 crate-type = ["cdylib"]
 
 [dependencies]
+flate2 = "1.0"
 riichienv-core = { path = "../riichienv-core", features = ["python"] }
 pyo3 = { version = "0.28" }
 serde_json = "1.0"

@@ -23,12 +23,17 @@ use crate::types::WinResult;
 #[cfg(feature = "python")]
 use crate::types::{Conditions, Meld};
 
+pub mod journal;
 pub mod mjai_replay;
 pub mod mjsoul_replay;
 
-pub use mjai_replay::MjaiEvent;
+pub use journal::{
+    EVENT_JOURNAL_SCHEMA_VERSION, EventBatch, EventCursor, EventJournal, KyokuKey, KyokuSpan,
+};
+
 #[cfg(feature = "python")]
 pub use mjai_replay::MjaiReplay;
+pub use mjai_replay::{MjaiEvent, ReplayCursor, ReplayLog};
 #[cfg(feature = "python")]
 pub use mjsoul_replay::MjSoulReplay;
 
@@ -1024,6 +1029,13 @@ pub struct LogKyoku {
     pub(crate) actions: Arc<[Action]>,
     pub rule: crate::rule::GameRule,
     pub game_end_scores: Option<Vec<i32>>,
+}
+
+impl LogKyoku {
+    /// Typed replay actions in their original decision order.
+    pub fn actions(&self) -> &[Action] {
+        &self.actions
+    }
 }
 
 #[cfg(feature = "python")]

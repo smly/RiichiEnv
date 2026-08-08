@@ -1,18 +1,24 @@
 use ndarray::prelude::*;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
 use crate::action::{Action, ActionEncoder, ActionType};
-use crate::drev::DREV_CHANNELS;
 use crate::shanten;
-use crate::sp::SP_CHANNELS;
 use crate::types::{Meld, MeldType};
 use crate::yaku_checker;
 
-use super::OBS_EXTENDED_CHANNELS;
-
 use super::Observation;
 use super::helpers::get_next_tile;
+
+fn exact_array<T, const N: usize>(values: Vec<T>, name: &str) -> PyResult<[T; N]> {
+    let actual = values.len();
+    values.try_into().map_err(|_| {
+        PyValueError::new_err(format!(
+            "{name} must contain exactly {N} entries, got {actual}"
+        ))
+    })
+}
 
 #[pymethods]
 impl Observation {
@@ -40,20 +46,15 @@ impl Observation {
         last_tedashis: Vec<Option<u8>>,
         last_discard: Option<u32>,
         drawn_tile: Option<u8>,
-    ) -> Self {
-        let hands: [Vec<u8>; 4] = hands.try_into().expect("expected 4 hands");
-        let melds: [Vec<Meld>; 4] = melds.try_into().expect("expected 4 melds");
-        let discards: [Vec<u8>; 4] = discards.try_into().expect("expected 4 discards");
-        let scores: [i32; 4] = scores.try_into().expect("expected 4 scores");
-        let riichi_declared: [bool; 4] = riichi_declared
-            .try_into()
-            .expect("expected 4 riichi_declared");
-        let riichi_sutehais: [Option<u8>; 4] = riichi_sutehais
-            .try_into()
-            .expect("expected 4 riichi_sutehais");
-        let last_tedashis: [Option<u8>; 4] =
-            last_tedashis.try_into().expect("expected 4 last_tedashis");
-        Self::new(
+    ) -> PyResult<Self> {
+        let hands = exact_array(hands, "hands")?;
+        let melds = exact_array(melds, "melds")?;
+        let discards = exact_array(discards, "discards")?;
+        let scores = exact_array(scores, "scores")?;
+        let riichi_declared = exact_array(riichi_declared, "riichi_declared")?;
+        let riichi_sutehais = exact_array(riichi_sutehais, "riichi_sutehais")?;
+        let last_tedashis = exact_array(last_tedashis, "last_tedashis")?;
+        let observation = Self::new(
             player_id,
             hands,
             melds,
@@ -74,7 +75,11 @@ impl Observation {
             last_tedashis,
             last_discard,
             drawn_tile,
-        )
+        );
+        observation
+            .validate_action_selection_compat()
+            .map_err(PyErr::from)?;
+        Ok(observation)
     }
 
     #[getter]
@@ -459,6 +464,7 @@ impl Observation {
     }
 
     pub fn encode<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        self.validate().map_err(PyErr::from)?;
         // Total Channels (Expanded with Mortal features):
         // 0-3: Hand (1,2,3,4)
         // 4: Red (Hand)
@@ -825,6 +831,7 @@ impl Observation {
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        self.validate().map_err(PyErr::from)?;
         let mut arr = Array2::<f32>::zeros((4, 4));
 
         // Collect all visible tiles for ukire calculation
@@ -1213,6 +1220,7 @@ impl Observation {
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        self.validate().map_err(PyErr::from)?;
         let mut arr = Array1::<f32>::zeros(5);
 
         let player_idx = self.player_id as usize;
@@ -1278,21 +1286,9 @@ impl Observation {
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        let total = 215 * 34;
-        let mut buf = vec![0.0f32; total];
-
-        self.encode_base_into(&mut buf, 0);
-        self.encode_discard_decay_into(&mut buf, 74);
-        self.encode_shanten_into(&mut buf, 78);
-        self.encode_ankan_into(&mut buf, 94);
-        self.encode_fuuro_into(&mut buf, 98);
-        self.encode_action_avail_into(&mut buf, 178);
-        self.encode_discard_cand_into(&mut buf, 189);
-        self.encode_pass_ctx_into(&mut buf, 194);
-        self.encode_last_ted_into(&mut buf, 197);
-        self.encode_riichi_sute_into(&mut buf, 206);
-
-        let byte_len = total * std::mem::size_of::<f32>();
+        self.validate().map_err(PyErr::from)?;
+        let buf = self.encode_extended_features().map_err(PyErr::from)?;
+        let byte_len = std::mem::size_of_val(buf.as_slice());
         let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
@@ -1307,14 +1303,12 @@ impl Observation {
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
-    /// Encode SP features as 123 channels.
+    /// Encode SP features using the canonical Rust feature layout.
     #[pyo3(name = "encode_sp")]
     pub fn encode_sp_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        let total = SP_CHANNELS * 34;
-        let mut buf = vec![0.0f32; total];
-        self.encode_sp_into(&mut buf, 0);
-
-        let byte_len = total * std::mem::size_of::<f32>();
+        self.validate().map_err(PyErr::from)?;
+        let buf = self.encode_sp_features().map_err(PyErr::from)?;
+        let byte_len = std::mem::size_of_val(buf.as_slice());
         let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
@@ -1325,36 +1319,23 @@ impl Observation {
         &self,
         py: Python<'py>,
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        let total_channels = OBS_EXTENDED_CHANNELS + SP_CHANNELS + DREV_CHANNELS;
-        let total = total_channels * 34;
-        let mut buf = vec![0.0f32; total];
-
-        self.encode_base_into(&mut buf, 0);
-        self.encode_discard_decay_into(&mut buf, 74);
-        self.encode_shanten_into(&mut buf, 78);
-        self.encode_ankan_into(&mut buf, 94);
-        self.encode_fuuro_into(&mut buf, 98);
-        self.encode_action_avail_into(&mut buf, 178);
-        self.encode_discard_cand_into(&mut buf, 189);
-        self.encode_pass_ctx_into(&mut buf, 194);
-        self.encode_last_ted_into(&mut buf, 197);
-        self.encode_riichi_sute_into(&mut buf, 206);
-        self.encode_sp_into(&mut buf, OBS_EXTENDED_CHANNELS);
-        self.encode_drev_into(&mut buf, OBS_EXTENDED_CHANNELS + SP_CHANNELS);
-
-        let byte_len = total * std::mem::size_of::<f32>();
+        self.validate().map_err(PyErr::from)?;
+        let buf = self
+            .encode_extended_with_sp_features()
+            .map_err(PyErr::from)?;
+        let byte_len = std::mem::size_of_val(buf.as_slice());
         let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
     /// Encode DREV features only.
     #[pyo3(name = "encode_drev")]
-    pub fn encode_drev_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
-        let total = DREV_CHANNELS * 34;
-        let mut buf = vec![0.0f32; total];
-        self.encode_drev_into(&mut buf, 0);
-
-        let byte_len = total * std::mem::size_of::<f32>();
+    pub fn encode_drev_py<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let buf = self.encode_drev_features().map_err(PyErr::from)?;
+        let byte_len = std::mem::size_of_val(buf.as_slice());
         let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }

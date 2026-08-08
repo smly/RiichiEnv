@@ -121,9 +121,7 @@ def test_sp_validation_detects_required_tile_not_in_wall():
     remaining = [4] * validator.TILE_TYPES
     remaining[11] = 0  # all 4 copies already visible
 
-    issues, _metrics = validator.validate_sp_arrays(
-        sp, legal_discards={5}, remaining=remaining
-    )
+    issues, _metrics = validator.validate_sp_arrays(sp, legal_discards={5}, remaining=remaining)
 
     assert "required_unreachable" in {issue.code for issue in issues}
 
@@ -145,9 +143,7 @@ def test_sp_validation_detects_shanten_winning_too_early():
     sp[89 * validator.TILE_TYPES + 0] = 0.5
     sp[72 * validator.TILE_TYPES + 0] = 0.6  # avoid tripping win_gt_tenpai
 
-    issues, _metrics = validator.validate_sp_arrays(
-        sp, legal_discards={0}, hand_counts=hand_counts
-    )
+    issues, _metrics = validator.validate_sp_arrays(sp, legal_discards={0}, hand_counts=hand_counts)
 
     assert "shanten_win_too_early" in {issue.code for issue in issues}
 

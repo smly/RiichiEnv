@@ -23,22 +23,24 @@ impl HandEvaluator3P {
     }
 
     pub fn new(tiles_136: Vec<u8>, melds: Vec<Meld>) -> Self {
-        let mut aka_dora_count = 0;
-        let mut tiles_34 = Vec::with_capacity(tiles_136.len());
+        Self::new_borrowed(&tiles_136, &melds)
+    }
 
-        for &t in &tiles_136 {
+    /// Borrowed constructor for engine and feature hot paths.
+    pub fn new_borrowed(tiles_136: &[u8], melds: &[Meld]) -> Self {
+        let mut aka_dora_count = 0;
+        let mut full_hand = Hand::default();
+        for &t in tiles_136 {
             if t == 16 || t == 52 || t == 88 {
                 aka_dora_count += 1;
             }
-            tiles_34.push(t / 4);
+            full_hand.add(t / 4);
         }
-
-        let mut full_hand = Hand::new(Some(tiles_34));
         let mut hand = full_hand.clone();
 
         let mut internal_melds = Vec::with_capacity(melds.len());
 
-        for meld in &melds {
+        for meld in melds {
             let mut new_meld = meld.clone();
 
             if new_meld.meld_type == MeldType::Daiminkan
@@ -82,6 +84,17 @@ impl HandEvaluator3P {
         ura_indicators: Vec<u8>,
         conditions: Option<Conditions>,
     ) -> WinResult {
+        self.calc_borrowed(win_tile, &dora_indicators, &ura_indicators, conditions)
+    }
+
+    /// Borrowed scoring entry point matching the 4-player evaluator API.
+    pub fn calc_borrowed(
+        &self,
+        win_tile: u8,
+        dora_indicators: &[u8],
+        ura_indicators: &[u8],
+        conditions: Option<Conditions>,
+    ) -> WinResult {
         let win_tile_136 = win_tile;
         let conditions = conditions.unwrap_or_default();
         let win_tile_34 = win_tile_136 / 4;
@@ -106,7 +119,7 @@ impl HandEvaluator3P {
         // Kita tiles (North/4z = tile_34=30) are set aside and not in hand,
         // but they still count as dora/ura-dora when the dora tile is North.
         let mut dora_count = 0;
-        for &indicator_136 in &dora_indicators {
+        for &indicator_136 in dora_indicators {
             let next_tile_34 = get_next_tile_sanma(indicator_136 / 4);
             dora_count += full_hand_14.counts[next_tile_34 as usize];
             if next_tile_34 == 30 {
@@ -115,7 +128,7 @@ impl HandEvaluator3P {
         }
 
         let mut ura_dora_count = 0;
-        for &indicator_136 in &ura_indicators {
+        for &indicator_136 in ura_indicators {
             let next_tile_34 = get_next_tile_sanma(indicator_136 / 4);
             ura_dora_count += full_hand_14.counts[next_tile_34 as usize];
             if next_tile_34 == 30 {

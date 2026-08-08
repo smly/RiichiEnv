@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use riichienv_core::action::{Action, Action3P, ActionEncoder, Phase};
 
 /// Wrapper that accepts both `Action` and `Action3P` from Python.
-pub struct AnyAction(Action);
+pub struct AnyAction(pub(crate) Action);
 
 impl<'a, 'py> FromPyObject<'a, 'py> for AnyAction {
     type Error = PyErr;
