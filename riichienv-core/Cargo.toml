@@ -35,6 +35,10 @@ harness = false
 name = "sp_bench"
 harness = false
 
+[[bench]]
+name = "feature_bench"
+harness = false
+
 [features]
 default = ["dep:flate2"]
 python = ["dep:pyo3"]
