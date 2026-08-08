@@ -6,10 +6,4 @@ target
 trunk
 **/wandb
 **/.env
-riichienv-ml-xt/
-debug-riichienv-with-mortal
-# DEBUG-ONLY: Mortal SP comparison harness (links AGPL Mortal libriichi).
-# Never commit any contents under this directory.
-riichienv-core/src/debug_only_mortal_sp/
-mjsoul-parser
 **/.ipynb_checkpoints
