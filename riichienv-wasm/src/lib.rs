@@ -1,9 +1,11 @@
 use wasm_bindgen::prelude::*;
 
+use riichienv_core::drev::{self, DrevInput, encode_drev};
 use riichienv_core::hand_evaluator::HandEvaluator;
 use riichienv_core::hand_evaluator_3p::HandEvaluator3P;
 use riichienv_core::parser::{mjai_to_tid, tid_to_mjai};
-use riichienv_core::types::{Conditions, Meld, MeldType, Wind};
+use riichienv_core::sp::{self, SpInput, encode_sp};
+use riichienv_core::types::{Conditions, Meld, MeldType, TILE_MAX, Wind};
 use riichienv_core::{score, yaku};
 
 /// Input format for melds passed from JavaScript.
@@ -208,6 +210,125 @@ pub fn calc_score(
 #[wasm_bindgen]
 pub fn mjai_to_tile_id(mjai: &str) -> Option<u8> {
     mjai_to_tid(mjai)
+}
+
+#[derive(serde::Serialize)]
+struct SpCandidateJs {
+    tile: u8,
+    exp_value: f32,
+    tenpai_prob: f32,
+    win_prob: f32,
+    num_required_tiles: f32,
+    num_yaku_progress_tiles: f32,
+    min_point: f32,
+    mean_point: f32,
+    max_point: f32,
+    yaku_mask: u32,
+    required_tiles: Vec<f32>,
+    yaku_progress_tiles: Vec<f32>,
+    point_achievement_probs: Vec<f32>,
+    tenpai_series: Vec<f32>,
+    win_series: Vec<f32>,
+    ev_series: Vec<f32>,
+}
+
+#[derive(serde::Serialize)]
+struct SpFeaturesJs {
+    sp_channels: usize,
+    tile_max: usize,
+    encoded: Vec<f32>,
+    candidates: Vec<SpCandidateJs>,
+}
+
+#[derive(serde::Serialize)]
+struct DrevFeaturesJs {
+    drev_channels: usize,
+    tile_max: usize,
+    encoded: Vec<f32>,
+    anpai_norm: Vec<f32>,
+    suji_norm: Vec<f32>,
+    kabe: Vec<f32>,
+    reach_genbutsu_norm: Vec<f32>,
+    n_reach_norm: f32,
+    opp_tenpai_prob: Vec<f32>,
+    threat: Vec<f32>,
+}
+
+/// Compute SP features for a hand state.
+///
+/// Input JSON matches `SpInput`. Returns `{ sp_channels, tile_max, encoded,
+/// candidates }`. `encoded` is the row-major `[SP_CHANNELS][TILE_MAX]`
+/// channel buffer (length 178 * 34); `candidates` is a per-discard summary
+/// sorted by descending immediate EV (matches the in-engine ordering).
+#[wasm_bindgen]
+pub fn calc_sp_features(input_json: &str) -> Result<JsValue, JsValue> {
+    let input: SpInput = serde_json::from_str(input_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse SpInput: {}", e)))?;
+
+    let result = sp::calculate_sp(&input);
+    let encoded = encode_sp(&result);
+
+    let candidates: Vec<SpCandidateJs> = result
+        .candidates
+        .iter()
+        .map(|c| SpCandidateJs {
+            tile: c.tile,
+            exp_value: c.exp_values[0],
+            tenpai_prob: c.tenpai_probs[0],
+            win_prob: c.win_probs[0],
+            num_required_tiles: c.num_required_tiles,
+            num_yaku_progress_tiles: c.num_yaku_progress_tiles,
+            min_point: c.min_point,
+            mean_point: c.mean_point,
+            max_point: c.max_point,
+            yaku_mask: c.yaku_mask,
+            required_tiles: c.required_tiles.to_vec(),
+            yaku_progress_tiles: c.yaku_progress_tiles.to_vec(),
+            point_achievement_probs: c.point_achievement_probs.to_vec(),
+            tenpai_series: c.tenpai_probs.to_vec(),
+            win_series: c.win_probs.to_vec(),
+            ev_series: c.exp_values.to_vec(),
+        })
+        .collect();
+
+    let out = SpFeaturesJs {
+        sp_channels: sp::SP_CHANNELS,
+        tile_max: TILE_MAX,
+        encoded,
+        candidates,
+    };
+    serde_wasm_bindgen::to_value(&out)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+}
+
+/// Compute Deal-in Risk EV (DREV) features for a hand state.
+///
+/// Input JSON matches `DrevInput`. Returns `{ drev_channels, tile_max,
+/// encoded, anpai_norm, suji_norm, kabe, reach_genbutsu_norm, n_reach_norm,
+/// opp_tenpai_prob, threat }`. `encoded` is the row-major
+/// `[DREV_CHANNELS][TILE_MAX]` channel buffer (length 9 * 34).
+#[wasm_bindgen]
+pub fn calc_drev_features(input_json: &str) -> Result<JsValue, JsValue> {
+    let input: DrevInput = serde_json::from_str(input_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse DrevInput: {}", e)))?;
+
+    let result = drev::calculate_drev(&input);
+    let encoded = encode_drev(&result);
+
+    let out = DrevFeaturesJs {
+        drev_channels: drev::DREV_CHANNELS,
+        tile_max: TILE_MAX,
+        encoded,
+        anpai_norm: result.anpai_norm.to_vec(),
+        suji_norm: result.suji_norm.to_vec(),
+        kabe: result.kabe.to_vec(),
+        reach_genbutsu_norm: result.reach_genbutsu_norm.to_vec(),
+        n_reach_norm: result.n_reach_norm,
+        opp_tenpai_prob: result.opp_tenpai_prob.to_vec(),
+        threat: result.threat.to_vec(),
+    };
+    serde_wasm_bindgen::to_value(&out)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
 }
 
 /// Convert 136-encoding tile ID to MJAI tile string.
