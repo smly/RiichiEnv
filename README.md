@@ -71,8 +71,10 @@ while not engine.is_done:
 For serial self-play orchestration, `BatchGameEngine` flattens decisions as
 `(environment_index, player_id, observation)`. Batch feature functions such as
 `encode_extended_with_sp_batch()` return contiguous float32 buffers; the 4P
-combined layout is `[batch, 402, 34]`. Event logging defaults to off for this
-batch facade. The combined Rust encoder reuses a borrowed `FeatureContext` so
+combined layout is `[batch, 402, 34]`. The corresponding 3P APIs use the
+`_3p` suffix and a compact `[batch, 402, 27]` layout. Event logging defaults to
+off for this batch facade. The combined Rust encoder reuses a borrowed
+`FeatureContext` so
 hand counts, visible tiles, red-five flags, and discard candidates are gathered
 once per observation rather than independently for extended, SP, and DREV.
 
@@ -119,7 +121,8 @@ for kyoku in replay.take_kyokus():
 ```
 
 The WASM `GameEngine` accepts only pending action IDs, so browser callers do
-not construct Rust actions. `baseFeatures()` and `extendedFeatures()` return
+not construct Rust actions. `baseFeatures()`, `extendedFeatures()`,
+`spFeatures()`, `drevFeatures()`, and `extendedWithSpFeatures()` return
 `Float32Array` values, while `actionMask()` returns a `Uint8Array`.
 
 ### Gym-style API

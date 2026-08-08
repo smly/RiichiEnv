@@ -72,6 +72,27 @@ def _quantized_hash(raw: bytes, dtype: type[np.float32] | type[np.uint8]) -> tup
             215 * 27,
             "b70c0cd30a48db6f1cab97126560a3470830c5420393ac929f4e793c79a9236f",
         ),
+        (
+            "3p-red-single",
+            "encode_sp",
+            np.float32,
+            178 * 27,
+            "7984e88bde2aaa0f961bdb5a9c59a3fcf846545e4e227ff9cb441843acbf5783",
+        ),
+        (
+            "3p-red-single",
+            "encode_drev",
+            np.float32,
+            9 * 27,
+            "46be13d2dc57d15a3505198ac0dcc7da2f1ec2f739e73f9789e9cb5bebfa34ab",
+        ),
+        (
+            "3p-red-single",
+            "encode_extended_with_sp",
+            np.float32,
+            (215 + 178 + 9) * 27,
+            "65f6f6a79b1c7e52e6e4b03b14ad00281d5a3df397c34e3794e9cfbde388ec3e",
+        ),
         ("3p-red-single", "mask", np.uint8, 60, "e11ac5811436ca4cad52839a7e9f543b310215c7213cb1e9cd6f7be3768f1433"),
     ],
 )

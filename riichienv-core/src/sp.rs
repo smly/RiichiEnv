@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
 
-use crate::feature_context::FeatureContext;
+use crate::feature_context::{FeatureContext, FeatureContext3P};
 use crate::hand_evaluator::HandEvaluator;
+use crate::hand_evaluator_3p::HandEvaluator3P;
 use crate::observation::Observation;
+use crate::observation_3p::Observation3P;
 use crate::shanten;
 use crate::types::{Conditions, Meld, MeldType, TILE_MAX, Wind};
 
@@ -59,6 +61,35 @@ pub struct SpInput {
     pub can_double_riichi: bool,
     pub tsumos_left: u8,
     pub discard_candidates: Vec<u8>,
+}
+
+/// Sanma SP input. The calculation retains the canonical 34-tile indexing
+/// internally and excludes 2m through 8m from the wall. Encoders compact the
+/// spatial axis to the 27 tile types used by every other 3P feature block.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SpInput3P {
+    #[serde(with = "serde_arrays")]
+    pub tehai: [u8; TILE_MAX],
+    pub akas_in_hand: [bool; 3],
+    #[serde(with = "serde_arrays")]
+    pub tiles_seen: [u8; TILE_MAX],
+    #[serde(default)]
+    pub akas_seen: [bool; 3],
+    pub dora_indicators: Vec<u8>,
+    pub melds: Vec<Meld>,
+    pub bakaze: u8,
+    pub jikaze: u8,
+    pub is_menzen: bool,
+    pub can_riichi: bool,
+    pub can_double_riichi: bool,
+    pub tsumos_left: u8,
+    pub discard_candidates: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpVariant {
+    FourPlayer,
+    ThreePlayer,
 }
 
 mod serde_arrays {
@@ -214,6 +245,57 @@ impl SpInput {
     }
 }
 
+impl SpInput3P {
+    pub fn from_observation(obs: &Observation3P) -> Self {
+        let context = FeatureContext3P::new_unchecked(obs);
+        Self::from_feature_context(&context)
+    }
+
+    pub fn from_feature_context(context: &FeatureContext3P<'_>) -> Self {
+        let obs = context.observation();
+        let player_idx = context.player_index();
+        let rel_seat = (obs.player_id + 3 - obs.oya) % 3;
+        let can_riichi = obs.riichi_declared[player_idx] || obs.scores[player_idx] >= 1000;
+        let can_double_riichi = can_riichi
+            && obs.discards.iter().all(Vec::is_empty)
+            && obs.melds.iter().all(Vec::is_empty);
+
+        Self {
+            tehai: *context.hand_counts(),
+            akas_in_hand: context.akas_in_hand(),
+            tiles_seen: *context.visible_counts_capped(),
+            akas_seen: context.akas_seen(),
+            dora_indicators: obs.dora_indicators.iter().map(|&tile| tile as u8).collect(),
+            melds: obs.melds[player_idx].clone(),
+            bakaze: obs.round_wind,
+            jikaze: 27 + rel_seat,
+            is_menzen: obs.melds[player_idx].iter().all(|meld| !meld.opened),
+            can_riichi,
+            can_double_riichi,
+            tsumos_left: remaining_self_draws_3p(obs),
+            discard_candidates: context.discard_candidates().to_vec(),
+        }
+    }
+
+    fn as_common_input(&self) -> SpInput {
+        SpInput {
+            tehai: self.tehai,
+            akas_in_hand: self.akas_in_hand,
+            tiles_seen: self.tiles_seen,
+            akas_seen: self.akas_seen,
+            dora_indicators: self.dora_indicators.clone(),
+            melds: self.melds.clone(),
+            bakaze: self.bakaze,
+            jikaze: self.jikaze,
+            is_menzen: self.is_menzen,
+            can_riichi: self.can_riichi,
+            can_double_riichi: self.can_double_riichi,
+            tsumos_left: self.tsumos_left,
+            discard_candidates: self.discard_candidates.clone(),
+        }
+    }
+}
+
 /// DEBUG-ONLY: expose the leaf scoring path so the Mortal-comparison harness
 /// can localize EV interpretation differences. Returns (han, fu, total) for a
 /// menzen-tsumo or open-tsumo win on `win_tile` from the 13-tile `tehai_13`.
@@ -223,7 +305,13 @@ pub fn __debug_score_for_win(
     tehai_13: &[u8; TILE_MAX],
     win_tile: u8,
 ) -> Option<(u32, u32, u32)> {
-    let base = base_score_tsumo(input, tehai_13, win_tile, input.akas_in_hand)?;
+    let base = base_score_tsumo(
+        input,
+        tehai_13,
+        win_tile,
+        input.akas_in_hand,
+        SpVariant::FourPlayer,
+    )?;
     Some((base.han, base.fu, base.total))
 }
 
@@ -244,11 +332,7 @@ fn initial_akas_in_wall(input: &SpInput) -> [bool; 3] {
 /// Mortal's convention: when only one copy of a 5x is in hand and the red is in
 /// hand, the discarded tile *is* the red. Otherwise the discard removes a
 /// regular and aka stays.
-fn aka_after_discard(
-    akas: [bool; 3],
-    counts: &[u8; TILE_MAX],
-    tile: u8,
-) -> [bool; 3] {
+fn aka_after_discard(akas: [bool; 3], counts: &[u8; TILE_MAX], tile: u8) -> [bool; 3] {
     let red_idx = match tile {
         4 => 0,
         13 => 1,
@@ -265,6 +349,15 @@ fn aka_after_discard(
 }
 
 pub fn calculate_sp(input: &SpInput) -> SpResult {
+    calculate_sp_for_variant(input, SpVariant::FourPlayer)
+}
+
+pub fn calculate_sp_3p(input: &SpInput3P) -> SpResult {
+    let common = input.as_common_input();
+    calculate_sp_for_variant(&common, SpVariant::ThreePlayer)
+}
+
+fn calculate_sp_for_variant(input: &SpInput, variant: SpVariant) -> SpResult {
     let raw_discard_tiles: Vec<u8> = if input.discard_candidates.is_empty() {
         input
             .tehai
@@ -276,17 +369,16 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
         input.discard_candidates.clone()
     };
 
-    let remaining = remaining_counts(input);
+    let remaining = remaining_counts_for_variant(input, variant);
     let total_remaining: f32 = remaining.iter().map(|&x| x as f32).sum::<f32>().max(1.0);
 
-    let mut dp = DpContext::new(input);
+    let mut dp = DpContext::new(input, variant);
 
     // First pass: compute the post-discard shanten for every candidate so we
     // know which discards are "shanten-maintaining" (= optimal). Mortal-style
     // pre-filtering: only the optimal-shanten discards run the full DP; the
     // shanten-down ones use the cheap probability_series approximation.
-    let mut prepared: Vec<(u8, [u8; TILE_MAX], i8)> =
-        Vec::with_capacity(raw_discard_tiles.len());
+    let mut prepared: Vec<(u8, [u8; TILE_MAX], i8)> = Vec::with_capacity(raw_discard_tiles.len());
     let mut best_shanten = i8::MAX;
     for tile in raw_discard_tiles {
         let tile_idx = tile as usize;
@@ -323,7 +415,7 @@ pub fn calculate_sp(input: &SpInput) -> SpResult {
         // 1..=3+optimal both ignore it, so skip the fallback in those cases.
         let needs_mean_point = !is_optimal || shanten_after > SHANTEN_THRES;
         if needs_mean_point && scoring.mean_point <= 0.0 {
-            scoring.mean_point = rough_point_estimate(input, &after_discard);
+            scoring.mean_point = rough_point_estimate(input, &after_discard, variant);
         }
 
         // Aka tracking through the outer-loop discard: if `tile` is a 5x and
@@ -403,7 +495,34 @@ pub fn encode_sp(result: &SpResult) -> Vec<f32> {
 }
 
 pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
-    if buf.len() < (ch_offset + SP_CHANNELS) * TILE_MAX {
+    encode_sp_into_layout(result, buf, ch_offset, TILE_MAX, Some);
+}
+
+pub fn encode_sp_3p(result: &SpResult) -> Vec<f32> {
+    const TILE_TYPES_3P: usize = 27;
+    let mut buf = vec![0.0f32; SP_CHANNELS * TILE_TYPES_3P];
+    encode_sp_3p_into(result, &mut buf, 0);
+    buf
+}
+
+pub fn encode_sp_3p_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
+    const TILE_TYPES_3P: usize = 27;
+    encode_sp_into_layout(result, buf, ch_offset, TILE_TYPES_3P, |tile| match tile {
+        0 => Some(0),
+        1..=7 => None,
+        8..=33 => Some(tile - 7),
+        _ => None,
+    });
+}
+
+fn encode_sp_into_layout(
+    result: &SpResult,
+    buf: &mut [f32],
+    ch_offset: usize,
+    tile_types: usize,
+    compact: impl Fn(usize) -> Option<usize> + Copy,
+) {
+    if buf.len() < (ch_offset + SP_CHANNELS) * tile_types {
         return;
     }
 
@@ -412,8 +531,20 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
     };
 
     let max_ev = best.exp_values[0].max(0.0);
-    broadcast(buf, ch_offset, 0, (max_ev.min(100_000.0)) / 100_000.0);
-    broadcast(buf, ch_offset, 1, (max_ev.min(30_000.0)) / 30_000.0);
+    broadcast_layout(
+        buf,
+        ch_offset,
+        0,
+        (max_ev.min(100_000.0)) / 100_000.0,
+        tile_types,
+    );
+    broadcast_layout(
+        buf,
+        ch_offset,
+        1,
+        (max_ev.min(30_000.0)) / 30_000.0,
+        tile_types,
+    );
 
     for candidate in &result.candidates {
         let discard = candidate.tile as usize;
@@ -421,11 +552,21 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
             continue;
         }
         for tile in 0..TILE_MAX {
+            let Some(tile_column) = compact(tile) else {
+                continue;
+            };
             if candidate.required_tiles[tile] > 0.0 {
-                set(buf, ch_offset, 2 + discard, tile, 1.0);
+                set_layout(buf, ch_offset, 2 + discard, tile_column, 1.0, tile_types);
             }
             if candidate.yaku_progress_tiles[tile] > 0.0 {
-                set(buf, ch_offset, 2 + TILE_MAX + discard, tile, 1.0);
+                set_layout(
+                    buf,
+                    ch_offset,
+                    2 + TILE_MAX + discard,
+                    tile_column,
+                    1.0,
+                    tile_types,
+                );
             }
         }
     }
@@ -435,8 +576,9 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
             .partial_cmp(&b.num_required_tiles)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| b.tile.cmp(&a.tile))
-    }) {
-        set(buf, ch_offset, 70, best_required.tile as usize, 1.0);
+    }) && let Some(tile) = compact(best_required.tile as usize)
+    {
+        set_layout(buf, ch_offset, 70, tile, 1.0, tile_types);
     }
     if let Some(best_yaku) = result.candidates.iter().max_by(|a, b| {
         a.num_yaku_progress_tiles
@@ -444,8 +586,9 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| b.tile.cmp(&a.tile))
     }) && best_yaku.num_yaku_progress_tiles > 0.0
+        && let Some(tile) = compact(best_yaku.tile as usize)
     {
-        set(buf, ch_offset, 71, best_yaku.tile as usize, 1.0);
+        set_layout(buf, ch_offset, 71, tile, 1.0, tile_types);
     }
 
     let ev_scale = if max_ev >= 1.0 { 1.0 / max_ev } else { 0.0 };
@@ -463,27 +606,33 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
         if discard >= TILE_MAX {
             continue;
         }
+        let Some(discard_column) = compact(discard) else {
+            continue;
+        };
         for turn in 0..SP_MAX_TURNS {
-            set(
+            set_layout(
                 buf,
                 ch_offset,
                 72 + turn,
-                discard,
+                discard_column,
                 candidate.tenpai_probs[turn],
+                tile_types,
             );
-            set(
+            set_layout(
                 buf,
                 ch_offset,
                 72 + SP_MAX_TURNS + turn,
-                discard,
+                discard_column,
                 candidate.win_probs[turn],
+                tile_types,
             );
-            set(
+            set_layout(
                 buf,
                 ch_offset,
                 72 + SP_MAX_TURNS * 2 + turn,
-                discard,
+                discard_column,
                 (candidate.exp_values[turn] * ev_scale).clamp(0.0, 1.0),
+                tile_types,
             );
         }
 
@@ -491,23 +640,42 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
         // channel YAKU_MASK_BASE + b at the discard-tile cell.
         for b in 0..yaku_mask_bits::N_BITS {
             if candidate.yaku_mask & (1u32 << b) != 0 {
-                set(buf, ch_offset, YAKU_MASK_BASE + b, discard, 1.0);
+                set_layout(
+                    buf,
+                    ch_offset,
+                    YAKU_MASK_BASE + b,
+                    discard_column,
+                    1.0,
+                    tile_types,
+                );
             }
         }
 
         // Scoring stats per-discard: min/mean/max normalised by POINT_NORM.
         if candidate.mean_point > 0.0 || candidate.max_point > 0.0 {
-            set(
-                buf, ch_offset, SCORING_BASE, discard,
+            set_layout(
+                buf,
+                ch_offset,
+                SCORING_BASE,
+                discard_column,
                 (candidate.min_point / POINT_NORM).clamp(0.0, 1.0),
+                tile_types,
             );
-            set(
-                buf, ch_offset, SCORING_BASE + 1, discard,
+            set_layout(
+                buf,
+                ch_offset,
+                SCORING_BASE + 1,
+                discard_column,
                 (candidate.mean_point / POINT_NORM).clamp(0.0, 1.0),
+                tile_types,
             );
-            set(
-                buf, ch_offset, SCORING_BASE + 2, discard,
+            set_layout(
+                buf,
+                ch_offset,
+                SCORING_BASE + 2,
+                discard_column,
                 (candidate.max_point / POINT_NORM).clamp(0.0, 1.0),
+                tile_types,
             );
         }
 
@@ -516,8 +684,17 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
         // potentially-effective. One-hot, not count-weighted, to match the
         // existing `required_tiles` channel encoding (ch 2..36).
         for tile in 0..TILE_MAX {
-            if candidate.future_wait_tiles[tile] > 0.0 {
-                set(buf, ch_offset, FUTURE_WAIT_BASE + discard, tile, 1.0);
+            if candidate.future_wait_tiles[tile] > 0.0
+                && let Some(tile_column) = compact(tile)
+            {
+                set_layout(
+                    buf,
+                    ch_offset,
+                    FUTURE_WAIT_BASE + discard,
+                    tile_column,
+                    1.0,
+                    tile_types,
+                );
             }
         }
 
@@ -526,7 +703,14 @@ pub fn encode_sp_into(result: &SpResult, buf: &mut [f32], ch_offset: usize) {
         for k in 0..target_points::N {
             let p = candidate.point_achievement_probs[k];
             if p > 0.0 {
-                set(buf, ch_offset, TARGET_PROB_BASE + k, discard, p);
+                set_layout(
+                    buf,
+                    ch_offset,
+                    TARGET_PROB_BASE + k,
+                    discard_column,
+                    p,
+                    tile_types,
+                );
             }
         }
     }
@@ -556,17 +740,39 @@ fn remaining_self_draws(obs: &Observation) -> u8 {
     17usize.saturating_sub(self_discards).min(SP_MAX_TURNS) as u8
 }
 
+fn remaining_self_draws_3p(obs: &Observation3P) -> u8 {
+    let self_discards = obs.discards[obs.player_id as usize].len();
+    17usize.saturating_sub(self_discards).min(SP_MAX_TURNS) as u8
+}
+
+#[cfg(test)]
 fn remaining_counts(input: &SpInput) -> [u8; TILE_MAX] {
+    remaining_counts_for_variant(input, SpVariant::FourPlayer)
+}
+
+fn remaining_counts_for_variant(input: &SpInput, variant: SpVariant) -> [u8; TILE_MAX] {
     let mut remaining = [0u8; TILE_MAX];
     for (tile, out) in remaining.iter_mut().enumerate() {
-        *out = 4u8.saturating_sub(input.tiles_seen[tile].min(4));
+        *out = if variant == SpVariant::ThreePlayer && (1..=7).contains(&tile) {
+            0
+        } else {
+            4u8.saturating_sub(input.tiles_seen[tile].min(4))
+        };
     }
     remaining
 }
 
+#[cfg(test)]
 fn shanten_of_counts(counts: &[u8; TILE_MAX]) -> i8 {
+    shanten_of_counts_for_variant(counts, SpVariant::FourPlayer)
+}
+
+fn shanten_of_counts_for_variant(counts: &[u8; TILE_MAX], variant: SpVariant) -> i8 {
     let len_div3 = counts.iter().sum::<u8>() / 3;
-    shanten::calc_shanten_from_counts(counts, len_div3)
+    match variant {
+        SpVariant::FourPlayer => shanten::calc_shanten_from_counts(counts, len_div3),
+        SpVariant::ThreePlayer => shanten::calc_shanten_from_counts_3p(counts, len_div3),
+    }
 }
 
 /// Incremental shanten: given pre-computed k0 bytes for the hand BEFORE the
@@ -582,7 +788,11 @@ fn shanten_after_add_incremental(
     base_k0_s: u8,
     base_k0_z: u8,
     len_div3: u8,
+    variant: SpVariant,
 ) -> i8 {
+    if variant == SpVariant::ThreePlayer {
+        return shanten::calc_shanten_from_counts_3p(next, len_div3);
+    }
     let (km, kp, ks, kz) = if tile < 9 {
         (
             shanten::k0_shupai_for(&next[0..9]),
@@ -619,9 +829,8 @@ fn shanten_after_add_incremental(
     s
 }
 
-
 fn required_tiles(
-    _dp: &mut DpContext<'_>,
+    dp: &mut DpContext<'_>,
     counts: &[u8; TILE_MAX],
     remaining: &[u8; TILE_MAX],
     current_shanten: i8,
@@ -647,7 +856,14 @@ fn required_tiles(
         }
         next[tile] += 1;
         let s_after = shanten_after_add_incremental(
-            &next, tile, base_k0_m, base_k0_p, base_k0_s, base_k0_z, len_div3_next,
+            &next,
+            tile,
+            base_k0_m,
+            base_k0_p,
+            base_k0_s,
+            base_k0_z,
+            len_div3_next,
+            dp.variant,
         );
         next[tile] -= 1;
         if s_after < current_shanten {
@@ -687,18 +903,26 @@ fn fused_tenpai_pass(
     let jikaze_yh = norm_wind_for_yakuhai(dp.input.jikaze);
     let mut yh = [0u8; 5];
     let mut n_yh = 3usize;
-    yh[0] = 31; yh[1] = 32; yh[2] = 33;
-    if (27..=30).contains(&bakaze_yh) { yh[n_yh] = bakaze_yh; n_yh += 1; }
-    if (27..=30).contains(&jikaze_yh) && jikaze_yh != bakaze_yh { yh[n_yh] = jikaze_yh; n_yh += 1; }
-    let yakuhai_in_meld = !assume_riichi && dp.input.melds.iter().any(|m| {
-        m.tiles.iter().any(|&t| {
-            let tt = t / 4;
-            yh[..n_yh].contains(&tt)
-        })
-    });
+    yh[0] = 31;
+    yh[1] = 32;
+    yh[2] = 33;
+    if (27..=30).contains(&bakaze_yh) {
+        yh[n_yh] = bakaze_yh;
+        n_yh += 1;
+    }
+    if (27..=30).contains(&jikaze_yh) && jikaze_yh != bakaze_yh {
+        yh[n_yh] = jikaze_yh;
+        n_yh += 1;
+    }
+    let yakuhai_in_meld = !assume_riichi
+        && dp.input.melds.iter().any(|m| {
+            m.tiles.iter().any(|&t| {
+                let tt = t / 4;
+                yh[..n_yh].contains(&tt)
+            })
+        });
     // In-hand yakuhai kotsu in pre-discard 13-tile hand: any wait gives yaku.
-    let yakuhai_kotsu_pre = !assume_riichi
-        && yh[..n_yh].iter().any(|&y| counts[y as usize] >= 3);
+    let yakuhai_kotsu_pre = !assume_riichi && yh[..n_yh].iter().any(|&y| counts[y as usize] >= 3);
 
     // Decompose yakuhai by class (dragon/round/seat) for yaku-mask reporting.
     // A class is "wait-invariant present" if any meld is that class OR any
@@ -706,19 +930,25 @@ fn fused_tenpai_pass(
     let yakuhai_dragon_pre = matches!(counts[31], 3..)
         || matches!(counts[32], 3..)
         || matches!(counts[33], 3..)
-        || dp.input.melds.iter().any(|m| {
-            m.tiles.iter().any(|&t| matches!(t / 4, 31 | 32 | 33))
-        });
+        || dp
+            .input
+            .melds
+            .iter()
+            .any(|m| m.tiles.iter().any(|&t| matches!(t / 4, 31 | 32 | 33)));
     let yakuhai_round_pre = (27..=30).contains(&bakaze_yh)
         && (counts[bakaze_yh as usize] >= 3
-            || dp.input.melds.iter().any(|m| {
-                m.tiles.iter().any(|&t| t / 4 == bakaze_yh)
-            }));
+            || dp
+                .input
+                .melds
+                .iter()
+                .any(|m| m.tiles.iter().any(|&t| t / 4 == bakaze_yh)));
     let yakuhai_seat_pre = (27..=30).contains(&jikaze_yh)
         && (counts[jikaze_yh as usize] >= 3
-            || dp.input.melds.iter().any(|m| {
-                m.tiles.iter().any(|&t| t / 4 == jikaze_yh)
-            }));
+            || dp
+                .input
+                .melds
+                .iter()
+                .any(|m| m.tiles.iter().any(|&t| t / 4 == jikaze_yh)));
 
     // Shousangen pre-check: 2 dragon kotsu + 1 dragon pair in (counts + melds).
     // Wait-invariant.
@@ -728,11 +958,16 @@ fn fused_tenpai_pass(
         let mut c = counts[d as usize];
         for m in &dp.input.melds {
             for &t in &m.tiles {
-                if t / 4 == d { c = c.saturating_add(1); }
+                if t / 4 == d {
+                    c = c.saturating_add(1);
+                }
             }
         }
-        if c >= 3 { dragon_kotsu_count += 1; }
-        else if c == 2 { dragon_pair_present = true; }
+        if c >= 3 {
+            dragon_kotsu_count += 1;
+        } else if c == 2 {
+            dragon_pair_present = true;
+        }
     }
     let shousangen_pre = dragon_kotsu_count >= 2 && dragon_pair_present;
 
@@ -760,7 +995,9 @@ fn fused_tenpai_pass(
             } else {
                 has_simple_pre = true;
             }
-            if c == 1 { has_singleton_pre = true; }
+            if c == 1 {
+                has_singleton_pre = true;
+            }
         }
     }
     for t in 27..34usize {
@@ -768,7 +1005,9 @@ fn fused_tenpai_pass(
         if c > 0 {
             has_z_pre = true;
             has_yaocchi_pre = true;
-            if c == 1 { has_singleton_pre = true; }
+            if c == 1 {
+                has_singleton_pre = true;
+            }
         }
     }
     let n_suits_pre = suits_pre.count_ones();
@@ -811,7 +1050,14 @@ fn fused_tenpai_pass(
         }
         next[tile] += 1;
         let s_after = shanten_after_add_incremental(
-            &next, tile, base_k0_m, base_k0_p, base_k0_s, base_k0_z, len_div3_next,
+            &next,
+            tile,
+            base_k0_m,
+            base_k0_p,
+            base_k0_s,
+            base_k0_z,
+            len_div3_next,
+            dp.variant,
         );
         next[tile] -= 1;
         if s_after >= 0 {
@@ -831,7 +1077,11 @@ fn fused_tenpai_pass(
             true
         };
         let tile_is_honor = tile >= 27;
-        let tile_suit = if tile < 27 { Some((tile / 9) as u8) } else { None };
+        let tile_suit = if tile < 27 {
+            Some((tile / 9) as u8)
+        } else {
+            None
+        };
         let post_tanyao = !has_yaocchi_pre && !tile_is_yaocchi;
         let post_chinitsu = single_suit_pre
             && !has_z_pre
@@ -852,12 +1102,10 @@ fn fused_tenpai_pass(
         // Per-wait yakuhai-completion: wait IS a yakuhai tile, and counts
         // already had 2 of it (so it completes the kotsu).
         let waits_complete_dragon = matches!(tile_u, 31 | 32 | 33) && counts[tile] == 2;
-        let waits_complete_round = (27..=30).contains(&bakaze_yh)
-            && tile_u == bakaze_yh
-            && counts[tile] == 2;
-        let waits_complete_seat = (27..=30).contains(&jikaze_yh)
-            && tile_u == jikaze_yh
-            && counts[tile] == 2;
+        let waits_complete_round =
+            (27..=30).contains(&bakaze_yh) && tile_u == bakaze_yh && counts[tile] == 2;
+        let waits_complete_seat =
+            (27..=30).contains(&jikaze_yh) && tile_u == jikaze_yh && counts[tile] == 2;
 
         let post_yakuhai_completion =
             waits_complete_dragon || waits_complete_round || waits_complete_seat;
@@ -882,9 +1130,15 @@ fn fused_tenpai_pass(
             yaku_progress[tile] = remaining[tile] as f32;
             // Mask: union of applicable yaku for THIS wait.
             let mut mask: u32 = 0;
-            if assume_riichi { mask |= yaku_mask_bits::RIICHI; }
-            if dp.input.is_menzen { mask |= yaku_mask_bits::MENZEN_TSUMO; }
-            if post_tanyao { mask |= yaku_mask_bits::TANYAO; }
+            if assume_riichi {
+                mask |= yaku_mask_bits::RIICHI;
+            }
+            if dp.input.is_menzen {
+                mask |= yaku_mask_bits::MENZEN_TSUMO;
+            }
+            if post_tanyao {
+                mask |= yaku_mask_bits::TANYAO;
+            }
             if yakuhai_dragon_pre || waits_complete_dragon {
                 mask |= yaku_mask_bits::YAKUHAI_DRAGON;
             }
@@ -894,20 +1148,30 @@ fn fused_tenpai_pass(
             if yakuhai_seat_pre || waits_complete_seat {
                 mask |= yaku_mask_bits::YAKUHAI_SEAT;
             }
-            if post_chinitsu { mask |= yaku_mask_bits::CHINITSU; }
-            if post_honitsu { mask |= yaku_mask_bits::HONITSU; }
-            if post_honroutou { mask |= yaku_mask_bits::HONROUTOU; }
-            if post_toitoi { mask |= yaku_mask_bits::TOITOI; }
-            if sanshoku_doukou_pre_full { mask |= yaku_mask_bits::SANSHOKU_DOUKOU; }
-            if shousangen_pre { mask |= yaku_mask_bits::SHOUSANGEN; }
+            if post_chinitsu {
+                mask |= yaku_mask_bits::CHINITSU;
+            }
+            if post_honitsu {
+                mask |= yaku_mask_bits::HONITSU;
+            }
+            if post_honroutou {
+                mask |= yaku_mask_bits::HONROUTOU;
+            }
+            if post_toitoi {
+                mask |= yaku_mask_bits::TOITOI;
+            }
+            if sanshoku_doukou_pre_full {
+                mask |= yaku_mask_bits::SANSHOKU_DOUKOU;
+            }
+            if shousangen_pre {
+                mask |= yaku_mask_bits::SHOUSANGEN;
+            }
             scoring.yaku_mask |= mask;
 
             // Min/mean/max point: score this wait via the lean tsumo path.
             // Even under riichi (where we skipped this before), the
             // distribution per wait is needed for the new min/max channels.
-            if let Some(point) =
-                dp.score_tsumo(counts, remaining, tile_u, ScoreMods::default())
-            {
+            if let Some(point) = dp.score_tsumo(counts, remaining, tile_u, ScoreMods::default()) {
                 merge_point(&mut scoring, point, remaining[tile] as f32);
             }
             continue;
@@ -921,9 +1185,7 @@ fn fused_tenpai_pass(
         // no other wait sets them, and the network can fall back on
         // `yaku_progress_tiles` (the binary "any yaku" channel) for that
         // info.
-        if let Some(point) =
-            dp.score_tsumo(counts, remaining, tile_u, ScoreMods::default())
-        {
+        if let Some(point) = dp.score_tsumo(counts, remaining, tile_u, ScoreMods::default()) {
             yaku_progress[tile] = remaining[tile] as f32;
             merge_point(&mut scoring, point, remaining[tile] as f32);
         }
@@ -972,7 +1234,14 @@ fn yaku_progress_tiles(
 
         drawn[tile] += 1;
         let s_drawn = shanten_after_add_incremental(
-            &drawn, tile, base_k0_m, base_k0_p, base_k0_s, base_k0_z, len_div3_next,
+            &drawn,
+            tile,
+            base_k0_m,
+            base_k0_p,
+            base_k0_s,
+            base_k0_z,
+            len_div3_next,
+            dp.variant,
         );
         if s_drawn >= current_shanten {
             drawn[tile] -= 1;
@@ -1072,11 +1341,17 @@ fn has_yaku_tenpai_after_best_discard(
     if dp.base_full_no_yaocchi {
         let mut yaocchi = false;
         for t in [0usize, 8, 9, 17, 18, 26] {
-            if counts_14[t] > 0 { yaocchi = true; break; }
+            if counts_14[t] > 0 {
+                yaocchi = true;
+                break;
+            }
         }
         if !yaocchi {
             for t in 27..34usize {
-                if counts_14[t] > 0 { yaocchi = true; break; }
+                if counts_14[t] > 0 {
+                    yaocchi = true;
+                    break;
+                }
             }
         }
         if !yaocchi {
@@ -1144,7 +1419,14 @@ fn has_yaku_tenpai_after_best_discard(
             }
             next[discard] -= 1;
             let s = shanten_after_add_incremental(
-                &next, discard, r_base_k0_m, r_base_k0_p, r_base_k0_s, r_base_k0_z, r_len_div3,
+                &next,
+                discard,
+                r_base_k0_m,
+                r_base_k0_p,
+                r_base_k0_s,
+                r_base_k0_z,
+                r_len_div3,
+                dp.variant,
             );
             next[discard] += 1;
             if s == 0 {
@@ -1173,11 +1455,19 @@ fn has_yaku_tenpai_after_best_discard(
         let jikaze = norm_wind_for_yakuhai(dp.input.jikaze);
         let mut yh = [31u8, 32, 33, 0, 0];
         let mut n_yh = 3usize;
-        if (27..=30).contains(&bakaze) { yh[n_yh] = bakaze; n_yh += 1; }
-        if (27..=30).contains(&jikaze) && jikaze != bakaze { yh[n_yh] = jikaze; n_yh += 1; }
-        let yakuhai_in_meld = dp.input.melds.iter().any(|m| {
-            m.tiles.iter().any(|&t| yh[..n_yh].contains(&(t / 4)))
-        });
+        if (27..=30).contains(&bakaze) {
+            yh[n_yh] = bakaze;
+            n_yh += 1;
+        }
+        if (27..=30).contains(&jikaze) && jikaze != bakaze {
+            yh[n_yh] = jikaze;
+            n_yh += 1;
+        }
+        let yakuhai_in_meld = dp
+            .input
+            .melds
+            .iter()
+            .any(|m| m.tiles.iter().any(|&t| yh[..n_yh].contains(&(t / 4))));
         if yakuhai_in_meld {
             dp.yaku_tenpai_cache.insert(key, true);
             return true;
@@ -1212,14 +1502,18 @@ fn has_yaku_tenpai_after_best_discard(
                 } else {
                     has_simple = true;
                 }
-                if c == 1 { any_singleton = true; }
+                if c == 1 {
+                    any_singleton = true;
+                }
             }
         }
         for tile in 27..34usize {
             let c = full[tile];
             if c > 0 {
                 has_terminal = true;
-                if c == 1 { any_singleton = true; }
+                if c == 1 {
+                    any_singleton = true;
+                }
             }
         }
         let n_numbered = suits_present.count_ones();
@@ -1278,7 +1572,9 @@ fn has_yaku_tenpai_after_best_discard(
         let mut suit_counts = [0u8; 3];
         for t in 0..27usize {
             let c = full[t];
-            if c == 0 { continue; }
+            if c == 0 {
+                continue;
+            }
             suit_counts[t / 9] = suit_counts[t / 9].saturating_add(c);
             if t % 9 == 0 || t % 9 == 8 {
                 yaocchi_count_full = yaocchi_count_full.saturating_add(c);
@@ -1288,13 +1584,19 @@ fn has_yaku_tenpai_after_best_discard(
                     middle_simple = true;
                 }
             }
-            if c == 1 { singleton_total += 1; }
+            if c == 1 {
+                singleton_total += 1;
+            }
         }
         for t in 27..34usize {
             let c = full[t];
-            if c == 0 { continue; }
+            if c == 0 {
+                continue;
+            }
             yaocchi_count_full = yaocchi_count_full.saturating_add(c);
-            if c == 1 { singleton_total += 1; }
+            if c == 1 {
+                singleton_total += 1;
+            }
         }
         // Smallest-non-zero numbered-suit count (= "secondary" after primary).
         let mut sorted_suits = suit_counts;
@@ -1338,7 +1640,9 @@ fn has_yaku_tenpai_after_best_discard(
 
         let mut kotsu_in_hand = 0u8;
         for t in 0..TILE_MAX {
-            if counts_14[t] >= 3 { kotsu_in_hand += 1; }
+            if counts_14[t] >= 3 {
+                kotsu_in_hand += 1;
+            }
         }
         let sanankou_via_add = kotsu_in_hand >= 2;
 
@@ -1386,8 +1690,7 @@ fn has_yaku_tenpai_after_best_discard(
     // floating yaocchi in the original tehai.
     const TILE_ORDER_YAOCCHI_FIRST: [u8; 34] = [
         // Yaocchi: 6 terminals + 7 honors
-        0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33,
-        // Then non-yaocchi: 21 simples
+        0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33, // Then non-yaocchi: 21 simples
         1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25,
     ];
     for &discard in &TILE_ORDER_YAOCCHI_FIRST {
@@ -1404,6 +1707,7 @@ fn has_yaku_tenpai_after_best_discard(
             coll_base_k0_s,
             coll_base_k0_z,
             coll_len_div3_drop,
+            dp.variant,
         );
         if s < best_shanten {
             best_shanten = s;
@@ -1460,21 +1764,29 @@ fn has_yaku_tenpai_after_best_discard(
     let mut full14_singletons = 0u8;
     for t in 0..27usize {
         let c = full14[t];
-        if c == 0 { continue; }
+        if c == 0 {
+            continue;
+        }
         full14_suit_counts[t / 9] = full14_suit_counts[t / 9].saturating_add(c);
         if t % 9 == 0 || t % 9 == 8 {
             full14_yaocchi = full14_yaocchi.saturating_add(c);
         } else {
             full14_simple = full14_simple.saturating_add(c);
         }
-        if c == 1 { full14_singletons += 1; }
+        if c == 1 {
+            full14_singletons += 1;
+        }
     }
     for t in 27..34usize {
         let c = full14[t];
-        if c == 0 { continue; }
+        if c == 0 {
+            continue;
+        }
         full14_z_count = full14_z_count.saturating_add(c);
         full14_yaocchi = full14_yaocchi.saturating_add(c);
-        if c == 1 { full14_singletons += 1; }
+        if c == 1 {
+            full14_singletons += 1;
+        }
     }
 
     // Pass 1: cheap structural shape checks across ALL tenpai_counts.
@@ -1501,10 +1813,22 @@ fn has_yaku_tenpai_after_best_discard(
             true
         };
         let tile_x_simple = !tile_x_yaocchi;
-        let tile_x_suit = if tile_x < 27 { Some((tile_x / 9) as u8) } else { None };
+        let tile_x_suit = if tile_x < 27 {
+            Some((tile_x / 9) as u8)
+        } else {
+            None
+        };
 
-        let yaocchi13 = if tile_x_yaocchi { full14_yaocchi - 1 } else { full14_yaocchi };
-        let simple13 = if tile_x_simple { full14_simple - 1 } else { full14_simple };
+        let yaocchi13 = if tile_x_yaocchi {
+            full14_yaocchi - 1
+        } else {
+            full14_yaocchi
+        };
+        let simple13 = if tile_x_simple {
+            full14_simple - 1
+        } else {
+            full14_simple
+        };
         // Singletons: cx==1 → singleton drops to 0 (-1). cx==2 → was pair, now singleton (+1).
         let singletons13 = if cx == 1 {
             full14_singletons - 1
@@ -1521,8 +1845,7 @@ fn has_yaku_tenpai_after_best_discard(
         } else {
             z_count13 -= 1;
         }
-        let suits13_mask: u8 =
-              ((suit_counts13[0] > 0) as u8)
+        let suits13_mask: u8 = ((suit_counts13[0] > 0) as u8)
             | (((suit_counts13[1] > 0) as u8) << 1)
             | (((suit_counts13[2] > 0) as u8) << 2);
         let n_suits13 = suits13_mask.count_ones();
@@ -1534,7 +1857,11 @@ fn has_yaku_tenpai_after_best_discard(
         // 9 iters × 3 reads, much cheaper than computing full13.
         // Build full13 inline by reading full14 with adjustment for tile_X.
         let read_full13 = |t: usize| -> u8 {
-            if t == tile_x { full14[t] - 1 } else { full14[t] }
+            if t == tile_x {
+                full14[t] - 1
+            } else {
+                full14[t]
+            }
         };
         let mut sanshoku_doukou_full13 = false;
         for n in 0..9usize {
@@ -1575,11 +1902,21 @@ fn has_yaku_tenpai_after_best_discard(
         // Per-wait structural checks. Iterate tile properties precomputed by
         // class (yaocchi-vs-simple, suit, honor) so each iteration is O(1).
         for tile in 0..TILE_MAX {
-            if remaining[tile] == 0 || counts[tile] >= 4 { continue; }
+            if remaining[tile] == 0 || counts[tile] >= 4 {
+                continue;
+            }
             let tile_u = tile as u8;
-            let tile_yaocchi = if tile < 27 { matches!(tile % 9, 0 | 8) } else { true };
+            let tile_yaocchi = if tile < 27 {
+                matches!(tile % 9, 0 | 8)
+            } else {
+                true
+            };
             let tile_honor = tile >= 27;
-            let tile_suit = if tile < 27 { Some((tile / 9) as u8) } else { None };
+            let tile_suit = if tile < 27 {
+                Some((tile / 9) as u8)
+            } else {
+                None
+            };
             // Yakuhai by wait completing kotsu.
             for i in 0..n_yh {
                 if tile_u == yakuhai_tiles[i] && counts[tile] == 2 {
@@ -1871,6 +2208,7 @@ struct YakuTenpaiKey {
 
 struct DpContext<'a> {
     input: &'a SpInput,
+    variant: SpVariant,
     /// 計算したいホライズン (= 入力 tsumos_left).
     horizon: usize,
     /// 山+他家手牌などの未公開牌合計枚数 (= sum(remaining)).
@@ -1909,9 +2247,9 @@ struct DpContext<'a> {
 }
 
 impl<'a> DpContext<'a> {
-    fn new(input: &'a SpInput) -> Self {
+    fn new(input: &'a SpInput, variant: SpVariant) -> Self {
         let horizon = (input.tsumos_left as usize).min(SP_MAX_TURNS).max(1);
-        let remaining = remaining_counts(input);
+        let remaining = remaining_counts_for_variant(input, variant);
         let n_left_tiles = remaining.iter().map(|&v| v as u32).sum::<u32>();
         let tsumo_prob = build_tsumo_prob_table(n_left_tiles, horizon);
         let not_tsumo_prob = build_not_tsumo_prob_table(n_left_tiles, horizon);
@@ -1978,6 +2316,7 @@ impl<'a> DpContext<'a> {
 
         Self {
             input,
+            variant,
             horizon,
             n_left_tiles,
             tsumo_prob,
@@ -2002,7 +2341,7 @@ impl<'a> DpContext<'a> {
         // (~12 ns hash+probe) is comparable to `calc_normal`'s nyanten cascade
         // on a warm L1, so the cache amortizes only marginally. Removing it
         // also frees ~2 KB of hashbrown table per SP run.
-        shanten_of_counts(counts)
+        shanten_of_counts_for_variant(counts, self.variant)
     }
 
     fn score_tsumo(
@@ -2018,10 +2357,22 @@ impl<'a> DpContext<'a> {
         if self.input.dora_indicators.is_empty() {
             return self
                 .base_score_tsumo(counts, win_tile, akas)
-                .map(|base| score_from_base(self.input, base, counts, remaining, win_tile, mods))
+                .map(|base| {
+                    score_from_base(
+                        self.input,
+                        base,
+                        counts,
+                        remaining,
+                        win_tile,
+                        mods,
+                        self.variant,
+                    )
+                })
                 .or_else(|| {
                     mods.haitei
-                        .then(|| exact_score_tsumo(self.input, counts, win_tile, mods))
+                        .then(|| {
+                            exact_score_tsumo(self.input, counts, win_tile, mods, self.variant)
+                        })
                         .flatten()
                 });
         }
@@ -2038,10 +2389,20 @@ impl<'a> DpContext<'a> {
 
         let score = self
             .base_score_tsumo(counts, win_tile, akas)
-            .map(|base| score_from_base(self.input, base, counts, remaining, win_tile, mods) as u32)
+            .map(|base| {
+                score_from_base(
+                    self.input,
+                    base,
+                    counts,
+                    remaining,
+                    win_tile,
+                    mods,
+                    self.variant,
+                ) as u32
+            })
             .or_else(|| {
                 mods.haitei
-                    .then(|| exact_score_tsumo(self.input, counts, win_tile, mods))
+                    .then(|| exact_score_tsumo(self.input, counts, win_tile, mods, self.variant))
                     .flatten()
                     .map(|point| point as u32)
             });
@@ -2064,7 +2425,7 @@ impl<'a> DpContext<'a> {
             return cached;
         }
 
-        let score = base_score_tsumo(self.input, counts, win_tile, akas_in_hand);
+        let score = base_score_tsumo(self.input, counts, win_tile, akas_in_hand, self.variant);
         self.base_score_cache.insert(key, score);
         score
     }
@@ -2231,8 +2592,7 @@ impl<'a> DpContext<'a> {
             }
             let scores = dp.score_vector_for_win(counts_13, remaining, tile, scoring_akas);
             let Some(scores) = scores else { return };
-            let tsumo_row: [f32; SP_MAX_TURNS] =
-                dp.tsumo_prob[(sub_count as usize - 1).min(3)];
+            let tsumo_row: [f32; SP_MAX_TURNS] = dp.tsumo_prob[(sub_count as usize - 1).min(3)];
             for draw in 0..horizon {
                 let prob = tsumo_row[draw] * not_tsumo[draw];
                 if prob == 0.0 {
@@ -2268,7 +2628,14 @@ impl<'a> DpContext<'a> {
                 let mut akas_red = akas_in_hand;
                 akas_red[i] = true;
                 if count >= 2 {
-                    accumulate(self, tile, count - 1, akas_in_hand, &mut win_at, &mut exp_at);
+                    accumulate(
+                        self,
+                        tile,
+                        count - 1,
+                        akas_in_hand,
+                        &mut win_at,
+                        &mut exp_at,
+                    );
                 }
                 accumulate(self, tile, 1, akas_red, &mut win_at, &mut exp_at);
             } else {
@@ -2345,6 +2712,7 @@ impl<'a> DpContext<'a> {
                 dd_base_k0_s,
                 dd_base_k0_z,
                 dd_len_div3_drop,
+                self.variant,
             );
             if s != shanten {
                 // 向聴維持のみ。向聴落としは現状サポートしない。
@@ -2372,8 +2740,7 @@ impl<'a> DpContext<'a> {
                 let take = !any_valid
                     || cur_i > best_i
                     || (cur_i == best_i
-                        && discard_priority(tile as u8)
-                            > discard_priority(best_tile[i]));
+                        && discard_priority(tile as u8) > discard_priority(best_tile[i]));
                 if take {
                     best_tenpai[i] = v.tenpai[i];
                     best_win[i] = v.win[i];
@@ -2452,6 +2819,7 @@ impl<'a> DpContext<'a> {
                 dp_base_k0_s,
                 dp_base_k0_z,
                 dp_len_div3_next,
+                self.variant,
             );
             next_counts[tile] -= 1;
             if s_after < shanten {
@@ -2477,18 +2845,17 @@ impl<'a> DpContext<'a> {
         // per sub-branch when splitting a 5x draw into normal/red.
         #[allow(unused_mut)]
         let process_branch = |dp: &mut Self,
-                                  tile: u8,
-                                  sub_count: u8,
-                                  next_in_hand: [bool; 3],
-                                  next_in_wall: [bool; 3],
-                                  tenpai: &mut [f32; SP_MAX_TURNS],
-                                  win: &mut [f32; SP_MAX_TURNS],
-                                  exp: &mut [f32; SP_MAX_TURNS]| {
+                              tile: u8,
+                              sub_count: u8,
+                              next_in_hand: [bool; 3],
+                              next_in_wall: [bool; 3],
+                              tenpai: &mut [f32; SP_MAX_TURNS],
+                              win: &mut [f32; SP_MAX_TURNS],
+                              exp: &mut [f32; SP_MAX_TURNS]| {
             if sub_count == 0 {
                 return;
             }
-            let tsumo_row: [f32; SP_MAX_TURNS] =
-                dp.tsumo_prob[(sub_count as usize - 1).min(3)];
+            let tsumo_row: [f32; SP_MAX_TURNS] = dp.tsumo_prob[(sub_count as usize - 1).min(3)];
 
             if shanten > 0 {
                 let mut next_counts = key.counts;
@@ -2545,7 +2912,11 @@ impl<'a> DpContext<'a> {
                         break;
                     }
                     let m_inv = 1.0 / m;
-                    let dbl_at_i = if calc_double_riichi && i == 0 { 1usize } else { 0 };
+                    let dbl_at_i = if calc_double_riichi && i == 0 {
+                        1usize
+                    } else {
+                        0
+                    };
                     let s_base = scores[dbl_at_i.min(3)];
 
                     let mut sum_prob = 0.0f32;
@@ -2703,7 +3074,7 @@ impl<'a> DpContext<'a> {
         debug_assert_eq!(base.honba, 0, "SP base score must have honba=0");
         let calc_with_han = |delta: u32| -> f32 {
             let han = (base.han + delta).min(13);
-            sp_tsumo_total_lut(han, base.fu, base.is_oya) as f32
+            sp_tsumo_total_lut_for_variant(han, base.fu, base.is_oya, self.variant) as f32
         };
 
         let mut out = [0.0f32; 4];
@@ -2732,6 +3103,7 @@ impl<'a> DpContext<'a> {
             &full_counts,
             &remaining_after_win,
             self.input.dora_indicators.len(),
+            self.variant,
         );
 
         for k in 0..4 {
@@ -2878,13 +3250,29 @@ fn score_tsumo_with_mods(
     win_tile: u8,
     mods: ScoreMods,
 ) -> Option<f32> {
-    base_score_tsumo(input, counts_13, win_tile, input.akas_in_hand)
-        .map(|base| score_from_base(input, base, counts_13, remaining, win_tile, mods))
-        .or_else(|| {
-            mods.haitei
-                .then(|| exact_score_tsumo(input, counts_13, win_tile, mods))
-                .flatten()
-        })
+    base_score_tsumo(
+        input,
+        counts_13,
+        win_tile,
+        input.akas_in_hand,
+        SpVariant::FourPlayer,
+    )
+    .map(|base| {
+        score_from_base(
+            input,
+            base,
+            counts_13,
+            remaining,
+            win_tile,
+            mods,
+            SpVariant::FourPlayer,
+        )
+    })
+    .or_else(|| {
+        mods.haitei
+            .then(|| exact_score_tsumo(input, counts_13, win_tile, mods, SpVariant::FourPlayer))
+            .flatten()
+    })
 }
 
 /// Discard-priority tie-break: honors > terminals > inner numbered. Used in
@@ -2949,7 +3337,7 @@ fn potentially_effective_for_draw(counts: &[u8; TILE_MAX], tile: usize) -> bool 
 }
 
 /// Fast inline equivalent of `score::calculate_score(han, fu, is_oya, tsumo=true,
-/// honba=0, 4-player) → tsumo_total_for_sp(...)`. Avoids the `Score` struct
+/// honba=0, 4-player) → winner total`. Avoids the `Score` struct
 /// allocation and the honba/ron branches.
 ///
 /// Hot path callers should prefer `sp_tsumo_total_lut` (table lookup, ~1ns)
@@ -2957,6 +3345,11 @@ fn potentially_effective_for_draw(counts: &[u8; TILE_MAX], tile: usize) -> bool 
 /// authoritative source of truth and is used to populate the LUT itself.
 #[inline]
 fn sp_tsumo_total_fast(han: u32, fu: u32, is_oya: bool) -> u32 {
+    sp_tsumo_total_fast_for_variant(han, fu, is_oya, SpVariant::FourPlayer)
+}
+
+#[inline]
+fn sp_tsumo_total_fast_for_variant(han: u32, fu: u32, is_oya: bool, variant: SpVariant) -> u32 {
     let base_points: u32 = if han >= 5 {
         match han {
             5 => 2000,
@@ -2980,11 +3373,19 @@ fn sp_tsumo_total_fast(han: u32, fu: u32, is_oya: bool) -> u32 {
         )
     };
     if pay_oya == 0 {
-        // Dealer tsumo: 3 ko all pay pay_ko.
-        pay_ko.saturating_mul(3)
+        // Dealer tsumo: every opponent pays the ko share.
+        pay_ko.saturating_mul(match variant {
+            SpVariant::FourPlayer => 3,
+            SpVariant::ThreePlayer => 2,
+        })
     } else {
-        // Non-dealer tsumo: oya pays pay_oya, 2 ko pay pay_ko each.
-        pay_oya + pay_ko.saturating_mul(2)
+        // Non-dealer tsumo: the dealer pays the oya share and remaining
+        // non-dealers pay the ko share.
+        pay_oya
+            + pay_ko.saturating_mul(match variant {
+                SpVariant::FourPlayer => 2,
+                SpVariant::ThreePlayer => 1,
+            })
     }
 }
 
@@ -3007,8 +3408,7 @@ const TSUMO_LUT_HAN: usize = 14;
 /// out-of-range value so the LUT lookup is always in-bounds.
 const TSUMO_LUT_FU: usize = 12;
 
-const FU_FOR_LUT_IDX: [u32; TSUMO_LUT_FU] =
-    [20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
+const FU_FOR_LUT_IDX: [u32; TSUMO_LUT_FU] = [20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
 
 #[inline]
 fn fu_to_lut_idx(fu: u32) -> usize {
@@ -3047,6 +3447,20 @@ static TSUMO_SCORE_LUT: std::sync::LazyLock<[[[u32; 2]; TSUMO_LUT_FU]; TSUMO_LUT
         t
     });
 
+static TSUMO_SCORE_LUT_3P: std::sync::LazyLock<[[[u32; 2]; TSUMO_LUT_FU]; TSUMO_LUT_HAN]> =
+    std::sync::LazyLock::new(|| {
+        let mut table = [[[0u32; 2]; TSUMO_LUT_FU]; TSUMO_LUT_HAN];
+        for han in 0..TSUMO_LUT_HAN {
+            for (fu_idx, &fu) in FU_FOR_LUT_IDX.iter().enumerate() {
+                table[han][fu_idx][0] =
+                    sp_tsumo_total_fast_for_variant(han as u32, fu, false, SpVariant::ThreePlayer);
+                table[han][fu_idx][1] =
+                    sp_tsumo_total_fast_for_variant(han as u32, fu, true, SpVariant::ThreePlayer);
+            }
+        }
+        table
+    });
+
 /// Hot-path tsumo score query. Replaces direct `sp_tsumo_total_fast` calls
 /// in score_vector_for_win_compute / score_from_base / base_score_tsumo.
 /// Caller is responsible for passing valid `fu` (one of the canonical values)
@@ -3054,9 +3468,17 @@ static TSUMO_SCORE_LUT: std::sync::LazyLock<[[[u32; 2]; TSUMO_LUT_FU]; TSUMO_LUT
 /// scores; this is unreachable in correct inputs.
 #[inline]
 fn sp_tsumo_total_lut(han: u32, fu: u32, is_oya: bool) -> u32 {
+    sp_tsumo_total_lut_for_variant(han, fu, is_oya, SpVariant::FourPlayer)
+}
+
+#[inline]
+fn sp_tsumo_total_lut_for_variant(han: u32, fu: u32, is_oya: bool, variant: SpVariant) -> u32 {
     let han_idx = (han as usize).min(TSUMO_LUT_HAN - 1);
     let fu_idx = fu_to_lut_idx(fu);
-    TSUMO_SCORE_LUT[han_idx][fu_idx][is_oya as usize]
+    match variant {
+        SpVariant::FourPlayer => TSUMO_SCORE_LUT[han_idx][fu_idx][is_oya as usize],
+        SpVariant::ThreePlayer => TSUMO_SCORE_LUT_3P[han_idx][fu_idx][is_oya as usize],
+    }
 }
 
 fn base_score_tsumo(
@@ -3064,6 +3486,7 @@ fn base_score_tsumo(
     counts_13: &[u8; TILE_MAX],
     win_tile: u8,
     akas_in_hand: [bool; 3],
+    variant: SpVariant,
 ) -> Option<BaseScore> {
     if counts_13[win_tile as usize] >= 4 {
         return None;
@@ -3084,7 +3507,8 @@ fn base_score_tsumo(
             MeldType::Daiminkan | MeldType::Ankan | MeldType::Kakan
         )
     });
-    if !has_kan
+    if variant == SpVariant::FourPlayer
+        && !has_kan
         && let Some(lean) =
             crate::sp_yaku::compute_for_sp_tsumo(input, counts_13, win_tile, akas_in_hand)
         && lean.han > 0
@@ -3108,7 +3532,6 @@ fn base_score_tsumo(
     // can't see the win tile, so we'd lose the aka attribution. Pass the win
     // tile as `red=true` in that case so HandEvaluator gets the correct dora.
     let (tiles, tlen) = counts_to_136_stack(counts_13, akas_in_hand);
-    let evaluator = HandEvaluator::new_borrowed(&tiles[..tlen], &input.melds);
     let win_is_aka = match win_tile {
         4 => akas_in_hand[0] && counts_13[4] == 0,
         13 => akas_in_hand[1] && counts_13[13] == 0,
@@ -3122,17 +3545,29 @@ fn base_score_tsumo(
         round_wind: wind_from_tile(input.bakaze),
         ..Conditions::default()
     };
-    let result = evaluator.calc_borrowed(
-        tile_type_to_136(win_tile, win_is_aka),
-        &input.dora_indicators,
-        &[],
-        Some(conditions.clone()),
-    );
+    let win_tile_136 = tile_type_to_136(win_tile, win_is_aka);
+    let result = match variant {
+        SpVariant::FourPlayer => HandEvaluator::new_borrowed(&tiles[..tlen], &input.melds)
+            .calc_borrowed(
+                win_tile_136,
+                &input.dora_indicators,
+                &[],
+                Some(conditions.clone()),
+            ),
+        SpVariant::ThreePlayer => HandEvaluator3P::new_borrowed(&tiles[..tlen], &input.melds)
+            .calc_borrowed(
+                win_tile_136,
+                &input.dora_indicators,
+                &[],
+                Some(conditions.clone()),
+            ),
+    };
     if !result.is_win {
         return None;
     }
 
-    let base_total = tsumo_total_for_sp(result.tsumo_agari_oya, result.tsumo_agari_ko) as f32;
+    let base_total =
+        tsumo_total_for_variant(result.tsumo_agari_oya, result.tsumo_agari_ko, variant) as f32;
     Some(BaseScore {
         total: base_total as u32,
         han: result.han,
@@ -3151,6 +3586,7 @@ fn score_from_base(
     remaining: &[u8; TILE_MAX],
     win_tile: u8,
     mods: ScoreMods,
+    variant: SpVariant,
 ) -> f32 {
     let extra_han = timing_extra_han(base, mods);
     debug_assert_eq!(base.honba, 0, "SP base score must have honba=0");
@@ -3158,7 +3594,7 @@ fn score_from_base(
         base.total as f32
     } else {
         let han = base.han.saturating_add(extra_han).min(13);
-        sp_tsumo_total_lut(han, base.fu, base.is_oya) as f32
+        sp_tsumo_total_lut_for_variant(han, base.fu, base.is_oya, variant) as f32
     };
     if !base.apply_ura {
         return base_total;
@@ -3182,6 +3618,7 @@ fn score_from_base(
         &full_counts,
         &remaining_after_win,
         input.dora_indicators.len(),
+        variant,
     );
     let mut expected = 0.0f32;
     for (ura_count, &prob) in ura_dist.iter().enumerate() {
@@ -3193,7 +3630,8 @@ fn score_from_base(
             .saturating_add(extra_han)
             .saturating_add(ura_count as u32)
             .min(13);
-        expected += prob * sp_tsumo_total_lut(han, base.fu, base.is_oya) as f32;
+        expected +=
+            prob * sp_tsumo_total_lut_for_variant(han, base.fu, base.is_oya, variant) as f32;
     }
     expected.max(base_total)
 }
@@ -3219,12 +3657,12 @@ fn exact_score_tsumo(
     counts_13: &[u8; TILE_MAX],
     win_tile: u8,
     mods: ScoreMods,
+    variant: SpVariant,
 ) -> Option<f32> {
     if counts_13[win_tile as usize] >= 4 {
         return None;
     }
     let (tiles, tlen) = counts_to_136_stack(counts_13, input.akas_in_hand);
-    let evaluator = HandEvaluator::new_borrowed(&tiles[..tlen], &input.melds);
     let conditions = Conditions {
         tsumo: true,
         riichi: input.is_menzen && input.can_riichi,
@@ -3235,15 +3673,27 @@ fn exact_score_tsumo(
         round_wind: wind_from_tile(input.bakaze),
         ..Conditions::default()
     };
-    let result = evaluator.calc_borrowed(
-        tile_type_to_136(win_tile, false),
-        &input.dora_indicators,
-        &[],
-        Some(conditions),
-    );
-    result
-        .is_win
-        .then_some(tsumo_total_for_sp(result.tsumo_agari_oya, result.tsumo_agari_ko) as f32)
+    let result = match variant {
+        SpVariant::FourPlayer => HandEvaluator::new_borrowed(&tiles[..tlen], &input.melds)
+            .calc_borrowed(
+                tile_type_to_136(win_tile, false),
+                &input.dora_indicators,
+                &[],
+                Some(conditions),
+            ),
+        SpVariant::ThreePlayer => HandEvaluator3P::new_borrowed(&tiles[..tlen], &input.melds)
+            .calc_borrowed(
+                tile_type_to_136(win_tile, false),
+                &input.dora_indicators,
+                &[],
+                Some(conditions),
+            ),
+    };
+    result.is_win.then_some(tsumo_total_for_variant(
+        result.tsumo_agari_oya,
+        result.tsumo_agari_ko,
+        variant,
+    ) as f32)
 }
 
 /// 裏ドラ枚数の確率分布。返り値は `[f32; URA_DIST_LEN]` で、
@@ -3261,6 +3711,7 @@ fn ura_distribution(
     full_counts: &[u8; TILE_MAX],
     remaining: &[u8; TILE_MAX],
     num_indicators: usize,
+    variant: SpVariant,
 ) -> [f32; URA_DIST_LEN] {
     let mut dist = [0.0f32; URA_DIST_LEN];
     let total_remaining: usize = remaining.iter().map(|&c| c as usize).sum();
@@ -3275,7 +3726,7 @@ fn ura_distribution(
     // 5 要素のバケットに詰める。
     let mut gain_counts = [0u32; 5];
     for indicator in 0..TILE_MAX {
-        let dora_tile = next_dora_tile(indicator as u8) as usize;
+        let dora_tile = next_dora_tile_for_variant(indicator as u8, variant) as usize;
         let gain = full_counts[dora_tile] as usize;
         if gain < 5 {
             gain_counts[gain] += remaining[indicator] as u32;
@@ -3368,18 +3819,25 @@ fn combination_f64(n: usize, k: usize) -> f64 {
 ///     total = pay_oya + 2 * pay_ko.
 ///   - oya (dealer)    tsumo: every ko pays `pay_tsumo_ko`, oya entry is 0,
 ///     total = 3 * pay_ko.
-fn tsumo_total_for_sp(pay_tsumo_oya: u32, pay_tsumo_ko: u32) -> u32 {
+fn tsumo_total_for_variant(pay_tsumo_oya: u32, pay_tsumo_ko: u32, variant: SpVariant) -> u32 {
     if pay_tsumo_oya == 0 {
-        pay_tsumo_ko.saturating_mul(3)
+        pay_tsumo_ko.saturating_mul(match variant {
+            SpVariant::FourPlayer => 3,
+            SpVariant::ThreePlayer => 2,
+        })
     } else {
-        pay_tsumo_oya + pay_tsumo_ko.saturating_mul(2)
+        pay_tsumo_oya
+            + pay_tsumo_ko.saturating_mul(match variant {
+                SpVariant::FourPlayer => 2,
+                SpVariant::ThreePlayer => 1,
+            })
     }
 }
 
-fn rough_point_estimate(input: &SpInput, counts: &[u8; TILE_MAX]) -> f32 {
+fn rough_point_estimate(input: &SpInput, counts: &[u8; TILE_MAX], variant: SpVariant) -> f32 {
     let mut dora = input.akas_in_hand.iter().filter(|&&x| x).count() as f32;
     for &indicator in &input.dora_indicators {
-        let dora_tile = next_dora_tile(indicator / 4) as usize;
+        let dora_tile = next_dora_tile_for_variant(indicator / 4, variant) as usize;
         dora += counts[dora_tile] as f32;
     }
     let base = if input.is_menzen && input.can_riichi {
@@ -3452,15 +3910,34 @@ pub(crate) fn next_dora_tile(tile_type: u8) -> u8 {
     }
 }
 
-fn broadcast(buf: &mut [f32], ch_offset: usize, ch: usize, val: f32) {
-    let start = (ch_offset + ch) * TILE_MAX;
-    for tile in 0..TILE_MAX {
+fn next_dora_tile_for_variant(tile_type: u8, variant: SpVariant) -> u8 {
+    if variant == SpVariant::ThreePlayer {
+        match tile_type {
+            0 => 8,
+            8 => 0,
+            _ => next_dora_tile(tile_type),
+        }
+    } else {
+        next_dora_tile(tile_type)
+    }
+}
+
+fn broadcast_layout(buf: &mut [f32], ch_offset: usize, ch: usize, val: f32, tile_types: usize) {
+    let start = (ch_offset + ch) * tile_types;
+    for tile in 0..tile_types {
         buf[start + tile] = val;
     }
 }
 
-fn set(buf: &mut [f32], ch_offset: usize, ch: usize, tile: usize, val: f32) {
-    buf[(ch_offset + ch) * TILE_MAX + tile] = val;
+fn set_layout(
+    buf: &mut [f32],
+    ch_offset: usize,
+    ch: usize,
+    tile: usize,
+    val: f32,
+    tile_types: usize,
+) {
+    buf[(ch_offset + ch) * tile_types + tile] = val;
 }
 
 #[cfg(test)]
@@ -3520,6 +3997,99 @@ mod tests {
     }
 
     #[test]
+    fn sanma_sp_excludes_middle_manzu_and_encodes_27_columns() {
+        let common = input_from_tiles(&[0, 0, 0, 8, 8, 8, 9, 10, 11, 18, 19, 20, 27, 27], 10);
+        let input = SpInput3P {
+            tehai: common.tehai,
+            akas_in_hand: common.akas_in_hand,
+            tiles_seen: common.tiles_seen,
+            akas_seen: common.akas_seen,
+            dora_indicators: common.dora_indicators,
+            melds: common.melds,
+            bakaze: common.bakaze,
+            jikaze: common.jikaze,
+            is_menzen: common.is_menzen,
+            can_riichi: common.can_riichi,
+            can_double_riichi: common.can_double_riichi,
+            tsumos_left: common.tsumos_left,
+            discard_candidates: common.discard_candidates,
+        };
+
+        let result = calculate_sp_3p(&input);
+        assert!(!result.candidates.is_empty());
+        for candidate in &result.candidates {
+            assert!(!(1..=7).contains(&candidate.tile));
+            for tile in 1..=7 {
+                assert_eq!(candidate.required_tiles[tile], 0.0);
+                assert_eq!(candidate.yaku_progress_tiles[tile], 0.0);
+                assert_eq!(candidate.future_wait_tiles[tile], 0.0);
+            }
+        }
+        let encoded = encode_sp_3p(&result);
+        assert_eq!(encoded.len(), SP_CHANNELS * 27);
+        assert!(encoded.iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn sanma_dora_cycles_between_one_and_nine_manzu() {
+        assert_eq!(next_dora_tile_for_variant(0, SpVariant::ThreePlayer), 8);
+        assert_eq!(next_dora_tile_for_variant(8, SpVariant::ThreePlayer), 0);
+        assert_eq!(next_dora_tile_for_variant(9, SpVariant::ThreePlayer), 10);
+    }
+
+    #[test]
+    fn sanma_tenpai_score_matches_the_three_player_evaluator() {
+        let common = input_from_tiles(&[0, 0, 0, 8, 8, 8, 9, 10, 11, 18, 19, 20, 27, 27], 10);
+        let input = SpInput3P {
+            tehai: common.tehai,
+            akas_in_hand: common.akas_in_hand,
+            tiles_seen: common.tiles_seen,
+            akas_seen: common.akas_seen,
+            dora_indicators: common.dora_indicators,
+            melds: common.melds,
+            bakaze: common.bakaze,
+            jikaze: common.jikaze,
+            is_menzen: common.is_menzen,
+            can_riichi: common.can_riichi,
+            can_double_riichi: common.can_double_riichi,
+            tsumos_left: common.tsumos_left,
+            discard_candidates: vec![27],
+        };
+        let result = calculate_sp_3p(&input);
+        let candidate = result
+            .candidates
+            .iter()
+            .find(|candidate| candidate.tile == 27)
+            .unwrap();
+
+        let mut counts_13 = input.tehai;
+        counts_13[27] -= 1;
+        let (tiles, tile_count) = counts_to_136_stack(&counts_13, input.akas_in_hand);
+        let conditions = Conditions {
+            tsumo: true,
+            riichi: true,
+            player_wind: Wind::East,
+            round_wind: Wind::East,
+            ..Conditions::default()
+        };
+        let score = HandEvaluator3P::new_borrowed(&tiles[..tile_count], &[]).calc_borrowed(
+            tile_type_to_136(27, false),
+            &[],
+            &[],
+            Some(conditions),
+        );
+        assert!(score.is_win);
+        let expected = tsumo_total_for_variant(
+            score.tsumo_agari_oya,
+            score.tsumo_agari_ko,
+            SpVariant::ThreePlayer,
+        ) as f32;
+        assert_eq!(candidate.min_point, expected);
+        assert_eq!(candidate.mean_point, expected);
+        assert_eq!(candidate.max_point, expected);
+    }
+
+    #[test]
     fn sp_target_point_probs_are_monotone_non_increasing() {
         // P(score ≥ T_k) must be non-increasing in T_k since the targets are
         // sorted ascending.
@@ -3533,14 +4103,20 @@ mod tests {
                 assert!(
                     prev + 1e-6 >= cur,
                     "discard={} k={}: prob {} → {} should be non-increasing",
-                    c.tile, k, prev, cur,
+                    c.tile,
+                    k,
+                    prev,
+                    cur,
                 );
                 if prev > 0.0 {
                     saw_signal = true;
                 }
             }
         }
-        assert!(saw_signal, "expected at least one candidate with non-zero target-prob");
+        assert!(
+            saw_signal,
+            "expected at least one candidate with non-zero target-prob"
+        );
     }
 
     #[test]
@@ -3557,7 +4133,8 @@ mod tests {
                     assert!(
                         c.future_wait_tiles[tile] > 0.0,
                         "discard={} tile={}: required_tiles set but future_wait_tiles unset",
-                        c.tile, tile,
+                        c.tile,
+                        tile,
                     );
                 }
             }
@@ -3575,7 +4152,10 @@ mod tests {
             .iter()
             .filter(|c| c.yaku_mask & yaku_mask_bits::RIICHI != 0)
             .count();
-        assert!(optimal_count > 0, "expected at least one riichi-eligible candidate");
+        assert!(
+            optimal_count > 0,
+            "expected at least one riichi-eligible candidate"
+        );
         for c in &result.candidates {
             if c.yaku_mask & yaku_mask_bits::RIICHI != 0 {
                 assert!(
@@ -3596,7 +4176,10 @@ mod tests {
             .candidates
             .iter()
             .any(|c| c.max_point > 0.0 && c.mean_point > 0.0 && c.min_point > 0.0);
-        assert!(any, "expected scoring stats for at least one tenpai candidate");
+        assert!(
+            any,
+            "expected scoring stats for at least one tenpai candidate"
+        );
         // Sanity: min ≤ mean ≤ max within each candidate.
         for c in &result.candidates {
             if c.max_point > 0.0 {
@@ -3902,7 +4485,7 @@ mod tests {
         let mut remaining = remaining_counts(&input);
         remaining[11] -= 1;
 
-        let dist = ura_distribution(&full_counts, &remaining, 3);
+        let dist = ura_distribution(&full_counts, &remaining, 3, SpVariant::FourPlayer);
         let sum = dist.iter().sum::<f32>();
         assert!((sum - 1.0).abs() < 1e-5, "sum={sum}, dist={dist:?}");
         assert!(
@@ -3963,7 +4546,7 @@ mod tests {
         let mut remaining = [0u8; TILE_MAX];
         remaining[11] = 1;
 
-        let mut dp = DpContext::new(&input);
+        let mut dp = DpContext::new(&input, SpVariant::FourPlayer);
         let (tenpai, win, ev) = dp.series(&counts, &remaining, 1);
 
         assert_eq!(tenpai[0], 1.0);
@@ -3985,7 +4568,7 @@ mod tests {
         remaining[20] = 4;
         remaining[21] = 4;
 
-        let mut dp = DpContext::new(&input);
+        let mut dp = DpContext::new(&input, SpVariant::FourPlayer);
         let (tenpai, win, ev) = dp.series(&counts, &remaining, 2);
 
         assert!(tenpai[0] > 0.0);
@@ -4006,7 +4589,7 @@ mod tests {
         remaining[20] = 4;
         remaining[21] = 4;
 
-        let mut dp = DpContext::new(&input);
+        let mut dp = DpContext::new(&input, SpVariant::FourPlayer);
         let (tenpai, win, ev) = dp.series(&counts, &remaining, 3);
 
         let mut miss = 1.0f32;
@@ -4036,7 +4619,7 @@ mod tests {
         remaining[20] = 4;
         remaining[21] = 4;
 
-        let mut dp = DpContext::new(&input);
+        let mut dp = DpContext::new(&input, SpVariant::FourPlayer);
         let (_tenpai, win, ev) = dp.series(&counts, &remaining, 2);
 
         assert_eq!(win[0], 0.0);
@@ -4165,8 +4748,7 @@ mod tests {
                 }
             }
             if let Some(tile) = marker_tile {
-                let any = (0..TILE_MAX)
-                    .any(|t| encoded[(2 + tile) * TILE_MAX + t] > 0.5);
+                let any = (0..TILE_MAX).any(|t| encoded[(2 + tile) * TILE_MAX + t] > 0.5);
                 assert!(
                     any,
                     "marker at tile {} but channel 2+{} has no required tiles",
@@ -4251,7 +4833,7 @@ mod tests {
         let mut prev_win: Option<f32> = None;
         for h in [3u8, 5, 8, 12, 17] {
             input.tsumos_left = h;
-            let mut dp = DpContext::new(&input);
+            let mut dp = DpContext::new(&input, SpVariant::FourPlayer);
             let counts = input.tehai;
             let remaining = remaining_counts(&input);
             let (_t, win, _e) = dp.series(&counts, &remaining, h as usize);

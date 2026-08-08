@@ -18,8 +18,9 @@
 //! Future steps will add reach-state weighting, per-opponent breakdowns,
 //! and SP-derived deal-in EV.
 
-use crate::feature_context::FeatureContext;
+use crate::feature_context::{FeatureContext, FeatureContext3P};
 use crate::observation::Observation;
+use crate::observation_3p::Observation3P;
 use crate::types::TILE_MAX;
 
 /// Total number of channels emitted by `encode_drev_into`.
@@ -37,7 +38,7 @@ use crate::types::TILE_MAX;
 ///     by `n_active_opponents`. Range [0, 1]. Lets the model interpret ch 3
 ///     in context: a 0.5 signal at ch 3 means very different things when
 ///     n_reach_norm is 0.33 vs 1.0.
-///   - ch 5..8 ( 3): opp_tenpai_prob[slot] (broadcast). Heuristic estimate
+///   - ch 5..7 ( 3): opp_tenpai_prob[slot] (broadcast). Heuristic estimate
 ///     of `P(opp_i is tenpai)`: 1.0 for reached opps, otherwise a turn /
 ///     open-meld / discard-count based prior. Slot ordering matches
 ///     `opp_safe_mask`. Inactive slots stay 0.
@@ -126,8 +127,7 @@ impl DrevInput {
             if opp_idx == player_idx {
                 continue;
             }
-            let has_activity =
-                !obs.hands[opp_idx].is_empty() || !obs.discards[opp_idx].is_empty();
+            let has_activity = !obs.hands[opp_idx].is_empty() || !obs.discards[opp_idx].is_empty();
             if !has_activity {
                 continue;
             }
@@ -152,6 +152,46 @@ impl DrevInput {
         Self {
             opp_safe_mask,
             n_active_opponents,
+            tiles_seen: *context.all_observed_counts_capped(),
+            opp_reach,
+            opp_open_melds,
+            opp_discard_count,
+        }
+    }
+
+    pub fn from_observation_3p(obs: &Observation3P) -> Self {
+        let context = FeatureContext3P::new_unchecked(obs);
+        Self::from_feature_context_3p(&context)
+    }
+
+    pub fn from_feature_context_3p(context: &FeatureContext3P<'_>) -> Self {
+        let obs = context.observation();
+        let mut opp_safe_mask = [0u64; 3];
+        let mut opp_reach = [false; 3];
+        let mut opp_open_melds = [0u8; 3];
+        let mut opp_discard_count = [0u8; 3];
+        for slot in 0..2usize {
+            let opponent = (context.player_index() + slot + 1) % 3;
+            let mut mask = 0u64;
+            for &tile in &obs.discards[opponent] {
+                let tile_type = (tile / 4) as usize;
+                if tile_type < TILE_MAX {
+                    mask |= 1u64 << tile_type;
+                }
+            }
+            opp_safe_mask[slot] = mask;
+            opp_reach[slot] = obs.riichi_declared[opponent];
+            opp_open_melds[slot] = obs.melds[opponent]
+                .iter()
+                .filter(|meld| meld.opened)
+                .count()
+                .min(255) as u8;
+            opp_discard_count[slot] = obs.discards[opponent].len().min(255) as u8;
+        }
+
+        Self {
+            opp_safe_mask,
+            n_active_opponents: 2,
             tiles_seen: *context.all_observed_counts_capped(),
             opp_reach,
             opp_open_melds,
@@ -187,12 +227,26 @@ pub struct DrevResult {
 }
 
 pub fn calculate_drev(input: &DrevInput) -> DrevResult {
+    calculate_drev_for_variant(input, false)
+}
+
+pub fn calculate_drev_3p(input: &DrevInput) -> DrevResult {
+    calculate_drev_for_variant(input, true)
+}
+
+fn calculate_drev_for_variant(input: &DrevInput, is_sanma: bool) -> DrevResult {
     let anpai_norm = anpai_norm(input);
-    let suji_norm = suji_norm(input);
-    let kabe = kabe_nochance(input);
+    let mut suji_norm = suji_norm(input);
+    let mut kabe = kabe_nochance(input);
+    if is_sanma {
+        // 1m/9m cannot participate in sequences in sanma, and 2m-8m do not
+        // exist. Their suji/kabe planes therefore carry no ryanmen signal.
+        suji_norm[..9].fill(0.0);
+        kabe[..9].fill(0.0);
+    }
     let (reach_genbutsu_norm, n_reach_norm) = reach_signals(input);
     let opp_tenpai_prob = opp_tenpai_prob(input);
-    let threat = threat_aggregate(input, &kabe, &opp_tenpai_prob);
+    let threat = threat_aggregate(input, &kabe, &opp_tenpai_prob, is_sanma);
     DrevResult {
         anpai_norm,
         suji_norm,
@@ -245,6 +299,7 @@ fn threat_aggregate(
     input: &DrevInput,
     kabe: &[f32; TILE_MAX],
     tenpai: &[f32; 3],
+    is_sanma: bool,
 ) -> [f32; TILE_MAX] {
     let mut out = [0.0f32; TILE_MAX];
     if input.n_active_opponents == 0 {
@@ -257,15 +312,23 @@ fn threat_aggregate(
         // Suji blockers for this tile, computed once.
         let suit_base = (tile / 9) * 9;
         let num = tile % 9;
-        let (blocker_low, blocker_high, n_blockers) = if tile < 27 {
+        let (blocker_low, blocker_high, n_blockers) = if tile < 27 && !(is_sanma && tile < 9) {
             let lo = num.checked_sub(3).map(|n| suit_base + n);
-            let hi = if num + 3 <= 8 { Some(suit_base + num + 3) } else { None };
+            let hi = if num + 3 <= 8 {
+                Some(suit_base + num + 3)
+            } else {
+                None
+            };
             let n = (lo.is_some() as u8) + (hi.is_some() as u8);
             (lo, hi, n)
         } else {
             (None, None, 0)
         };
-        let inv_blockers = if n_blockers > 0 { 1.0 / n_blockers as f32 } else { 0.0 };
+        let inv_blockers = if n_blockers > 0 {
+            1.0 / n_blockers as f32
+        } else {
+            0.0
+        };
 
         let mut total = 0.0f32;
         for slot in 0..3 {
@@ -360,7 +423,11 @@ fn suji_norm(input: &DrevInput) -> [f32; TILE_MAX] {
         let num = tile % 9;
         // Suji blockers for tile T: T-3 and T+3 within same suit.
         let blocker_low = num.checked_sub(3).map(|n| suit_base + n);
-        let blocker_high = if num + 3 <= 8 { Some(suit_base + num + 3) } else { None };
+        let blocker_high = if num + 3 <= 8 {
+            Some(suit_base + num + 3)
+        } else {
+            None
+        };
         let n_blockers = (blocker_low.is_some() as u8) + (blocker_high.is_some() as u8);
         if n_blockers == 0 {
             continue;
@@ -473,6 +540,56 @@ pub fn encode_drev_into(result: &DrevResult, buf: &mut [f32], ch_offset: usize) 
     }
 }
 
+pub fn encode_drev_3p(result: &DrevResult) -> Vec<f32> {
+    const TILE_TYPES_3P: usize = 27;
+    let mut buf = vec![0.0f32; DREV_CHANNELS * TILE_TYPES_3P];
+    encode_drev_3p_into(result, &mut buf, 0);
+    buf
+}
+
+pub fn encode_drev_3p_into(result: &DrevResult, buf: &mut [f32], ch_offset: usize) {
+    const TILE_TYPES_3P: usize = 27;
+    if buf.len() < (ch_offset + DREV_CHANNELS) * TILE_TYPES_3P {
+        return;
+    }
+    let compact = |tile: usize| match tile {
+        0 => Some(0),
+        1..=7 => None,
+        8..=33 => Some(tile - 7),
+        _ => None,
+    };
+    let index = |channel: usize, tile: usize| (ch_offset + channel) * TILE_TYPES_3P + tile;
+    for tile in 0..TILE_MAX {
+        let Some(column) = compact(tile) else {
+            continue;
+        };
+        for (channel, value) in [
+            (0, result.anpai_norm[tile]),
+            (1, result.suji_norm[tile]),
+            (2, result.kabe[tile]),
+            (3, result.reach_genbutsu_norm[tile]),
+            (8, result.threat[tile]),
+        ] {
+            if value > 0.0 {
+                buf[index(channel, column)] = value;
+            }
+        }
+    }
+    if result.n_reach_norm > 0.0 {
+        for tile in 0..TILE_TYPES_3P {
+            buf[index(4, tile)] = result.n_reach_norm;
+        }
+    }
+    for slot in 0..3 {
+        let value = result.opp_tenpai_prob[slot];
+        if value > 0.0 {
+            for tile in 0..TILE_TYPES_3P {
+                buf[index(5 + slot, tile)] = value;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -535,11 +652,7 @@ mod tests {
 
     #[test]
     fn three_p_only_two_opponents_normalises_correctly() {
-        let input = input_with(
-            [(1u64 << 0), (1u64 << 0), 0],
-            2,
-            [0; TILE_MAX],
-        );
+        let input = input_with([(1u64 << 0), (1u64 << 0), 0], 2, [0; TILE_MAX]);
         let result = calculate_drev(&input);
         assert!((result.anpai_norm[0] - 1.0).abs() < 1e-6);
     }
@@ -563,11 +676,7 @@ mod tests {
     fn suji_score_double_sided_middle_tile_partial_credit() {
         // Single opponent discards 1m AND 7m. Then 4m has BOTH blockers hit.
         // suji[4m] = 2 / 2 = 1.0 (full suji).
-        let input = input_with(
-            [(1u64 << 0) | (1u64 << 6), 0, 0],
-            1,
-            [0; TILE_MAX],
-        );
+        let input = input_with([(1u64 << 0) | (1u64 << 6), 0, 0], 1, [0; TILE_MAX]);
         let result = calculate_drev(&input);
         assert!((result.suji_norm[3] - 1.0).abs() < 1e-6, "4m fully suji");
         // 4m is a "double-sided" tile with 2 blockers; if only one was discarded
@@ -675,12 +784,7 @@ mod tests {
 
     #[test]
     fn opp_tenpai_prob_is_one_for_reached_opp() {
-        let input = input_with_reach(
-            [(1u64 << 0), 0, 0],
-            3,
-            [0; TILE_MAX],
-            [true, false, false],
-        );
+        let input = input_with_reach([(1u64 << 0), 0, 0], 3, [0; TILE_MAX], [true, false, false]);
         let result = calculate_drev(&input);
         assert_eq!(result.opp_tenpai_prob[0], 1.0);
     }
@@ -690,7 +794,10 @@ mod tests {
         // Only slot 0 is active (has discards), slots 1/2 fully inert.
         let input = input_with([(1u64 << 0), 0, 0], 1, [0; TILE_MAX]);
         let result = calculate_drev(&input);
-        assert!(result.opp_tenpai_prob[0] > 0.0, "active slot should have a prior");
+        assert!(
+            result.opp_tenpai_prob[0] > 0.0,
+            "active slot should have a prior"
+        );
         assert_eq!(result.opp_tenpai_prob[1], 0.0, "inactive slot");
         assert_eq!(result.opp_tenpai_prob[2], 0.0, "inactive slot");
     }
@@ -727,12 +834,7 @@ mod tests {
         // Other slots inactive → no contribution. So threat[5] = 0.
         // Tile 0 (1m): NOT in slot 0's discards. safety_0 ≈ 0 (no suji, no
         // kabe in this fixture) → threat[0] = 1.0 × 1.0 / 3 = 0.333...
-        let input = input_with_reach(
-            [(1u64 << 5), 0, 0],
-            3,
-            [0; TILE_MAX],
-            [true, false, false],
-        );
+        let input = input_with_reach([(1u64 << 5), 0, 0], 3, [0; TILE_MAX], [true, false, false]);
         let result = calculate_drev(&input);
         assert_eq!(result.threat[5], 0.0, "tile 5 is genbutsu vs slot 0");
         assert!(
@@ -775,7 +877,10 @@ mod tests {
         assert_eq!(buf[2 * TILE_MAX + 0], 1.0, "kabe ch 2 for 1m");
         // ch 3 (reach_genbutsu): only shimocha is in reach; she discarded
         // tile 5. reach_genbutsu_norm[5] = 1/1 = 1.0.
-        assert!((buf[3 * TILE_MAX + 5] - 1.0).abs() < 1e-6, "reach_genbutsu ch 3");
+        assert!(
+            (buf[3 * TILE_MAX + 5] - 1.0).abs() < 1e-6,
+            "reach_genbutsu ch 3"
+        );
         // ch 4 (n_reach_norm broadcast): 1 reached / 2 active = 0.5, every cell.
         for t in 0..TILE_MAX {
             assert!(
@@ -808,5 +913,39 @@ mod tests {
             (buf[8 * TILE_MAX + 13] - 0.5).abs() < 1e-6,
             "threat ch 8 tile 13 (no safety)"
         );
+    }
+
+    #[test]
+    fn sanma_uses_two_opponents_and_compacts_the_tile_axis() {
+        let input = input_with_reach(
+            [(1u64 << 0) | (1u64 << 9), 1u64 << 0, 0],
+            2,
+            [0; TILE_MAX],
+            [true, false, false],
+        );
+        let result = calculate_drev_3p(&input);
+
+        assert_eq!(
+            result.anpai_norm[0], 1.0,
+            "1m is safe against both opponents"
+        );
+        assert_eq!(result.anpai_norm[9], 0.5, "1p is safe against one opponent");
+        assert_eq!(
+            result.suji_norm[0], 0.0,
+            "sanma manzu has no suji sequences"
+        );
+        assert_eq!(result.kabe[0], 0.0, "sanma 1m has no sequence wall feature");
+        assert_eq!(
+            result.opp_tenpai_prob[2], 0.0,
+            "the absent opponent stays zero"
+        );
+
+        let encoded = encode_drev_3p(&result);
+        assert_eq!(encoded.len(), DREV_CHANNELS * 27);
+        assert_eq!(encoded[0], result.anpai_norm[0]);
+        assert_eq!(encoded[1], result.anpai_norm[8]);
+        assert_eq!(encoded[2], result.anpai_norm[9]);
+        assert_eq!(encoded[26], result.anpai_norm[33]);
+        assert!(encoded.iter().all(|value| value.is_finite()));
     }
 }

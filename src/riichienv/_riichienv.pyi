@@ -743,6 +743,18 @@ class Observation3P:
             features = np.frombuffer(buf, dtype=np.float32).reshape(215, 27)
         """
         ...
+    def sp_input_json(self) -> str:
+        """Serialize the sanma SP calculator input as JSON."""
+        ...
+    def encode_sp(self) -> bytes:
+        """Encode SP features with shape ``(178, 27)`` and dtype ``float32``."""
+        ...
+    def encode_drev(self) -> bytes:
+        """Encode DREV features with shape ``(9, 27)`` and dtype ``float32``."""
+        ...
+    def encode_extended_with_sp(self) -> bytes:
+        """Encode extended + SP + DREV features with shape ``(402, 27)``."""
+        ...
     def __init__(self, *args: Any, **kwargs: Any): ...
 
 class Kyoku:
@@ -898,6 +910,18 @@ def encode_extended_batch_3p(observations: Sequence[Observation3P]) -> bytes:
     """Encode `[batch, 215, 27]` float32 sanma features."""
     ...
 
+def encode_sp_batch_3p(observations: Sequence[Observation3P]) -> bytes:
+    """Encode `[batch, 178, 27]` float32 sanma SP features."""
+    ...
+
+def encode_drev_batch_3p(observations: Sequence[Observation3P]) -> bytes:
+    """Encode `[batch, 9, 27]` float32 sanma DREV features."""
+    ...
+
+def encode_extended_with_sp_batch_3p(observations: Sequence[Observation3P]) -> bytes:
+    """Encode `[batch, 402, 27]` sanma extended + SP + DREV features."""
+    ...
+
 class RiichiEnv:
     oya: int
     riichi_sticks: int
@@ -1048,10 +1072,13 @@ __all__ = [
     "encode_base_batch",
     "encode_base_batch_3p",
     "encode_drev_batch",
+    "encode_drev_batch_3p",
     "encode_extended_batch",
     "encode_extended_batch_3p",
     "encode_extended_with_sp_batch",
+    "encode_extended_with_sp_batch_3p",
     "encode_sp_batch",
+    "encode_sp_batch_3p",
     "parse_hand",
     "parse_tile",
     "Yaku",

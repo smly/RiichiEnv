@@ -11,6 +11,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::action::{ACTION_SPACE_3P, ACTION_SPACE_4P, Action, ActionEncoder, Phase};
+use crate::drev::DREV_CHANNELS;
 use crate::errors::{RiichiError, RiichiResult};
 use crate::game_variant::GameStateVariant;
 use crate::observation::{OBS_BASE_CHANNELS, OBS_EXTENDED_CHANNELS, OBS_TILE_TYPES, Observation};
@@ -19,6 +20,7 @@ use crate::observation_3p::{
 };
 use crate::replay::EventJournal;
 use crate::rule::GameRule;
+use crate::sp::SP_CHANNELS;
 use crate::types::{TILES_3P, TILES_4P, is_sanma_excluded_tile};
 
 const MAX_SAFE_ENGINE_SCORE_ABS: i32 = 100_000_000;
@@ -299,6 +301,27 @@ impl ObservationVariant {
         }
     }
 
+    pub fn encode_sp_features(&self) -> RiichiResult<Vec<f32>> {
+        match self {
+            Self::FourPlayer(obs) => obs.encode_sp_features(),
+            Self::ThreePlayer(obs) => obs.encode_sp_features(),
+        }
+    }
+
+    pub fn encode_drev_features(&self) -> RiichiResult<Vec<f32>> {
+        match self {
+            Self::FourPlayer(obs) => obs.encode_drev_features(),
+            Self::ThreePlayer(obs) => obs.encode_drev_features(),
+        }
+    }
+
+    pub fn encode_extended_with_sp_features(&self) -> RiichiResult<Vec<f32>> {
+        match self {
+            Self::FourPlayer(obs) => obs.encode_extended_with_sp_features(),
+            Self::ThreePlayer(obs) => obs.encode_extended_with_sp_features(),
+        }
+    }
+
     pub fn base_feature_shape(&self) -> (usize, usize) {
         match self {
             Self::FourPlayer(_) => (OBS_BASE_CHANNELS, OBS_TILE_TYPES),
@@ -311,6 +334,25 @@ impl ObservationVariant {
             Self::FourPlayer(_) => (OBS_EXTENDED_CHANNELS, OBS_TILE_TYPES),
             Self::ThreePlayer(_) => (OBS_3P_EXTENDED_CHANNELS, OBS_3P_TILE_TYPES),
         }
+    }
+
+    pub fn sp_feature_shape(&self) -> (usize, usize) {
+        (SP_CHANNELS, self.tile_types())
+    }
+
+    pub fn drev_feature_shape(&self) -> (usize, usize) {
+        (DREV_CHANNELS, self.tile_types())
+    }
+
+    pub fn extended_with_sp_feature_shape(&self) -> (usize, usize) {
+        let extended_channels = match self {
+            Self::FourPlayer(_) => OBS_EXTENDED_CHANNELS,
+            Self::ThreePlayer(_) => OBS_3P_EXTENDED_CHANNELS,
+        };
+        (
+            extended_channels + SP_CHANNELS + DREV_CHANNELS,
+            self.tile_types(),
+        )
     }
 }
 

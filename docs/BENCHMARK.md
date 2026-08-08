@@ -95,6 +95,13 @@ The covered v0 layouts are:
 | 4P | extended + SP + DREV | `402 x 34` |
 | 3P | base | `74 x 27` |
 | 3P | extended | `215 x 27` |
+| 3P | SP | `178 x 27` |
+| 3P | DREV | `9 x 27` |
+| 3P | extended + SP + DREV | `402 x 27` |
+
+The timing table below predates the 3P SP/DREV addition and measures the 4P
+batch path only. A later benchmark run should add replay-derived 3P positions
+without mixing those results into the existing 4P baseline.
 
 #### 4-player feature batch
 

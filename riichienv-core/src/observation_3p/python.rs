@@ -1136,4 +1136,50 @@ impl Observation3P {
         let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
+
+    /// Dump the sanma SP input as JSON for numerical-comparison tooling.
+    #[pyo3(name = "sp_input_json")]
+    pub fn sp_input_json_py(&self) -> PyResult<String> {
+        let input = crate::sp::SpInput3P::from_observation(self);
+        serde_json::to_string(&input)
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))
+    }
+
+    /// Encode SP features using the compact 27-column sanma layout.
+    #[pyo3(name = "encode_sp")]
+    pub fn encode_sp_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        self.validate().map_err(PyErr::from)?;
+        let buf = self.encode_sp_features().map_err(PyErr::from)?;
+        let byte_len = std::mem::size_of_val(buf.as_slice());
+        let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
+        Ok(pyo3::types::PyBytes::new(py, byte_slice))
+    }
+
+    /// Encode DREV features using the compact 27-column sanma layout.
+    #[pyo3(name = "encode_drev")]
+    pub fn encode_drev_py<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        self.validate().map_err(PyErr::from)?;
+        let buf = self.encode_drev_features().map_err(PyErr::from)?;
+        let byte_len = std::mem::size_of_val(buf.as_slice());
+        let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
+        Ok(pyo3::types::PyBytes::new(py, byte_slice))
+    }
+
+    /// Encode extended, SP, and DREV features as `(402, 27)` float32.
+    #[pyo3(name = "encode_extended_with_sp")]
+    pub fn encode_extended_with_sp<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        self.validate().map_err(PyErr::from)?;
+        let buf = self
+            .encode_extended_with_sp_features()
+            .map_err(PyErr::from)?;
+        let byte_len = std::mem::size_of_val(buf.as_slice());
+        let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, byte_len) };
+        Ok(pyo3::types::PyBytes::new(py, byte_slice))
+    }
 }

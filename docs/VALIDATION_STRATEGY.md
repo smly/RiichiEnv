@@ -146,7 +146,9 @@ Optimization order is:
 - generated and package-exported TypeScript declarations for the browser APIs.
 - real-browser smoke coverage for the bundled web-target WASM loader.
 - pure Rust `ReplayLog`/borrowed kyoku cursor with tracked-corpus coverage;
-- shared 4P `FeatureContext` preprocessing for combined extended/SP/DREV.
+- shared 4P/3P `FeatureContext` preprocessing for combined extended/SP/DREV;
+- 3P SP/DREV contracts for the compact 27-tile axis, two-opponent DREV
+  normalization, absent-manzu suppression, and sanma dora wrapping.
 - public-`GameEngine` rule regressions for 4P chi/pon and 3P pon, including
   `kuikae_forbidden` ON/OFF and live/replay parity;
 - public-`GameEngine` kan lifecycle coverage for ankan, daiminkan, and kakan in

@@ -95,6 +95,12 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(features::encode_base_batch_3p_py, m)?)?;
     m.add_function(wrap_pyfunction!(features::encode_extended_batch_3p_py, m)?)?;
+    m.add_function(wrap_pyfunction!(features::encode_sp_batch_3p_py, m)?)?;
+    m.add_function(wrap_pyfunction!(features::encode_drev_batch_3p_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        features::encode_extended_with_sp_batch_3p_py,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(
         riichienv_core::yaku::get_yaku_by_id_py,
         m
@@ -117,6 +123,17 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
             + riichienv_core::drev::DREV_CHANNELS,
     )?;
     m.add("TILE_TYPES", 34u32)?;
+    m.add(
+        "OBS_EXTENDED_CHANNELS_3P",
+        riichienv_core::observation_3p::OBS_3P_EXTENDED_CHANNELS,
+    )?;
+    m.add(
+        "OBS_TOTAL_CHANNELS_3P",
+        riichienv_core::observation_3p::OBS_3P_EXTENDED_CHANNELS
+            + riichienv_core::sp::SP_CHANNELS
+            + riichienv_core::drev::DREV_CHANNELS,
+    )?;
+    m.add("TILE_TYPES_3P", 27u32)?;
 
     Ok(())
 }

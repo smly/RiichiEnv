@@ -48,6 +48,9 @@ export interface EngineDecision {
     readonly observationBase64: string;
     readonly baseShape: readonly [number, number];
     readonly extendedShape: readonly [number, number];
+    readonly spShape: readonly [number, number];
+    readonly drevShape: readonly [number, number];
+    readonly extendedWithSpShape: readonly [number, number];
 }
 
 export interface GameSnapshotWire {
@@ -264,6 +267,9 @@ struct DecisionJs {
     observation_base64: String,
     base_shape: [usize; 2],
     extended_shape: [usize; 2],
+    sp_shape: [usize; 2],
+    drev_shape: [usize; 2],
+    extended_with_sp_shape: [usize; 2],
 }
 
 impl DecisionJs {
@@ -271,6 +277,9 @@ impl DecisionJs {
         let observation = &decision.observation;
         let base_shape = observation.base_feature_shape();
         let extended_shape = observation.extended_feature_shape();
+        let sp_shape = observation.sp_feature_shape();
+        let drev_shape = observation.drev_feature_shape();
+        let extended_with_sp_shape = observation.extended_with_sp_feature_shape();
         Ok(Self {
             player_id: decision.player_id,
             legal_action_ids: observation
@@ -284,6 +293,9 @@ impl DecisionJs {
                 .map_err(|error| error.to_string())?,
             base_shape: [base_shape.0, base_shape.1],
             extended_shape: [extended_shape.0, extended_shape.1],
+            sp_shape: [sp_shape.0, sp_shape.1],
+            drev_shape: [drev_shape.0, drev_shape.1],
+            extended_with_sp_shape: [extended_with_sp_shape.0, extended_with_sp_shape.1],
         })
     }
 }
@@ -436,6 +448,57 @@ impl WasmGameEngine {
                 decision
                     .observation
                     .encode_extended_features()
+                    .map_err(|error| error.to_string())
+            })
+            .map_err(journal_error)
+    }
+
+    /// SP-v0 features for one pending player as a `Float32Array`.
+    #[wasm_bindgen(js_name = spFeatures)]
+    pub fn sp_features(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "number")] player_id: JsValue,
+    ) -> Result<Vec<f32>, JsValue> {
+        let player_id = parse_js_u8(&player_id, "playerId").map_err(journal_error)?;
+        self.pending_decision(player_id)
+            .and_then(|decision| {
+                decision
+                    .observation
+                    .encode_sp_features()
+                    .map_err(|error| error.to_string())
+            })
+            .map_err(journal_error)
+    }
+
+    /// DREV-v0 features for one pending player as a `Float32Array`.
+    #[wasm_bindgen(js_name = drevFeatures)]
+    pub fn drev_features(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "number")] player_id: JsValue,
+    ) -> Result<Vec<f32>, JsValue> {
+        let player_id = parse_js_u8(&player_id, "playerId").map_err(journal_error)?;
+        self.pending_decision(player_id)
+            .and_then(|decision| {
+                decision
+                    .observation
+                    .encode_drev_features()
+                    .map_err(|error| error.to_string())
+            })
+            .map_err(journal_error)
+    }
+
+    /// Extended + SP + DREV features for one pending player.
+    #[wasm_bindgen(js_name = extendedWithSpFeatures)]
+    pub fn extended_with_sp_features(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "number")] player_id: JsValue,
+    ) -> Result<Vec<f32>, JsValue> {
+        let player_id = parse_js_u8(&player_id, "playerId").map_err(journal_error)?;
+        self.pending_decision(player_id)
+            .and_then(|decision| {
+                decision
+                    .observation
+                    .encode_extended_with_sp_features()
                     .map_err(|error| error.to_string())
             })
             .map_err(journal_error)
@@ -1168,6 +1231,9 @@ mod tests {
         assert_eq!(decisions.len(), 1);
         assert_eq!(decisions[0].base_shape, [74, 27]);
         assert_eq!(decisions[0].extended_shape, [215, 27]);
+        assert_eq!(decisions[0].sp_shape, [178, 27]);
+        assert_eq!(decisions[0].drev_shape, [9, 27]);
+        assert_eq!(decisions[0].extended_with_sp_shape, [402, 27]);
         assert_eq!(decisions[0].action_mask.len(), 60);
 
         let player_id = decisions[0].player_id;
@@ -1190,6 +1256,26 @@ mod tests {
                 .unwrap()
                 .len(),
             215 * 27
+        );
+        assert_eq!(
+            engine
+                .pending_decision(player_id)
+                .unwrap()
+                .observation
+                .encode_sp_features()
+                .unwrap()
+                .len(),
+            178 * 27
+        );
+        assert_eq!(
+            engine
+                .pending_decision(player_id)
+                .unwrap()
+                .observation
+                .encode_drev_features()
+                .unwrap()
+                .len(),
+            9 * 27
         );
     }
 

@@ -81,6 +81,27 @@ pub const EXTENDED_3P_V0: FeatureSpec = FeatureSpec {
     tile_types: OBS_3P_TILE_TYPES,
 };
 
+pub const SP_3P_V0: FeatureSpec = FeatureSpec {
+    name: "sp-3p",
+    version: 0,
+    channels: SP_CHANNELS,
+    tile_types: OBS_3P_TILE_TYPES,
+};
+
+pub const DREV_3P_V0: FeatureSpec = FeatureSpec {
+    name: "drev-3p",
+    version: 0,
+    channels: DREV_CHANNELS,
+    tile_types: OBS_3P_TILE_TYPES,
+};
+
+pub const EXTENDED_SP_DREV_3P_V0: FeatureSpec = FeatureSpec {
+    name: "extended-sp-drev-3p",
+    version: 0,
+    channels: OBS_3P_EXTENDED_CHANNELS + SP_CHANNELS + DREV_CHANNELS,
+    tile_types: OBS_3P_TILE_TYPES,
+};
+
 fn validate_output_len(
     spec: FeatureSpec,
     batch_size: usize,
@@ -241,6 +262,65 @@ pub fn encode_extended_3p_batch_into(
     Ok(())
 }
 
+pub fn encode_sp_3p_batch(observations: &[Observation3P]) -> RiichiResult<Vec<f32>> {
+    let mut output = vec![0.0; SP_3P_V0.values_for_batch(observations.len())];
+    encode_sp_3p_batch_into(observations, &mut output)?;
+    Ok(output)
+}
+
+pub fn encode_sp_3p_batch_into(
+    observations: &[Observation3P],
+    output: &mut [f32],
+) -> RiichiResult<()> {
+    validate_output_len(SP_3P_V0, observations.len(), output.len())?;
+    validate_3p_observations(observations)?;
+    let row_len = SP_3P_V0.values_per_observation();
+    for (observation, row) in observations.iter().zip(output.chunks_exact_mut(row_len)) {
+        row.fill(0.0);
+        observation.encode_sp_into(row, 0);
+    }
+    Ok(())
+}
+
+pub fn encode_drev_3p_batch(observations: &[Observation3P]) -> RiichiResult<Vec<f32>> {
+    let mut output = vec![0.0; DREV_3P_V0.values_for_batch(observations.len())];
+    encode_drev_3p_batch_into(observations, &mut output)?;
+    Ok(output)
+}
+
+pub fn encode_drev_3p_batch_into(
+    observations: &[Observation3P],
+    output: &mut [f32],
+) -> RiichiResult<()> {
+    validate_output_len(DREV_3P_V0, observations.len(), output.len())?;
+    validate_3p_observations(observations)?;
+    let row_len = DREV_3P_V0.values_per_observation();
+    for (observation, row) in observations.iter().zip(output.chunks_exact_mut(row_len)) {
+        row.fill(0.0);
+        observation.encode_drev_into(row, 0);
+    }
+    Ok(())
+}
+
+pub fn encode_extended_sp_drev_3p_batch(observations: &[Observation3P]) -> RiichiResult<Vec<f32>> {
+    let mut output = vec![0.0; EXTENDED_SP_DREV_3P_V0.values_for_batch(observations.len())];
+    encode_extended_sp_drev_3p_batch_into(observations, &mut output)?;
+    Ok(output)
+}
+
+pub fn encode_extended_sp_drev_3p_batch_into(
+    observations: &[Observation3P],
+    output: &mut [f32],
+) -> RiichiResult<()> {
+    validate_output_len(EXTENDED_SP_DREV_3P_V0, observations.len(), output.len())?;
+    validate_3p_observations(observations)?;
+    let row_len = EXTENDED_SP_DREV_3P_V0.values_per_observation();
+    for (observation, row) in observations.iter().zip(output.chunks_exact_mut(row_len)) {
+        observation.encode_extended_with_sp_features_into_unchecked(row);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,11 +374,29 @@ mod tests {
             .collect::<Vec<_>>();
 
         let extended = encode_extended_3p_batch(&observations).unwrap();
+        let sp = encode_sp_3p_batch(&observations).unwrap();
+        let drev = encode_drev_3p_batch(&observations).unwrap();
+        let combined = encode_extended_sp_drev_3p_batch(&observations).unwrap();
         for (index, observation) in observations.iter().enumerate() {
             let start = index * EXTENDED_3P_V0.values_per_observation();
             assert_eq!(
                 &extended[start..start + EXTENDED_3P_V0.values_per_observation()],
                 observation.encode_extended_features().unwrap()
+            );
+            let start = index * SP_3P_V0.values_per_observation();
+            assert_eq!(
+                &sp[start..start + SP_3P_V0.values_per_observation()],
+                observation.encode_sp_features().unwrap()
+            );
+            let start = index * DREV_3P_V0.values_per_observation();
+            assert_eq!(
+                &drev[start..start + DREV_3P_V0.values_per_observation()],
+                observation.encode_drev_features().unwrap()
+            );
+            let start = index * EXTENDED_SP_DREV_3P_V0.values_per_observation();
+            assert_eq!(
+                &combined[start..start + EXTENDED_SP_DREV_3P_V0.values_per_observation()],
+                observation.encode_extended_with_sp_features().unwrap()
             );
         }
     }
@@ -319,6 +417,8 @@ mod tests {
     fn empty_batch_has_empty_output() {
         assert!(encode_base_4p_batch(&[]).unwrap().is_empty());
         assert!(encode_extended_3p_batch(&[]).unwrap().is_empty());
+        assert!(encode_sp_3p_batch(&[]).unwrap().is_empty());
+        assert!(encode_drev_3p_batch(&[]).unwrap().is_empty());
     }
 
     #[test]
@@ -339,6 +439,15 @@ mod tests {
             ObservationVariant::FourPlayer(_) => unreachable!(),
         };
         three_player.hands[three_player.player_id as usize].clear();
+        let mut combined_output = vec![7.0; EXTENDED_SP_DREV_3P_V0.values_per_observation()];
+        assert!(
+            encode_extended_sp_drev_3p_batch_into(
+                std::slice::from_ref(&three_player),
+                &mut combined_output,
+            )
+            .is_err()
+        );
+        assert!(combined_output.iter().all(|&value| value == 7.0));
         let mut output = vec![7.0; EXTENDED_3P_V0.values_per_observation()];
         assert!(encode_extended_3p_batch_into(&[three_player], &mut output).is_err());
         assert!(output.iter().all(|&value| value == 7.0));

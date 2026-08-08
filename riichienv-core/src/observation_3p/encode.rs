@@ -1,6 +1,9 @@
 use crate::action::ActionType;
+use crate::drev::{self, DrevInput};
 use crate::errors::{RiichiError, RiichiResult};
+use crate::feature_context::FeatureContext3P;
 use crate::shanten;
+use crate::sp::{self, SpInput3P};
 use crate::types::MeldType;
 
 use super::Observation3P;
@@ -20,6 +23,38 @@ impl Observation3P {
     /// Sanma dora next tile.
     fn dora_next(&self, tile: u32) -> u8 {
         get_next_tile_sanma(tile)
+    }
+
+    pub(crate) fn encode_sp_into(&self, buf: &mut [f32], ch_offset: usize) {
+        let context = FeatureContext3P::new_unchecked(self);
+        self.encode_sp_into_with_context(buf, ch_offset, &context);
+    }
+
+    fn encode_sp_into_with_context(
+        &self,
+        buf: &mut [f32],
+        ch_offset: usize,
+        context: &FeatureContext3P<'_>,
+    ) {
+        let input = SpInput3P::from_feature_context(context);
+        let result = sp::calculate_sp_3p(&input);
+        sp::encode_sp_3p_into(&result, buf, ch_offset);
+    }
+
+    pub(crate) fn encode_drev_into(&self, buf: &mut [f32], ch_offset: usize) {
+        let context = FeatureContext3P::new_unchecked(self);
+        self.encode_drev_into_with_context(buf, ch_offset, &context);
+    }
+
+    fn encode_drev_into_with_context(
+        &self,
+        buf: &mut [f32],
+        ch_offset: usize,
+        context: &FeatureContext3P<'_>,
+    ) {
+        let input = DrevInput::from_feature_context_3p(context);
+        let result = drev::calculate_drev_3p(&input);
+        drev::encode_drev_3p_into(&result, buf, ch_offset);
     }
 
     /// Write 74 base encode channels into buf starting at ch_offset.
@@ -701,6 +736,67 @@ impl Observation3P {
         self.encode_last_ted_into(buf, 197);
         self.encode_riichi_sute_into(buf, 206);
     }
+
+    /// Encode the 178-channel sanma SP block on the compact 27-tile axis.
+    pub fn encode_sp_features(&self) -> RiichiResult<Vec<f32>> {
+        self.validate()?;
+        let mut buf = vec![0.0; crate::sp::SP_CHANNELS * OBS_3P_TILE_TYPES];
+        self.encode_sp_into(&mut buf, 0);
+        Ok(buf)
+    }
+
+    /// Encode the 9-channel sanma DREV block on the compact 27-tile axis.
+    pub fn encode_drev_features(&self) -> RiichiResult<Vec<f32>> {
+        self.validate()?;
+        let mut buf = vec![0.0; crate::drev::DREV_CHANNELS * OBS_3P_TILE_TYPES];
+        self.encode_drev_into(&mut buf, 0);
+        Ok(buf)
+    }
+
+    /// Encode extended, SP, and DREV features as `[402][27]`.
+    pub fn encode_extended_with_sp_features(&self) -> RiichiResult<Vec<f32>> {
+        self.validate()?;
+        let channels =
+            OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + crate::drev::DREV_CHANNELS;
+        let mut buf = vec![0.0; channels * OBS_3P_TILE_TYPES];
+        self.encode_extended_with_sp_features_into_unchecked(&mut buf);
+        Ok(buf)
+    }
+
+    pub fn encode_extended_with_sp_features_into(&self, buf: &mut [f32]) -> RiichiResult<()> {
+        let channels =
+            OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + crate::drev::DREV_CHANNELS;
+        let expected = channels * OBS_3P_TILE_TYPES;
+        if buf.len() != expected {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "extended-sp-drev-3p v0 output has length {}; expected {expected}",
+                    buf.len()
+                ),
+            });
+        }
+        self.validate()?;
+        self.encode_extended_with_sp_features_into_unchecked(buf);
+        Ok(())
+    }
+
+    pub(crate) fn encode_extended_with_sp_features_into_unchecked(&self, buf: &mut [f32]) {
+        debug_assert_eq!(
+            buf.len(),
+            (OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + crate::drev::DREV_CHANNELS)
+                * OBS_3P_TILE_TYPES
+        );
+        let context = FeatureContext3P::new_unchecked(self);
+        self.encode_extended_features_into_unchecked(
+            &mut buf[..OBS_3P_EXTENDED_CHANNELS * OBS_3P_TILE_TYPES],
+        );
+        self.encode_sp_into_with_context(buf, OBS_3P_EXTENDED_CHANNELS, &context);
+        self.encode_drev_into_with_context(
+            buf,
+            OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS,
+            &context,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -714,14 +810,20 @@ mod tests {
         discards: [Vec<u8>; 3],
         melds: [Vec<Meld>; 3],
     ) -> super::super::Observation3P {
+        let mut hands = [
+            // Sanma hands: use 1m,9m,1-9p,1-9s tiles only (no 2m-8m)
+            vec![0, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76],
+            vec![1, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77],
+            vec![2, 34, 38, 42, 46, 50, 54, 58, 62, 66, 70, 74, 78],
+        ];
+        for (seat, hand) in hands.iter_mut().enumerate() {
+            if seat != player_id as usize {
+                hand.clear();
+            }
+        }
         super::super::Observation3P::new(
             player_id,
-            [
-                // Sanma hands: use 1m,9m,1-9p,1-9s tiles only (no 2m-8m)
-                vec![0, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76],
-                vec![1, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77],
-                vec![2, 34, 38, 42, 46, 50, 54, 58, 62, 66, 70, 74, 78],
-            ],
+            hands,
             melds,
             discards,
             vec![],     // dora_indicators
@@ -731,7 +833,7 @@ mod tests {
             vec![],     // events
             0,          // honba
             0,          // riichi_sticks
-            27,         // round_wind
+            0,          // round_wind (east)
             0,          // oya
             0,          // kyoku_index
             vec![],     // waits
@@ -877,5 +979,26 @@ mod tests {
                 pid
             );
         }
+    }
+
+    #[test]
+    fn sp_drev_and_combined_features_have_stable_sanma_shapes() {
+        let observation = make_obs(0, Default::default(), empty_melds());
+        let extended = observation.encode_extended_features().unwrap();
+        let sp = observation.encode_sp_features().unwrap();
+        let drev = observation.encode_drev_features().unwrap();
+        let combined = observation.encode_extended_with_sp_features().unwrap();
+
+        assert_eq!(sp.len(), crate::sp::SP_CHANNELS * TILE_DIM_3P);
+        assert_eq!(drev.len(), crate::drev::DREV_CHANNELS * TILE_DIM_3P);
+        assert_eq!(
+            combined.len(),
+            (OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + crate::drev::DREV_CHANNELS)
+                * TILE_DIM_3P
+        );
+        assert_eq!(&combined[..extended.len()], extended);
+        assert_eq!(&combined[extended.len()..extended.len() + sp.len()], sp);
+        assert_eq!(&combined[extended.len() + sp.len()..], drev);
+        assert!(combined.iter().all(|value| value.is_finite()));
     }
 }

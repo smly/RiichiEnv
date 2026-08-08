@@ -91,16 +91,27 @@ Observation feature calculation is pure Rust and available without the Python fe
 | 4P extended + SP + DREV | `402 × 34` | 82 |
 | 3P base | `74 × 27` | 60 |
 | 3P extended | `215 × 27` | 60 |
+| 3P SP | `178 × 27` | 60 |
+| 3P DREV | `9 × 27` | 60 |
+| 3P extended + SP + DREV | `402 × 27` | 60 |
 
 Changing a channel's meaning, order, normalization, tile axis, or dtype requires a new feature version. Existing model ABI is not changed in place.
 
 Public single-row and batch encoders validate externally constructible Observation DTOs and return `RiichiResult`; private unchecked writers are used only after validation. A malformed player ID, tile/meld shape, or impossible hand therefore fails at the API boundary instead of panicking inside a feature loop.
 
+The 3P SP/DREV calculators retain canonical 34-tile IDs internally, exclude
+2m through 8m from wall/progression/risk calculations, and compact results to
+the same 27-column tile axis as the other 3P feature blocks. Sanma DREV uses
+two active-opponent slots and leaves the third slot zero. Because the frozen
+3P Observation payload has no kita count, SP score projection cannot include
+nukidora or subtract set-aside North tiles from the unseen wall until a
+versioned observation schema adds that field.
+
 One historical inconsistency is itself part of v0: after a called meld, base channel 30 counts the called tile in both the discard and meld, while the first 74 channels of extended-v0 subtract that duplicate. The dedicated base encoder preserves this difference and contract tests include a called-meld fixture.
 
 The compatibility Observation remains an owned DTO. A borrowed, per-decision
 `FeatureContext` now shares hand counts, visible-tile counts, red-five flags,
-and discard candidates across the 4P extended/SP/DREV combined path. Base, SP,
+and discard candidates across the 4P and 3P extended/SP/DREV combined paths. Base, SP,
 and DREV remain separate encoders over that context, and complete v0 vector
 tests protect their existing meanings. A fuller borrowed `PlayerView` can be
 introduced later when state-owned observations can avoid DTO construction too.
