@@ -152,12 +152,15 @@ Optimization order is:
 - public-`GameEngine` kan lifecycle coverage for ankan, daiminkan, and kakan in
   both variants, including rinshan draws, dora timing, ippatsu cancellation,
   the post-rinshan discard boundary, and kakan interrupted by chankan;
+- rule-edge integration matrices for kokushi chankan on ankan, riichi-time
+  wait-preserving ankan, fourth-kan ownership, and red-five chi/pon kuikae;
+- complete multi-responder action batches for 4P triple ron (including the
+  `sanchaho_is_draw` switch), 3P double ron, and 4P ron/pon/chi priority;
 - differential SP yaku/fu checks against `HandEvaluator` over the committed
   winning-hand corpus, explicit kan/open-hand fallback checks, and exact
   without-replacement probability oracles for tenpai and one-shanten paths.
 
-The next rule-heavy priorities are kokushi-only chankan around closed kans,
-multiple kans and four-kan abortive draws, riichi-time ankan restrictions,
-red-five kuikae variants, exhaustive/double-ron interactions after calls, and
-replay trace differentials that cover complete multi-kyoku games. These
+The next rule-heavy priorities are pao established by the final dragon/wind
+kan, exhaustive draws immediately after calls, nagashi mangan invalidation,
+and replay trace differentials that cover complete multi-kyoku games. These
 remaining items are migration gates, not permission to remove legacy APIs.
