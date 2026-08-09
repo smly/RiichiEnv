@@ -18,6 +18,9 @@
 //! code from any other implementation. The output is purely combinatorial
 //! data (decompositions of mahjong winning shapes), itself uncopyrightable.
 
+// Generator state is intentionally indexed by catalogue position.
+#![allow(clippy::needless_range_loop)]
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
@@ -109,10 +112,26 @@ fn main() {
     for pair_suit in 0..4 {
         // For each (m_total, p_total, s_total, z_total) summing to 14 with
         // appropriate pair/no-pair bucket constraints.
-        let m_totals: &[usize] = if pair_suit == 0 { &pair_totals } else { &no_pair_totals };
-        let p_totals: &[usize] = if pair_suit == 1 { &pair_totals } else { &no_pair_totals };
-        let s_totals: &[usize] = if pair_suit == 2 { &pair_totals } else { &no_pair_totals };
-        let z_totals: &[usize] = if pair_suit == 3 { &z_pair_totals } else { &z_no_pair_totals };
+        let m_totals: &[usize] = if pair_suit == 0 {
+            &pair_totals
+        } else {
+            &no_pair_totals
+        };
+        let p_totals: &[usize] = if pair_suit == 1 {
+            &pair_totals
+        } else {
+            &no_pair_totals
+        };
+        let s_totals: &[usize] = if pair_suit == 2 {
+            &pair_totals
+        } else {
+            &no_pair_totals
+        };
+        let z_totals: &[usize] = if pair_suit == 3 {
+            &z_pair_totals
+        } else {
+            &z_no_pair_totals
+        };
 
         for &mt in m_totals {
             if mt > 14 {
@@ -135,7 +154,9 @@ fn main() {
                     let p_bucket = numbered_buckets.get(&(pt, pair_suit == 1));
                     let s_bucket = numbered_buckets.get(&(st, pair_suit == 2));
                     let z_bucket = honor_buckets.get(&(zt_needed, pair_suit == 3));
-                    let (Some(mb), Some(pb), Some(sb), Some(zb)) = (m_bucket, p_bucket, s_bucket, z_bucket) else {
+                    let (Some(mb), Some(pb), Some(sb), Some(zb)) =
+                        (m_bucket, p_bucket, s_bucket, z_bucket)
+                    else {
                         continue;
                     };
 
@@ -158,10 +179,16 @@ fn main() {
         }
     }
 
-    println!("unique 14-tile shapes with valid decomp: {}", hand_table.len());
+    println!(
+        "unique 14-tile shapes with valid decomp: {}",
+        hand_table.len()
+    );
     let max_divs = hand_table.values().map(|v| v.len()).max().unwrap_or(0);
     let total_divs: usize = hand_table.values().map(|v| v.len()).sum();
-    println!("max divs per shape: {}, total divs: {}", max_divs, total_divs);
+    println!(
+        "max divs per shape: {}, total divs: {}",
+        max_divs, total_divs
+    );
     if max_divs > 4 {
         // Print one example for diagnosis.
         for (_, v) in hand_table.iter() {
@@ -201,8 +228,10 @@ fn main() {
     let final_size = std::fs::metadata(&out_path).expect("stat").len();
     println!("wrote {} ({} bytes)", out_path.display(), final_size);
 
-    let expected_raw: usize =
-        entries.iter().map(|(_, d)| 16 + 1 + d.len() * DIVISION_BYTES).sum();
+    let expected_raw: usize = entries
+        .iter()
+        .map(|(_, d)| 16 + 1 + d.len() * DIVISION_BYTES)
+        .sum();
     assert_eq!(expected_raw, raw.len());
 }
 
@@ -282,7 +311,7 @@ fn add_combo(
     div.shuntsu_starts = s;
 
     let key = key_from_counts(&canon);
-    let entry = hand_table.entry(key).or_insert_with(Vec::new);
+    let entry = hand_table.entry(key).or_default();
     if !entry.contains(&div) {
         entry.push(div);
     }

@@ -79,9 +79,14 @@ const first = decisions[0];
 const base = engine.baseFeatures(first.playerId);
 const extended = engine.extendedFeatures(first.playerId);
 const mask = engine.actionMask(first.playerId);
+const maskV1 = engine.actionMaskV1(first.playerId);
 assert.ok(base instanceof Float32Array);
 assert.ok(extended instanceof Float32Array);
 assert.ok(mask instanceof Uint8Array);
+assert.ok(maskV1 instanceof Uint8Array);
+assert.equal(first.actionMask.length, 82);
+assert.equal(first.actionMaskV1.length, 164);
+assert.equal(maskV1.length, 164);
 assert.equal(base.length, first.baseShape[0] * first.baseShape[1]);
 assert.equal(extended.length, first.extendedShape[0] * first.extendedShape[1]);
 assertThrowsWith(() => engine.baseFeatures('0'), /playerId must be a JavaScript number/);
@@ -97,6 +102,17 @@ assert.ok(Array.isArray(outcome.events));
 assert.ok(Array.isArray(outcome.nextDecisions));
 engine.free();
 
+const engineV1 = new wasm.GameEngine('4p-red-single', 42, false);
+const decisionsV1 = engineV1.decisions();
+const outcomeV1 = engineV1.stepActionIdsV1(
+    decisionsV1.map((decision) => ({
+        playerId: decision.playerId,
+        actionId: decision.legalActionIdsV1[0],
+    })),
+);
+assert.equal(outcomeV1.error, null);
+engineV1.free();
+
 const sanma = new wasm.GameEngine('3p-red-single', 42, false);
 const sanmaDecision = sanma.decisions()[0];
 const sanmaSp = sanma.spFeatures(sanmaDecision.playerId);
@@ -111,4 +127,6 @@ assert.deepEqual(sanmaDecision.extendedWithSpShape, [402, 27]);
 assert.equal(sanmaSp.length, 178 * 27);
 assert.equal(sanmaDrev.length, 9 * 27);
 assert.equal(sanmaCombined.length, 402 * 27);
+assert.equal(sanmaDecision.actionMask.length, 60);
+assert.equal(sanmaDecision.actionMaskV1.length, 120);
 sanma.free();

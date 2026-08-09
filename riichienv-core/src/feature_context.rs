@@ -214,6 +214,19 @@ impl<'a> FeatureContext3P<'a> {
             mark_aka(&mut akas_seen, tile);
         }
 
+        // Kita tiles are public, removed from the declaring player's hand,
+        // and therefore must be restored to visible/unseen-wall accounting.
+        let kita_count = observation
+            .kita_counts
+            .iter()
+            .copied()
+            .fold(0u8, u8::saturating_add)
+            .min(4);
+        visible_counts_capped[30] = visible_counts_capped[30].saturating_add(kita_count).min(4);
+        all_observed_counts_capped[30] = all_observed_counts_capped[30]
+            .saturating_add(kita_count)
+            .min(4);
+
         let mut discard_candidates = Vec::new();
         for action in &observation._legal_actions {
             if action.0.action_type == ActionType::Discard
@@ -362,5 +375,27 @@ mod tests {
         assert_eq!(shared_drev.tiles_seen, standalone_drev.tiles_seen);
         assert_eq!(shared_drev.opp_safe_mask, standalone_drev.opp_safe_mask);
         assert_eq!(shared_drev.n_active_opponents, 2);
+    }
+
+    #[test]
+    fn sanma_kita_is_visible_and_reaches_sp_scoring_input() {
+        let mut engine =
+            GameEngine::new(EngineConfig::new(GameMode::ThreePlayerSingle).with_seed(42)).unwrap();
+        let mut observation = match engine.decisions().remove(0).observation {
+            ObservationVariant::ThreePlayer(observation) => observation,
+            ObservationVariant::FourPlayer(_) => unreachable!(),
+        };
+        let baseline = FeatureContext3P::new(&observation)
+            .unwrap()
+            .all_observed_counts_capped()[30];
+        let player = observation.player_id as usize;
+        observation.kita_counts[player] = 1;
+
+        let context = FeatureContext3P::new(&observation).unwrap();
+        assert_eq!(
+            context.all_observed_counts_capped()[30],
+            baseline.saturating_add(1).min(4)
+        );
+        assert_eq!(SpInput3P::from_feature_context(&context).kita_count, 1);
     }
 }

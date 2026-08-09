@@ -13,6 +13,10 @@
 //! generated table file lives at `data/agari_table.bin.gz` and is built by
 //! `src/bin/build_agari_table.rs` (run once, checked in).
 
+// Tile indices are part of the table format. Explicit indexed loops keep the
+// correspondence between a tile id and each fixed-size buffer visible.
+#![allow(clippy::needless_range_loop)]
+
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::LazyLock;
@@ -56,6 +60,10 @@ impl Hasher for FxHasher64 {
 }
 
 type FxHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher64>>;
+
+/// A canonical decomposition and the permutations needed to restore the
+/// caller's suit and honor ordering.
+pub type CanonicalLookup<'a> = (&'a DivisionList, [u8; 4], [u8; 3], [u8; 7]);
 
 /// Maximum mentsu in a standard hand: at most 4 (pair + 4 mentsu = 14 tiles).
 pub const MAX_MENTSU: usize = 4;
@@ -325,9 +333,7 @@ fn load_table() -> FxHashMap<u128, DivisionList> {
 /// Return the precomputed decompositions (in canonical tile-id form) plus the
 /// permutations needed to translate them back to actual tile ids.
 /// Returns None for non-agari shapes.
-pub fn lookup_canonical(
-    counts: &[u8; 34],
-) -> Option<(&DivisionList, [u8; 4], [u8; 3], [u8; 7])> {
+pub fn lookup_canonical(counts: &[u8; 34]) -> Option<CanonicalLookup<'_>> {
     let (canon, offsets, suit_perm, honor_perm) = canonicalize_full(counts);
     AGARI_TABLE
         .get(&key_from_counts(&canon))
@@ -592,7 +598,12 @@ fn load_compact_table() -> CompactTable {
     // 3-suit の 6 順列。perm[real_suit] = canonical_suit (= "real_suit には
     // canonical_suit の中身を置く").
     const SUIT_PERMS: [[u8; 3]; 6] = [
-        [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
     ];
 
     let canonical_table = &*AGARI_TABLE;
@@ -748,8 +759,13 @@ pub fn enumerate_divisions(counts: &[u8; 34]) -> Vec<Division> {
             for p in &p_decomps {
                 for s in &s_decomps {
                     for z in &z_decomps {
-                        let n_total =
-                            m.n_kotsu + m.n_shuntsu + p.n_kotsu + p.n_shuntsu + s.n_kotsu + s.n_shuntsu + z.n_kotsu;
+                        let n_total = m.n_kotsu
+                            + m.n_shuntsu
+                            + p.n_kotsu
+                            + p.n_shuntsu
+                            + s.n_kotsu
+                            + s.n_shuntsu
+                            + z.n_kotsu;
                         if n_total != 4 {
                             continue;
                         }
@@ -943,7 +959,10 @@ mod tests {
             counts[i] = 2;
         }
         let divs = enumerate_divisions(&counts);
-        assert!(divs.is_empty(), "chitoitsu should not decompose into pair+4 mentsu");
+        assert!(
+            divs.is_empty(),
+            "chitoitsu should not decompose into pair+4 mentsu"
+        );
     }
 
     /// Lookup a known agari hand and verify the table returns it.
@@ -984,8 +1003,12 @@ mod tests {
     fn lookup_suit_symmetry() {
         let mut counts = [0u8; 34];
         counts[0] = 3; // 1m×3
-        counts[1] = 1; counts[2] = 1; counts[3] = 1; // 234m
-        counts[4] = 1; counts[5] = 1; counts[6] = 1; // 567m
+        counts[1] = 1;
+        counts[2] = 1;
+        counts[3] = 1; // 234m
+        counts[4] = 1;
+        counts[5] = 1;
+        counts[6] = 1; // 567m
         counts[9] = 2; // 11p
         counts[11] = 3; // 333p (tile 11 = 3p)
         let divs_m = lookup(&counts);
@@ -994,8 +1017,12 @@ mod tests {
         // Swap m and p suits — must also be in the table (suit canonicalization).
         let mut counts2 = [0u8; 34];
         counts2[9] = 3; // 1p×3
-        counts2[10] = 1; counts2[11] = 1; counts2[12] = 1; // 234p
-        counts2[13] = 1; counts2[14] = 1; counts2[15] = 1; // 567p
+        counts2[10] = 1;
+        counts2[11] = 1;
+        counts2[12] = 1; // 234p
+        counts2[13] = 1;
+        counts2[14] = 1;
+        counts2[15] = 1; // 567p
         counts2[0] = 2; // 11m
         counts2[2] = 3; // 333m
         let divs_p = lookup(&counts2);
@@ -1012,7 +1039,9 @@ mod tests {
     fn lookup_honor_symmetry() {
         // 123m 456m 789m + East×3 (kotsu) + South×2 (pair) = 9+3+2 = 14 ✓
         let mut counts_a = [0u8; 34];
-        for i in 0..9 { counts_a[i] = 1; }
+        for i in 0..9 {
+            counts_a[i] = 1;
+        }
         counts_a[27] = 3; // East kotsu
         counts_a[28] = 2; // South pair
         let divs_a = lookup(&counts_a);
@@ -1020,7 +1049,9 @@ mod tests {
 
         // Same shape but West kotsu + North pair (still honors).
         let mut counts_b = [0u8; 34];
-        for i in 0..9 { counts_b[i] = 1; }
+        for i in 0..9 {
+            counts_b[i] = 1;
+        }
         counts_b[29] = 3; // West kotsu
         counts_b[30] = 2; // North pair
         let divs_b = lookup(&counts_b);
@@ -1037,7 +1068,10 @@ mod tests {
     fn topology_key_collapses_across_suits() {
         // 123m + 11s
         let mut a = [0u8; 34];
-        a[0] = 1; a[1] = 1; a[2] = 1; a[18] = 2;
+        a[0] = 1;
+        a[1] = 1;
+        a[2] = 1;
+        a[18] = 2;
         // total = 5 (not 14 but topology_key works on any counts).
         let (ka, t14a) = topology_key_and_tile14(&a);
         assert_eq!(t14a.len, 4);
@@ -1045,7 +1079,10 @@ mod tests {
 
         // 123p + 11s
         let mut b = [0u8; 34];
-        b[9] = 1; b[10] = 1; b[11] = 1; b[18] = 2;
+        b[9] = 1;
+        b[10] = 1;
+        b[11] = 1;
+        b[18] = 2;
         let (kb, t14b) = topology_key_and_tile14(&b);
         assert_eq!(t14b.len, 4);
         assert_eq!(&t14b.tiles[..4], &[9u8, 10, 11, 18]);
@@ -1059,9 +1096,13 @@ mod tests {
     fn compact_lookup_pinfu_shape() {
         // 1m..9m + 11p + 234p (= 9 + 2 + 3 = 14, pinfu-style w/ kanchan)
         let mut counts = [0u8; 34];
-        for i in 0..9 { counts[i] = 1; }
+        for i in 0..9 {
+            counts[i] = 1;
+        }
         counts[9] = 2; // 11p
-        counts[10] = 1; counts[11] = 1; counts[12] = 1; // 234p
+        counts[10] = 1;
+        counts[11] = 1;
+        counts[12] = 1; // 234p
         let (tile14, list) =
             lookup_compact(&counts).expect("compact_lookup must find known agari shape");
         assert!(!list.is_empty());
@@ -1113,7 +1154,10 @@ mod tests {
                 }
             }
         }
-        assert_eq!(misses, 0, "{misses} canonical entries miss in compact table");
+        assert_eq!(
+            misses, 0,
+            "{misses} canonical entries miss in compact table"
+        );
     }
 
     /// Sanity check: every canonical Division round-trips to a CompactDiv
@@ -1168,7 +1212,7 @@ mod tests {
                     &s_idxs[..d.n_shuntsu as usize],
                 );
                 assert!(
-                    comp.iter().any(|cd| *cd == want),
+                    comp.contains(&want),
                     "compact entry missing for canonical key 0x{canonical_key:x}"
                 );
                 checked += 1;

@@ -2,8 +2,8 @@
 //!
 //! Feature values and channel order are a model ABI.  This module makes that
 //! boundary explicit and provides batch writers shared by Rust and language
-//! bindings.  The current layouts are named `v0`; changing their meaning must
-//! introduce a new version instead of silently reusing these specifications.
+//! bindings. Frozen layouts remain `v0`; corrected semantics use explicit
+//! `v1` specifications instead of silently reusing an old version.
 
 use crate::drev::DREV_CHANNELS;
 use crate::errors::{RiichiError, RiichiResult};
@@ -60,11 +60,23 @@ pub const DREV_4P_V0: FeatureSpec = FeatureSpec {
     tile_types: OBS_TILE_TYPES,
 };
 
+/// Corrected 4P safety normalization: every opponent is present from the
+/// start of the kyoku, including seats that have not discarded yet.
+pub const DREV_4P_V1: FeatureSpec = FeatureSpec {
+    version: 1,
+    ..DREV_4P_V0
+};
+
 pub const EXTENDED_SP_DREV_4P_V0: FeatureSpec = FeatureSpec {
     name: "extended-sp-drev-4p",
     version: 0,
     channels: OBS_EXTENDED_CHANNELS + SP_CHANNELS + DREV_CHANNELS,
     tile_types: OBS_TILE_TYPES,
+};
+
+pub const EXTENDED_SP_DREV_4P_V1: FeatureSpec = FeatureSpec {
+    version: 1,
+    ..EXTENDED_SP_DREV_4P_V0
 };
 
 pub const BASE_3P_V0: FeatureSpec = FeatureSpec {
@@ -88,6 +100,13 @@ pub const SP_3P_V0: FeatureSpec = FeatureSpec {
     tile_types: OBS_3P_TILE_TYPES,
 };
 
+/// Sanma SP v1 includes public Kita tiles in unseen-wall and nukidora score
+/// projection. Old Observation payloads decode with zero Kita counts.
+pub const SP_3P_V1: FeatureSpec = FeatureSpec {
+    version: 1,
+    ..SP_3P_V0
+};
+
 pub const DREV_3P_V0: FeatureSpec = FeatureSpec {
     name: "drev-3p",
     version: 0,
@@ -95,11 +114,22 @@ pub const DREV_3P_V0: FeatureSpec = FeatureSpec {
     tile_types: OBS_3P_TILE_TYPES,
 };
 
+/// Sanma DREV v1 treats public Kita tiles as visible North tiles.
+pub const DREV_3P_V1: FeatureSpec = FeatureSpec {
+    version: 1,
+    ..DREV_3P_V0
+};
+
 pub const EXTENDED_SP_DREV_3P_V0: FeatureSpec = FeatureSpec {
     name: "extended-sp-drev-3p",
     version: 0,
     channels: OBS_3P_EXTENDED_CHANNELS + SP_CHANNELS + DREV_CHANNELS,
     tile_types: OBS_3P_TILE_TYPES,
+};
+
+pub const EXTENDED_SP_DREV_3P_V1: FeatureSpec = FeatureSpec {
+    version: 1,
+    ..EXTENDED_SP_DREV_3P_V0
 };
 
 fn validate_output_len(
@@ -186,7 +216,7 @@ pub fn encode_sp_4p_batch_into(
 }
 
 pub fn encode_drev_4p_batch(observations: &[Observation]) -> RiichiResult<Vec<f32>> {
-    let mut output = vec![0.0; DREV_4P_V0.values_for_batch(observations.len())];
+    let mut output = vec![0.0; DREV_4P_V1.values_for_batch(observations.len())];
     encode_drev_4p_batch_into(observations, &mut output)?;
     Ok(output)
 }
@@ -195,9 +225,9 @@ pub fn encode_drev_4p_batch_into(
     observations: &[Observation],
     output: &mut [f32],
 ) -> RiichiResult<()> {
-    validate_output_len(DREV_4P_V0, observations.len(), output.len())?;
+    validate_output_len(DREV_4P_V1, observations.len(), output.len())?;
     validate_4p_observations(observations)?;
-    let row_len = DREV_4P_V0.values_per_observation();
+    let row_len = DREV_4P_V1.values_per_observation();
     for (observation, row) in observations.iter().zip(output.chunks_exact_mut(row_len)) {
         row.fill(0.0);
         observation.encode_drev_into(row, 0);
@@ -206,7 +236,7 @@ pub fn encode_drev_4p_batch_into(
 }
 
 pub fn encode_extended_sp_drev_4p_batch(observations: &[Observation]) -> RiichiResult<Vec<f32>> {
-    let mut output = vec![0.0; EXTENDED_SP_DREV_4P_V0.values_for_batch(observations.len())];
+    let mut output = vec![0.0; EXTENDED_SP_DREV_4P_V1.values_for_batch(observations.len())];
     encode_extended_sp_drev_4p_batch_into(observations, &mut output)?;
     Ok(output)
 }
@@ -215,9 +245,9 @@ pub fn encode_extended_sp_drev_4p_batch_into(
     observations: &[Observation],
     output: &mut [f32],
 ) -> RiichiResult<()> {
-    validate_output_len(EXTENDED_SP_DREV_4P_V0, observations.len(), output.len())?;
+    validate_output_len(EXTENDED_SP_DREV_4P_V1, observations.len(), output.len())?;
     validate_4p_observations(observations)?;
-    let row_len = EXTENDED_SP_DREV_4P_V0.values_per_observation();
+    let row_len = EXTENDED_SP_DREV_4P_V1.values_per_observation();
     for (observation, row) in observations.iter().zip(output.chunks_exact_mut(row_len)) {
         observation.encode_extended_with_sp_features_into_unchecked(row);
     }
@@ -263,7 +293,7 @@ pub fn encode_extended_3p_batch_into(
 }
 
 pub fn encode_sp_3p_batch(observations: &[Observation3P]) -> RiichiResult<Vec<f32>> {
-    let mut output = vec![0.0; SP_3P_V0.values_for_batch(observations.len())];
+    let mut output = vec![0.0; SP_3P_V1.values_for_batch(observations.len())];
     encode_sp_3p_batch_into(observations, &mut output)?;
     Ok(output)
 }
@@ -272,9 +302,9 @@ pub fn encode_sp_3p_batch_into(
     observations: &[Observation3P],
     output: &mut [f32],
 ) -> RiichiResult<()> {
-    validate_output_len(SP_3P_V0, observations.len(), output.len())?;
+    validate_output_len(SP_3P_V1, observations.len(), output.len())?;
     validate_3p_observations(observations)?;
-    let row_len = SP_3P_V0.values_per_observation();
+    let row_len = SP_3P_V1.values_per_observation();
     for (observation, row) in observations.iter().zip(output.chunks_exact_mut(row_len)) {
         row.fill(0.0);
         observation.encode_sp_into(row, 0);
@@ -283,7 +313,7 @@ pub fn encode_sp_3p_batch_into(
 }
 
 pub fn encode_drev_3p_batch(observations: &[Observation3P]) -> RiichiResult<Vec<f32>> {
-    let mut output = vec![0.0; DREV_3P_V0.values_for_batch(observations.len())];
+    let mut output = vec![0.0; DREV_3P_V1.values_for_batch(observations.len())];
     encode_drev_3p_batch_into(observations, &mut output)?;
     Ok(output)
 }
@@ -292,9 +322,9 @@ pub fn encode_drev_3p_batch_into(
     observations: &[Observation3P],
     output: &mut [f32],
 ) -> RiichiResult<()> {
-    validate_output_len(DREV_3P_V0, observations.len(), output.len())?;
+    validate_output_len(DREV_3P_V1, observations.len(), output.len())?;
     validate_3p_observations(observations)?;
-    let row_len = DREV_3P_V0.values_per_observation();
+    let row_len = DREV_3P_V1.values_per_observation();
     for (observation, row) in observations.iter().zip(output.chunks_exact_mut(row_len)) {
         row.fill(0.0);
         observation.encode_drev_into(row, 0);
@@ -303,7 +333,7 @@ pub fn encode_drev_3p_batch_into(
 }
 
 pub fn encode_extended_sp_drev_3p_batch(observations: &[Observation3P]) -> RiichiResult<Vec<f32>> {
-    let mut output = vec![0.0; EXTENDED_SP_DREV_3P_V0.values_for_batch(observations.len())];
+    let mut output = vec![0.0; EXTENDED_SP_DREV_3P_V1.values_for_batch(observations.len())];
     encode_extended_sp_drev_3p_batch_into(observations, &mut output)?;
     Ok(output)
 }
@@ -312,9 +342,9 @@ pub fn encode_extended_sp_drev_3p_batch_into(
     observations: &[Observation3P],
     output: &mut [f32],
 ) -> RiichiResult<()> {
-    validate_output_len(EXTENDED_SP_DREV_3P_V0, observations.len(), output.len())?;
+    validate_output_len(EXTENDED_SP_DREV_3P_V1, observations.len(), output.len())?;
     validate_3p_observations(observations)?;
-    let row_len = EXTENDED_SP_DREV_3P_V0.values_per_observation();
+    let row_len = EXTENDED_SP_DREV_3P_V1.values_per_observation();
     for (observation, row) in observations.iter().zip(output.chunks_exact_mut(row_len)) {
         observation.encode_extended_with_sp_features_into_unchecked(row);
     }
@@ -325,6 +355,19 @@ pub fn encode_extended_sp_drev_3p_batch_into(
 mod tests {
     use super::*;
     use crate::engine::{EngineConfig, GameEngine, GameMode, ObservationVariant};
+
+    #[test]
+    fn corrected_feature_semantics_have_explicit_v1_specs() {
+        assert_eq!(DREV_4P_V1.version, 1);
+        assert_eq!(EXTENDED_SP_DREV_4P_V1.version, 1);
+        assert_eq!(SP_3P_V1.version, 1);
+        assert_eq!(DREV_3P_V1.version, 1);
+        assert_eq!(EXTENDED_SP_DREV_3P_V1.version, 1);
+        assert_eq!(
+            SP_3P_V1.values_per_observation(),
+            SP_3P_V0.values_per_observation()
+        );
+    }
 
     fn initial_observations(mode: GameMode, count: usize) -> Vec<ObservationVariant> {
         (0..count)

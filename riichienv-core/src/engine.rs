@@ -7,10 +7,14 @@
 
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::action::{ACTION_SPACE_3P, ACTION_SPACE_4P, Action, ActionEncoder, Phase};
+use crate::action::{
+    ACTION_SPACE_3P, ACTION_SPACE_3P_V1, ACTION_SPACE_4P, ACTION_SPACE_4P_V1, Action,
+    ActionEncoder, ActionEncoderV1, Phase,
+};
 use crate::drev::DREV_CHANNELS;
 use crate::errors::{RiichiError, RiichiResult};
 use crate::game_variant::GameStateVariant;
@@ -206,6 +210,14 @@ impl ObservationVariant {
         }
     }
 
+    /// Size of the red-aware v1 model action space.
+    pub fn action_space_size_v1(&self) -> usize {
+        match self {
+            Self::FourPlayer(_) => ACTION_SPACE_4P_V1,
+            Self::ThreePlayer(_) => ACTION_SPACE_3P_V1,
+        }
+    }
+
     pub fn legal_actions(&self) -> Vec<Action> {
         match self {
             Self::FourPlayer(obs) => obs.legal_actions_method(),
@@ -247,6 +259,15 @@ impl ObservationVariant {
         Ok(action_ids)
     }
 
+    /// Encode all legal actions using the red-aware v1 model ABI.
+    pub fn legal_action_ids_v1(&self) -> RiichiResult<Vec<usize>> {
+        legal_action_ids_with(
+            &self.legal_actions(),
+            ActionEncoderV1::from_num_players(self.num_players()),
+            self.action_space_size_v1(),
+        )
+    }
+
     /// Dense `u8` action mask with the stable 82-id (4P) or 60-id (3P)
     /// layout used by existing models.
     pub fn action_mask(&self) -> RiichiResult<Vec<u8>> {
@@ -262,11 +283,32 @@ impl ObservationVariant {
         Ok(mask)
     }
 
+    /// Dense red-aware v1 mask with 164 slots (4P) or 120 slots (3P).
+    pub fn action_mask_v1(&self) -> RiichiResult<Vec<u8>> {
+        let mut mask = vec![0; self.action_space_size_v1()];
+        for action_id in self.legal_action_ids_v1()? {
+            mask[action_id] = 1;
+        }
+        Ok(mask)
+    }
+
     pub fn select_action(&self, action_id: usize) -> RiichiResult<Action> {
         select_encoded_action(&self.legal_actions(), self.num_players(), action_id).ok_or_else(
             || RiichiError::InvalidAction {
                 message: format!(
                     "action id {action_id} is not legal for player {}",
+                    self.player_id()
+                ),
+            },
+        )
+    }
+
+    /// Resolve a red-aware v1 ID back to its exact legal action.
+    pub fn select_action_v1(&self, action_id: usize) -> RiichiResult<Action> {
+        select_encoded_action_v1(&self.legal_actions(), self.num_players(), action_id).ok_or_else(
+            || RiichiError::InvalidAction {
+                message: format!(
+                    "v1 action id {action_id} is not legal for player {}",
                     self.player_id()
                 ),
             },
@@ -372,6 +414,48 @@ fn select_encoded_action(actions: &[Action], num_players: u8, action_id: usize) 
         .cloned()
 }
 
+fn select_encoded_action_v1(
+    actions: &[Action],
+    num_players: u8,
+    action_id: usize,
+) -> Option<Action> {
+    let encoder = ActionEncoderV1::from_num_players(num_players);
+    actions
+        .iter()
+        .filter(|action| {
+            encoder
+                .encode(action)
+                .is_ok_and(|encoded| encoded >= 0 && encoded as usize == action_id)
+        })
+        .min_by_key(|action| red_five_cost(action))
+        .cloned()
+}
+
+fn legal_action_ids_with(
+    actions: &[Action],
+    encoder: ActionEncoderV1,
+    action_space_size: usize,
+) -> RiichiResult<Vec<usize>> {
+    let mut seen = vec![false; action_space_size];
+    let mut action_ids = Vec::new();
+    for action in actions {
+        let encoded = encoder.encode(action)?;
+        let action_id = usize::try_from(encoded).map_err(|_| RiichiError::InvalidAction {
+            message: format!("action encoded to a negative id: {encoded}"),
+        })?;
+        let Some(already_seen) = seen.get_mut(action_id) else {
+            return Err(RiichiError::InvalidAction {
+                message: format!("action id {action_id} exceeds action space {action_space_size}"),
+            });
+        };
+        if !*already_seen {
+            *already_seen = true;
+            action_ids.push(action_id);
+        }
+    }
+    Ok(action_ids)
+}
+
 fn red_five_cost(action: &Action) -> usize {
     let is_red = |tile: u8| matches!(tile, 16 | 52 | 88);
     usize::from(action.tile.is_some_and(is_red))
@@ -452,10 +536,33 @@ impl EngineStepError {
 }
 
 /// Pure Rust facade over the 4-player and 3-player engines.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct GameEngine {
     state: GameStateVariant,
     mode: GameMode,
+    journal_cache: RwLock<Option<JournalCache>>,
+}
+
+#[derive(Debug, Clone)]
+struct JournalCache {
+    source_len: usize,
+    source_tail: Option<String>,
+    journal: EventJournal,
+}
+
+impl Clone for GameEngine {
+    fn clone(&self) -> Self {
+        let journal_cache = self
+            .journal_cache
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        Self {
+            state: self.state.clone(),
+            mode: self.mode,
+            journal_cache: RwLock::new(journal_cache),
+        }
+    }
 }
 
 impl GameEngine {
@@ -478,6 +585,7 @@ impl GameEngine {
         Ok(Self {
             state,
             mode: config.mode,
+            journal_cache: RwLock::new(None),
         })
     }
 
@@ -570,6 +678,10 @@ impl GameEngine {
 
     pub fn reset(&mut self, options: ResetOptions) -> RiichiResult<Vec<Decision>> {
         validate_reset_options(self.mode, &options)?;
+        *self
+            .journal_cache
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
 
         match &mut self.state {
             GameStateVariant::FourPlayer(state) => {
@@ -733,11 +845,45 @@ impl GameEngine {
         }
     }
 
-    /// Parse the retained engine log into the replay/spectator boundary.
-    /// This is intentionally on-demand: simulations with logging disabled pay
-    /// no journal maintenance cost in the hot path.
+    /// Index the retained log into the replay/spectator boundary.
+    ///
+    /// The cache is built lazily and only parses newly appended events on
+    /// subsequent calls. Simulations with logging disabled therefore pay no
+    /// journal maintenance cost in the step hot path.
     pub fn event_journal(&self) -> RiichiResult<EventJournal> {
-        EventJournal::from_events(self.mjai_log().iter().cloned())
+        let events = self.mjai_log();
+        let mut cache_slot = self
+            .journal_cache
+            .write()
+            .map_err(|_| RiichiError::InvalidState {
+                message: "event journal cache lock was poisoned".to_string(),
+            })?;
+        let can_append = cache_slot.as_ref().is_some_and(|cache| {
+            cache.source_len <= events.len()
+                && (cache.source_len == 0
+                    || events.get(cache.source_len - 1) == cache.source_tail.as_ref())
+        });
+
+        if !can_append {
+            let journal = EventJournal::from_events(events.iter().cloned())?;
+            *cache_slot = Some(JournalCache {
+                source_len: events.len(),
+                source_tail: events.last().cloned(),
+                journal,
+            });
+        } else if let Some(cache) = cache_slot.as_mut() {
+            for event in &events[cache.source_len..] {
+                cache.journal.push_json(event)?;
+                cache.source_len += 1;
+                cache.source_tail = Some(event.clone());
+            }
+        }
+
+        Ok(cache_slot
+            .as_ref()
+            .expect("journal cache is initialized above")
+            .journal
+            .clone())
     }
 
     /// Compatibility escape hatch for incremental downstream migrations.
@@ -746,6 +892,10 @@ impl GameEngine {
     }
 
     pub fn state_mut(&mut self) -> &mut GameStateVariant {
+        *self
+            .journal_cache
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         &mut self.state
     }
 
@@ -971,6 +1121,7 @@ impl BatchGameEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::action::ActionType;
 
     #[test]
     fn typed_game_modes_round_trip() {
@@ -1053,6 +1204,56 @@ mod tests {
     }
 
     #[test]
+    fn observations_report_the_discarded_tile_not_the_actor() {
+        for mode in [GameMode::FourPlayerSingle, GameMode::ThreePlayerSingle] {
+            let mut engine = GameEngine::new(EngineConfig::new(mode).with_seed(42)).unwrap();
+            let decision = engine.decisions().remove(0);
+            let discard = decision
+                .observation
+                .legal_actions()
+                .into_iter()
+                .find(|action| {
+                    action.action_type == ActionType::Discard
+                        && action.tile.is_some_and(|tile| tile > 20)
+                })
+                .expect("opening hand must have a non-1m discard");
+            let discarded_tile = discard.tile.unwrap() as u32;
+            let outcome = engine.step(&HashMap::from([(decision.player_id, discard)]));
+            assert!(outcome.error.is_none());
+            for next in outcome.decisions {
+                let observed = match next.observation {
+                    ObservationVariant::FourPlayer(observation) => observation.last_discard,
+                    ObservationVariant::ThreePlayer(observation) => observation.last_discard,
+                };
+                assert_eq!(
+                    observed,
+                    Some(discarded_tile),
+                    "wrong last discard in {mode:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn four_player_drev_normalises_genbutsu_across_all_three_opponents() {
+        let mut engine =
+            GameEngine::new(EngineConfig::new(GameMode::FourPlayerSingle).with_seed(42)).unwrap();
+        let decision = engine.decisions().remove(0);
+        let discard = decision
+            .observation
+            .legal_actions()
+            .into_iter()
+            .find(|action| action.action_type == ActionType::Discard && action.tile.is_some())
+            .unwrap();
+        let tile_type = (discard.tile.unwrap() / 4) as usize;
+        let outcome = engine.step(&HashMap::from([(decision.player_id, discard)]));
+        for next in outcome.decisions {
+            let encoded = next.observation.encode_drev_features().unwrap();
+            assert!((encoded[tile_type] - 1.0 / 3.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
     fn batch_engine_flattens_environment_and_player_ids() {
         let mut batch = BatchGameEngine::homogeneous(
             EngineConfig::new(GameMode::FourPlayerSingle).with_seed(7),
@@ -1084,6 +1285,30 @@ mod tests {
         assert!(journal.has_in_progress_kyoku());
         assert_eq!(journal.spectator_prefix(1).len(), 1);
         assert!(journal.spectator_prefix(1)[0].contains(r#""type":"start_game""#));
+    }
+
+    #[test]
+    fn event_journal_cache_tracks_appended_engine_events() {
+        let mut engine =
+            GameEngine::new(EngineConfig::new(GameMode::FourPlayerSingle).with_seed(42)).unwrap();
+        let first_revision = engine.event_journal().unwrap().revision();
+        let decision = engine.decisions().remove(0);
+        let discard = decision
+            .observation
+            .legal_actions()
+            .into_iter()
+            .find(|action| action.action_type == ActionType::Discard)
+            .unwrap();
+        let outcome = engine.step(&HashMap::from([(decision.player_id, discard)]));
+        assert!(outcome.error.is_none());
+
+        let second = engine.event_journal().unwrap();
+        assert!(second.revision() > first_revision);
+        assert_eq!(second.events(), engine.mjai_log());
+        assert_eq!(
+            engine.event_journal().unwrap().revision(),
+            second.revision()
+        );
     }
 
     #[test]

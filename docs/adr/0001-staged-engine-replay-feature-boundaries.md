@@ -80,32 +80,38 @@ Reset inputs are validated before either state machine is mutated: dealer and ro
 
 ### 2. Feature ABI
 
-Observation feature calculation is pure Rust and available without the Python feature flag. `features` publishes immutable `FeatureSpec` values and caller-buffer batch writers. Existing layouts are explicitly `v0`:
+Observation feature calculation is pure Rust and available without the Python feature flag. `features` publishes immutable `FeatureSpec` values and caller-buffer batch writers. Frozen base/extended/4P-SP layouts remain v0; corrected DREV and Kita-aware 3P projections are explicitly v1:
 
 | Layout | Shape per observation | Action space |
 |---|---:|---:|
 | 4P base | `74 × 34` | 82 |
 | 4P extended | `215 × 34` | 82 |
 | 4P SP | `178 × 34` | 82 |
-| 4P DREV | `9 × 34` | 82 |
-| 4P extended + SP + DREV | `402 × 34` | 82 |
+| 4P DREV v1 | `9 × 34` | 82 or red-aware v1 164 |
+| 4P extended + SP + DREV v1 | `402 × 34` | 82 or red-aware v1 164 |
 | 3P base | `74 × 27` | 60 |
 | 3P extended | `215 × 27` | 60 |
-| 3P SP | `178 × 27` | 60 |
-| 3P DREV | `9 × 27` | 60 |
-| 3P extended + SP + DREV | `402 × 27` | 60 |
+| 3P SP v1 | `178 × 27` | 60 or red-aware v1 120 |
+| 3P DREV v1 | `9 × 27` | 60 or red-aware v1 120 |
+| 3P extended + SP + DREV v1 | `402 × 27` | 60 or red-aware v1 120 |
 
 Changing a channel's meaning, order, normalization, tile axis, or dtype requires a new feature version. Existing model ABI is not changed in place.
+
+Issue #210 begins as an additive action-ABI migration: the v0 masks above stay
+82/60, while red-aware v1 masks are 164/120 and use `2*v0_id + red_choice`.
+SP already publishes separate shape-progress, yaku-validity/yaku-path, and
+point-range/achievement planes; validation and benchmarks cover those planes
+for both variants before a future feature-version experiment changes them.
 
 Public single-row and batch encoders validate externally constructible Observation DTOs and return `RiichiResult`; private unchecked writers are used only after validation. A malformed player ID, tile/meld shape, or impossible hand therefore fails at the API boundary instead of panicking inside a feature loop.
 
 The 3P SP/DREV calculators retain canonical 34-tile IDs internally, exclude
 2m through 8m from wall/progression/risk calculations, and compact results to
 the same 27-column tile axis as the other 3P feature blocks. Sanma DREV uses
-two active-opponent slots and leaves the third slot zero. Because the frozen
-3P Observation payload has no kita count, SP score projection cannot include
-nukidora or subtract set-aside North tiles from the unseen wall until a
-versioned observation schema adds that field.
+two active-opponent slots and leaves the third slot zero. `Observation3P`
+additively carries public per-seat `kita_counts` with a serde zero default, so
+old payloads remain decodable while current SP scoring includes nukidora and
+visible-tile accounting subtracts set-aside North tiles from the unseen wall.
 
 One historical inconsistency is itself part of v0: after a called meld, base channel 30 counts the called tile in both the discard and meld, while the first 74 channels of extended-v0 subtract that duplicate. The dedicated base encoder preserves this difference and contract tests include a called-meld fixture.
 

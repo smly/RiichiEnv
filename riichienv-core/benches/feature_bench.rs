@@ -6,12 +6,15 @@ use riichienv_core::engine::{
     EngineConfig, EventLogPolicy, GameEngine, GameMode, ObservationVariant,
 };
 use riichienv_core::features::{
-    BASE_3P_V0, BASE_4P_V0, DREV_4P_V0, EXTENDED_3P_V0, EXTENDED_4P_V0, EXTENDED_SP_DREV_4P_V0,
-    SP_4P_V0, encode_base_3p_batch, encode_base_3p_batch_into, encode_base_4p_batch,
-    encode_base_4p_batch_into, encode_drev_4p_batch, encode_drev_4p_batch_into,
-    encode_extended_3p_batch, encode_extended_3p_batch_into, encode_extended_4p_batch,
-    encode_extended_4p_batch_into, encode_extended_sp_drev_4p_batch,
-    encode_extended_sp_drev_4p_batch_into, encode_sp_4p_batch, encode_sp_4p_batch_into,
+    BASE_3P_V0, BASE_4P_V0, DREV_3P_V1, DREV_4P_V1, EXTENDED_3P_V0, EXTENDED_4P_V0,
+    EXTENDED_SP_DREV_3P_V1, EXTENDED_SP_DREV_4P_V1, SP_3P_V1, SP_4P_V0, encode_base_3p_batch,
+    encode_base_3p_batch_into, encode_base_4p_batch, encode_base_4p_batch_into,
+    encode_drev_3p_batch, encode_drev_3p_batch_into, encode_drev_4p_batch,
+    encode_drev_4p_batch_into, encode_extended_3p_batch, encode_extended_3p_batch_into,
+    encode_extended_4p_batch, encode_extended_4p_batch_into, encode_extended_sp_drev_3p_batch,
+    encode_extended_sp_drev_3p_batch_into, encode_extended_sp_drev_4p_batch,
+    encode_extended_sp_drev_4p_batch_into, encode_sp_3p_batch, encode_sp_3p_batch_into,
+    encode_sp_4p_batch, encode_sp_4p_batch_into,
 };
 use riichienv_core::observation::Observation;
 use riichienv_core::observation_3p::Observation3P;
@@ -143,7 +146,7 @@ fn bench_four_player_features(c: &mut Criterion) {
     group.bench_function("drev/allocate", |b| {
         b.iter(|| black_box(encode_drev_4p_batch(black_box(&observations)).unwrap()))
     });
-    let mut drev_output = vec![0.0; DREV_4P_V0.values_for_batch(CORPUS_SIZE)];
+    let mut drev_output = vec![0.0; DREV_4P_V1.values_for_batch(CORPUS_SIZE)];
     group.bench_function("drev/into", |b| {
         b.iter(|| {
             encode_drev_4p_batch_into(black_box(&observations), black_box(&mut drev_output))
@@ -155,7 +158,7 @@ fn bench_four_player_features(c: &mut Criterion) {
     group.bench_function("extended_sp_drev/allocate", |b| {
         b.iter(|| black_box(encode_extended_sp_drev_4p_batch(black_box(&observations)).unwrap()))
     });
-    let mut combined_output = vec![0.0; EXTENDED_SP_DREV_4P_V0.values_for_batch(CORPUS_SIZE)];
+    let mut combined_output = vec![0.0; EXTENDED_SP_DREV_4P_V1.values_for_batch(CORPUS_SIZE)];
     group.bench_function("extended_sp_drev/into", |b| {
         b.iter(|| {
             encode_extended_sp_drev_4p_batch_into(
@@ -199,6 +202,44 @@ fn bench_three_player_features(c: &mut Criterion) {
             )
             .unwrap();
             black_box(&extended_output);
+        })
+    });
+
+    group.bench_function("sp/allocate", |b| {
+        b.iter(|| black_box(encode_sp_3p_batch(black_box(&observations)).unwrap()))
+    });
+    let mut sp_output = vec![0.0; SP_3P_V1.values_for_batch(CORPUS_SIZE)];
+    group.bench_function("sp/into", |b| {
+        b.iter(|| {
+            encode_sp_3p_batch_into(black_box(&observations), black_box(&mut sp_output)).unwrap();
+            black_box(&sp_output);
+        })
+    });
+
+    group.bench_function("drev/allocate", |b| {
+        b.iter(|| black_box(encode_drev_3p_batch(black_box(&observations)).unwrap()))
+    });
+    let mut drev_output = vec![0.0; DREV_3P_V1.values_for_batch(CORPUS_SIZE)];
+    group.bench_function("drev/into", |b| {
+        b.iter(|| {
+            encode_drev_3p_batch_into(black_box(&observations), black_box(&mut drev_output))
+                .unwrap();
+            black_box(&drev_output);
+        })
+    });
+
+    group.bench_function("extended_sp_drev/allocate", |b| {
+        b.iter(|| black_box(encode_extended_sp_drev_3p_batch(black_box(&observations)).unwrap()))
+    });
+    let mut combined_output = vec![0.0; EXTENDED_SP_DREV_3P_V1.values_for_batch(CORPUS_SIZE)];
+    group.bench_function("extended_sp_drev/into", |b| {
+        b.iter(|| {
+            encode_extended_sp_drev_3p_batch_into(
+                black_box(&observations),
+                black_box(&mut combined_output),
+            )
+            .unwrap();
+            black_box(&combined_output);
         })
     });
 

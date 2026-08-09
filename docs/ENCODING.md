@@ -34,11 +34,37 @@ In 3-player (sanma) mode, the action space is compacted to 60 actions. Manzu 2-8
 | **58** | **Pass** | **Pass / No Action.** |
 | **59** | **Kita** | **Kita (BaBei / 北抜き) declaration.** |
 
-## Limitations
+## Red-aware v1 action space (#210)
+
+The legacy layouts above remain the default for existing models. New models
+can opt into the red-aware v1 layout:
+
+| Variant | v0 size | v1 size |
+|---|---:|---:|
+| 4P | 82 | 164 |
+| 3P | 60 | 120 |
+
+For every v0 ID `i`, v1 reserves `2*i` and `2*i+1`:
+
+- `2*i` means the action does not discard or voluntarily consume a red five;
+- `2*i+1` means a discard is the red five, or a Chi/Pon consumes a red five.
+
+Kan, win, riichi, pass, ryukyoku, and Kita actions use the even slot because
+there is no model choice between preserving and consuming a red five. Their
+odd slots remain masked out. This keeps the mapping mechanically related to
+v0 while allowing the hand-changing red-five choice to round-trip exactly.
+
+Rust exposes `ActionEncoderV1` and `ObservationVariant::{action_mask_v1,
+select_action_v1}`. Python observations expose `mask_v1()`,
+`find_action_v1()`, `action_space_size_v1`, and actions expose `encode_v1()`.
+WASM decisions include `legalActionIdsV1`/`actionMaskV1`, with
+`actionMaskV1()` and `stepActionIdsV1()` for inference.
+
+## Legacy v0 limitations
 
 ### Red 5 Ambiguity in Calls (Chi/Pon)
 
-The current encoding does **not** distinguish between using a Red 5 or a Normal 5 when making a call (Chi or Pon) if both are available in the hand.
+The v0 encoding does **not** distinguish between using a Red 5 or a Normal 5 when making a call (Chi or Pon) if both are available in the hand. Use v1 for new models.
 -   **Example**: If a player holds `[0m (Red 5), 5m (Normal 5)]` and calls Pon on a discarded `5m`, the action ID `41` (Pon) is used regardless of whether the player consumes the Red 5 or the Normal 5.
 
 ### Tsumogiri/Tedashi Ambiguity

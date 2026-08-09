@@ -5,6 +5,19 @@ from enum import IntEnum
 from os import PathLike
 from typing import TYPE_CHECKING, Any
 
+ACTION_SPACE_4P_V0: int
+ACTION_SPACE_3P_V0: int
+ACTION_SPACE_4P_V1: int
+ACTION_SPACE_3P_V1: int
+SP_CHANNELS: int
+DREV_CHANNELS: int
+OBS_EXTENDED_CHANNELS: int
+OBS_TOTAL_CHANNELS: int
+TILE_TYPES: int
+OBS_EXTENDED_CHANNELS_3P: int
+OBS_TOTAL_CHANNELS_3P: int
+TILE_TYPES_3P: int
+
 if TYPE_CHECKING:
     from riichienv.visualizer import GameViewer
 
@@ -88,6 +101,8 @@ class Action:
     def __init__(self, action_type: ActionType, tile: int = 0, consume_tiles: list[int] = []): ...
     def to_dict(self) -> dict[str, Any]: ...
     def to_mjai(self) -> str: ...
+    def encode(self) -> int: ...
+    def encode_v1(self) -> int: ...
 
 class Action3P:
     action_type: ActionType
@@ -105,6 +120,7 @@ class Action3P:
     def to_dict(self) -> dict[str, Any]: ...
     def to_mjai(self) -> str: ...
     def encode(self) -> int: ...
+    def encode_v1(self) -> int: ...
 
 ActionMap = dict[int, Action] | dict[int, Action3P] | dict[int, Action | Action3P]
 
@@ -232,6 +248,24 @@ class Observation:
             by :meth:`new_events` to return only unseen events.
     """
 
+    hands: list[list[int]]
+    melds: list[list[Meld]]
+    discards: list[list[int]]
+    dora_indicators: list[int]
+    scores: list[int]
+    riichi_declared: list[bool]
+    honba: int
+    riichi_sticks: int
+    round_wind: int
+    oya: int
+    kyoku_index: int
+    waits: list[int]
+    is_tenpai: bool
+    tsumogiri_flags: list[list[bool]]
+    riichi_sutehais: list[int | None]
+    last_tedashis: list[int | None]
+    last_discard: int | None
+    drawn_tile: int | None
     events: list[Any]
     hand: list[int]
     player_id: int
@@ -274,6 +308,26 @@ class Observation:
             chosen = random.choice(actions)
             observations = env.step({player_id: chosen})
         """
+        ...
+    def mask(self) -> bytes:
+        """Return the legacy 82-entry action mask as raw bytes."""
+        ...
+    def mask_v1(self) -> bytes:
+        """Return the red-aware v1 164-entry action mask as raw bytes."""
+        ...
+    @property
+    def action_space_size(self) -> int:
+        """Legacy model action-space size (82)."""
+        ...
+    @property
+    def action_space_size_v1(self) -> int:
+        """Red-aware v1 model action-space size (164)."""
+        ...
+    def find_action(self, action_id: int) -> Action | None:
+        """Resolve a legacy action ID, preferring a normal five on collisions."""
+        ...
+    def find_action_v1(self, action_id: int) -> Action | None:
+        """Resolve an exact red-aware v1 action ID."""
         ...
     def select_action_from_mjai(self, mjai: str | dict[str, Any]) -> Action | None:
         """Find the legal action matching an MJAI event, or ``None`` if no match."""
@@ -516,6 +570,7 @@ class Observation3P:
     dora_indicators: list[int]
     scores: list[int]
     riichi_declared: list[bool]
+    kita_counts: list[int]
     honba: int
     riichi_sticks: int
     round_wind: int
@@ -527,6 +582,7 @@ class Observation3P:
     riichi_sutehais: list[int | None]
     last_tedashis: list[int | None]
     last_discard: int | None
+    drawn_tile: int | None
     @property
     def hand(self) -> list[int]:
         """Shorthand for ``hands[player_id]``."""
@@ -556,13 +612,24 @@ class Observation3P:
         """
         ...
     def mask(self) -> bytes:
-        """Return a boolean action mask as raw bytes."""
+        """Return the legacy 60-entry action mask as raw bytes."""
         ...
+    def mask_v1(self) -> bytes:
+        """Return the red-aware v1 120-entry action mask as raw bytes."""
+        ...
+    @property
     def action_space_size(self) -> int:
-        """Return the total action space size for 3-player mahjong."""
+        """Legacy model action-space size (60)."""
+        ...
+    @property
+    def action_space_size_v1(self) -> int:
+        """Red-aware v1 model action-space size (120)."""
         ...
     def find_action(self, action_id: int) -> Action3P | None:
         """Find the legal action whose encoded id equals *action_id*, or ``None``."""
+        ...
+    def find_action_v1(self, action_id: int) -> Action3P | None:
+        """Resolve an exact red-aware v1 action ID."""
         ...
     def select_action_from_mjai(self, mjai_data: str | dict[str, Any]) -> Action3P | None:
         """Find the legal action matching an MJAI event, or ``None`` if no match."""
@@ -1040,6 +1107,18 @@ def get_yaku_by_id(id_: int) -> Yaku | None: ...
 def get_all_yaku() -> list[Yaku]: ...
 
 __all__ = [
+    "ACTION_SPACE_3P_V0",
+    "ACTION_SPACE_3P_V1",
+    "ACTION_SPACE_4P_V0",
+    "ACTION_SPACE_4P_V1",
+    "DREV_CHANNELS",
+    "OBS_EXTENDED_CHANNELS",
+    "OBS_EXTENDED_CHANNELS_3P",
+    "OBS_TOTAL_CHANNELS",
+    "OBS_TOTAL_CHANNELS_3P",
+    "SP_CHANNELS",
+    "TILE_TYPES",
+    "TILE_TYPES_3P",
     "Action",
     "Action3P",
     "ActionType",

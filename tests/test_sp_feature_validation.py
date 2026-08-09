@@ -5,6 +5,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+from riichienv import GameEngine
+
 
 def _load_validator():
     script = Path(__file__).resolve().parents[1] / "scripts" / "validate_sp_features.py"
@@ -51,6 +53,7 @@ def test_sp_validation_detects_extended_tail_mismatch():
     extended_with_sp[validator.EXTENDED_FLOATS] = 1.0
 
     issues, _metrics = validator.validate_sp_arrays(
+        validator.LAYOUT_4P,
         sp,
         legal_discards=set(),
         extended=extended,
@@ -70,7 +73,7 @@ def test_sp_validation_detects_nonmonotonic_probability_series():
     sp[73 * validator.TILE_TYPES] = 0.7
     sp[106 * validator.TILE_TYPES] = 1.0
 
-    issues, metrics = validator.validate_sp_arrays(sp, legal_discards={0})
+    issues, metrics = validator.validate_sp_arrays(validator.LAYOUT_4P, sp, legal_discards={0})
 
     assert metrics.candidate_count == 1
     assert "monotonic" in {issue.code for issue in issues}
@@ -81,7 +84,7 @@ def test_sp_validation_detects_candidate_outside_legal_discards():
     sp = [0.0] * validator.SP_FLOATS
     sp[72 * validator.TILE_TYPES + 5] = 0.25
 
-    issues, _metrics = validator.validate_sp_arrays(sp, legal_discards={1})
+    issues, _metrics = validator.validate_sp_arrays(validator.LAYOUT_4P, sp, legal_discards={1})
 
     assert "illegal_candidate" in {issue.code for issue in issues}
 
@@ -94,7 +97,7 @@ def test_sp_validation_does_not_flag_illegal_candidate_when_no_discards_legal():
     sp[72 * validator.TILE_TYPES + 5] = 0.5
     sp[(72 + 1) * validator.TILE_TYPES + 5] = 0.6
 
-    issues, _metrics = validator.validate_sp_arrays(sp, legal_discards=set())
+    issues, _metrics = validator.validate_sp_arrays(validator.LAYOUT_4P, sp, legal_discards=set())
 
     assert "illegal_candidate" not in {issue.code for issue in issues}
 
@@ -108,7 +111,7 @@ def test_sp_validation_detects_win_exceeding_tenpai():
     sp[72 * validator.TILE_TYPES + 5] = 0.3
     sp[89 * validator.TILE_TYPES + 5] = 0.6
 
-    issues, _metrics = validator.validate_sp_arrays(sp, legal_discards={5})
+    issues, _metrics = validator.validate_sp_arrays(validator.LAYOUT_4P, sp, legal_discards={5})
 
     assert "win_gt_tenpai" in {issue.code for issue in issues}
 
@@ -121,7 +124,7 @@ def test_sp_validation_detects_required_tile_not_in_wall():
     remaining = [4] * validator.TILE_TYPES
     remaining[11] = 0  # all 4 copies already visible
 
-    issues, _metrics = validator.validate_sp_arrays(sp, legal_discards={5}, remaining=remaining)
+    issues, _metrics = validator.validate_sp_arrays(validator.LAYOUT_4P, sp, legal_discards={5}, remaining=remaining)
 
     assert "required_unreachable" in {issue.code for issue in issues}
 
@@ -143,7 +146,9 @@ def test_sp_validation_detects_shanten_winning_too_early():
     sp[89 * validator.TILE_TYPES + 0] = 0.5
     sp[72 * validator.TILE_TYPES + 0] = 0.6  # avoid tripping win_gt_tenpai
 
-    issues, _metrics = validator.validate_sp_arrays(sp, legal_discards={0}, hand_counts=hand_counts)
+    issues, _metrics = validator.validate_sp_arrays(
+        validator.LAYOUT_4P, sp, legal_discards={0}, hand_counts=hand_counts
+    )
 
     assert "shanten_win_too_early" in {issue.code for issue in issues}
 
@@ -155,6 +160,68 @@ def test_sp_validation_detects_best_marker_outside_candidates():
     sp[(2 + 5) * validator.TILE_TYPES + 11] = 1.0
     sp[70 * validator.TILE_TYPES + 12] = 1.0
 
-    issues, _metrics = validator.validate_sp_arrays(sp, legal_discards={5})
+    issues, _metrics = validator.validate_sp_arrays(validator.LAYOUT_4P, sp, legal_discards={5})
 
     assert "best_marker_outside_candidates" in {issue.code for issue in issues}
+
+
+def test_sanma_layout_maps_compact_columns_to_canonical_tiles():
+    validator = _load_validator()
+    layout = validator.LAYOUT_3P
+    sp = [0.0] * layout.sp_floats
+    # Canonical 9m is tile 8 but compact sanma column 1.
+    sp[(2 + 8) * layout.tile_types + 1] = 1.0
+    sp[72 * layout.tile_types + 1] = 0.5
+
+    issues, metrics = validator.validate_sp_arrays(layout, sp, legal_discards={8}, remaining=[4] * 34)
+
+    assert metrics.candidate_count == 1
+    assert "illegal_candidate" not in {issue.code for issue in issues}
+
+
+def test_sanma_observation_validates_sp_drev_and_combined_blocks():
+    validator = _load_validator()
+    engine = GameEngine(game_mode="3p-red-single", seed=42)
+    obs = next(iter(engine.decisions().values()))
+
+    issues, metrics = validator.validate_sp_observation(obs, check_extended=True)
+
+    assert issues == []
+    assert metrics.candidate_count > 0
+
+
+def test_sp_validation_checks_decomposed_point_progress_planes():
+    validator = _load_validator()
+    sp = [0.0] * validator.LAYOUT_4P.sp_floats
+    # Candidate discard 5 with invalid min > mean and increasing threshold probability.
+    sp[135 * 34 + 5] = 0.4
+    sp[136 * 34 + 5] = 0.3
+    sp[137 * 34 + 5] = 0.5
+    sp[172 * 34 + 5] = 0.2
+    sp[173 * 34 + 5] = 0.3
+
+    issues, _metrics = validator.validate_sp_arrays(validator.LAYOUT_4P, sp, legal_discards={5})
+    codes = {issue.code for issue in issues}
+    assert "point_order" in codes
+    assert "point_target_monotonic" in codes
+
+
+def test_sp_validation_compares_standalone_drev_with_combined_tail():
+    validator = _load_validator()
+    layout = validator.LAYOUT_3P
+    sp = [0.0] * layout.sp_floats
+    extended = [0.0] * layout.extended_floats
+    drev = [0.0] * layout.drev_floats
+    combined = [0.0] * layout.combined_floats
+    combined[layout.extended_floats + layout.sp_floats] = 1.0
+
+    issues, _metrics = validator.validate_sp_arrays(
+        layout,
+        sp,
+        legal_discards=set(),
+        extended=extended,
+        drev=drev,
+        extended_with_sp=combined,
+    )
+
+    assert any(issue.code == "extended_tail" and issue.details == {"block": "drev"} for issue in issues)

@@ -198,7 +198,7 @@ impl GameState3P {
         let scores: [i32; 3] = std::array::from_fn(|i| self.players[i].score);
         let riichi_declared: [bool; 3] = std::array::from_fn(|i| self.players[i].riichi_declared);
 
-        Observation3P::new(
+        let mut observation = Observation3P::new(
             player_id,
             masked_hands,
             melds,
@@ -217,13 +217,16 @@ impl GameState3P {
             is_tenpai,
             self.riichi_sutehais,
             self.last_tedashis,
-            self.last_discard.map(|(tile, _pid)| tile as u32),
+            self.last_discard.map(|(_pid, tile)| tile as u32),
             if player_id == self.current_player {
                 self.drawn_tile
             } else {
                 None
             },
-        )
+        );
+        observation.kita_counts =
+            std::array::from_fn(|i| self.players[i].kita_tiles.len().min(u8::MAX as usize) as u8);
+        observation
     }
 
     pub fn get_observation_for_replay(

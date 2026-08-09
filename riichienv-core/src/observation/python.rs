@@ -3,7 +3,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
-use crate::action::{Action, ActionEncoder, ActionType};
+use crate::action::{Action, ActionEncoder, ActionEncoderV1, ActionType};
 use crate::shanten;
 use crate::types::{Meld, MeldType};
 use crate::yaku_checker;
@@ -119,14 +119,43 @@ impl Observation {
         Ok(pyo3::types::PyBytes::new(py, &mask))
     }
 
+    /// Red-aware v1 action mask (164 entries).
+    #[pyo3(name = "mask_v1")]
+    pub fn mask_v1_method<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let encoder = ActionEncoderV1::FourPlayer;
+        let mut mask = vec![0u8; encoder.action_space_size()];
+        for action in &self._legal_actions {
+            if let Ok(idx) = encoder.encode(action)
+                && idx >= 0
+                && (idx as usize) < mask.len()
+            {
+                mask[idx as usize] = 1;
+            }
+        }
+        Ok(pyo3::types::PyBytes::new(py, &mask))
+    }
+
     #[getter]
     pub fn action_space_size(&self) -> usize {
         ActionEncoder::FourPlayer.action_space_size()
     }
 
+    #[getter]
+    pub fn action_space_size_v1(&self) -> usize {
+        ActionEncoderV1::FourPlayer.action_space_size()
+    }
+
     #[pyo3(name = "find_action", signature = (action_id))]
     pub fn find_action_py(&self, action_id: usize) -> Option<Action> {
         self.find_action(action_id)
+    }
+
+    #[pyo3(name = "find_action_v1", signature = (action_id))]
+    pub fn find_action_v1_py(&self, action_id: usize) -> Option<Action> {
+        self.find_action_v1(action_id)
     }
 
     #[pyo3(signature = (mjai_data))]

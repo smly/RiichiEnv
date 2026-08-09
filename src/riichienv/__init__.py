@@ -1,5 +1,17 @@
 from . import consts, convert
 from ._riichienv import (
+    ACTION_SPACE_3P_V0,
+    ACTION_SPACE_3P_V1,
+    ACTION_SPACE_4P_V0,
+    ACTION_SPACE_4P_V1,
+    DREV_CHANNELS,
+    OBS_EXTENDED_CHANNELS,
+    OBS_EXTENDED_CHANNELS_3P,
+    OBS_TOTAL_CHANNELS,
+    OBS_TOTAL_CHANNELS_3P,
+    SP_CHANNELS,
+    TILE_TYPES,
+    TILE_TYPES_3P,
     BatchGameEngine,
     EventJournal,
     GameEngine,
@@ -58,6 +70,18 @@ RiichiEnv.get_viewer = _get_viewer  # type: ignore[attr-defined]
 
 
 __all__ = [
+    "ACTION_SPACE_3P_V0",
+    "ACTION_SPACE_3P_V1",
+    "ACTION_SPACE_4P_V0",
+    "ACTION_SPACE_4P_V1",
+    "DREV_CHANNELS",
+    "OBS_EXTENDED_CHANNELS",
+    "OBS_EXTENDED_CHANNELS_3P",
+    "OBS_TOTAL_CHANNELS",
+    "OBS_TOTAL_CHANNELS_3P",
+    "SP_CHANNELS",
+    "TILE_TYPES",
+    "TILE_TYPES_3P",
     "consts",
     "convert",
     "EventJournal",

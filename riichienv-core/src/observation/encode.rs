@@ -744,7 +744,7 @@ impl Observation {
         if buf.len() != expected {
             return Err(RiichiError::InvalidState {
                 message: format!(
-                    "extended-sp-drev-4p v0 output has length {}; expected {expected}",
+                    "extended-sp-drev-4p v1 output has length {}; expected {expected}",
                     buf.len()
                 ),
             });

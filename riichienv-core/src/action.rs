@@ -10,6 +10,11 @@ use crate::parser::tid_to_mjai;
 
 pub const ACTION_SPACE_4P: usize = 82;
 pub const ACTION_SPACE_3P: usize = 60;
+/// Red-aware v1 action spaces. Each legacy semantic ID owns two slots:
+/// `2 * v0` preserves/does not consume a red five and `2 * v0 + 1`
+/// explicitly discards or consumes one. Unused odd slots remain masked out.
+pub const ACTION_SPACE_4P_V1: usize = ACTION_SPACE_4P * 2;
+pub const ACTION_SPACE_3P_V1: usize = ACTION_SPACE_3P * 2;
 
 const TILE34_TO_COMPACT: [u8; 34] = [
     0, // type  0: 1m
@@ -225,6 +230,11 @@ impl Action {
             }),
         }
     }
+
+    /// Encode with the red-aware 4-player v1 model ABI.
+    pub fn encode_v1(&self) -> RiichiResult<i32> {
+        ActionEncoderV1::FourPlayer.encode(self)
+    }
 }
 
 /// Separate encoder objects for 4P (default) and 3P action spaces.
@@ -346,6 +356,52 @@ impl ActionEncoder {
     }
 }
 
+/// Versioned model action encoder introduced for #210.
+///
+/// Unlike v0, physically distinct red-five discard/chi/pon choices receive
+/// different IDs. Forced actions (ron, tsumo, kan, pass, kita, etc.) keep the
+/// even slot because no red-preservation decision exists for the model.
+#[derive(Debug, Clone, Copy)]
+pub enum ActionEncoderV1 {
+    FourPlayer,
+    ThreePlayer,
+}
+
+impl ActionEncoderV1 {
+    pub fn from_num_players(n: u8) -> Self {
+        match n {
+            3 => Self::ThreePlayer,
+            _ => Self::FourPlayer,
+        }
+    }
+
+    pub fn action_space_size(self) -> usize {
+        match self {
+            Self::FourPlayer => ACTION_SPACE_4P_V1,
+            Self::ThreePlayer => ACTION_SPACE_3P_V1,
+        }
+    }
+
+    pub fn encode(self, action: &Action) -> RiichiResult<i32> {
+        let legacy = match self {
+            Self::FourPlayer => ActionEncoder::FourPlayer.encode(action)?,
+            Self::ThreePlayer => ActionEncoder::ThreePlayer.encode(action)?,
+        };
+        Ok(legacy * 2 + i32::from(red_choice_bit(action)))
+    }
+}
+
+fn red_choice_bit(action: &Action) -> u8 {
+    let is_red = |tile: u8| matches!(tile, 16 | 52 | 88);
+    match action.action_type {
+        ActionType::Discard => u8::from(action.tile.is_some_and(is_red)),
+        ActionType::Chi | ActionType::Pon => {
+            u8::from(action.consume_tiles.iter().copied().any(is_red))
+        }
+        _ => 0,
+    }
+}
+
 #[cfg(feature = "python")]
 #[pymethods]
 impl Action {
@@ -429,6 +485,11 @@ impl Action {
     pub fn encode_py(&self) -> PyResult<i32> {
         self.encode().map_err(Into::into)
     }
+
+    #[pyo3(name = "encode_v1")]
+    pub fn encode_v1_py(&self) -> PyResult<i32> {
+        self.encode_v1().map_err(Into::into)
+    }
 }
 
 #[cfg_attr(
@@ -458,6 +519,10 @@ impl Action3P {
         ActionEncoder::ThreePlayer.encode(&self.0)
     }
 
+    pub fn encode_v1(&self) -> RiichiResult<i32> {
+        ActionEncoderV1::ThreePlayer.encode(&self.0)
+    }
+
     pub fn repr(&self) -> String {
         format!(
             "Action3P(action_type={:?}, tile={:?}, consume_tiles={:?}, actor={:?})",
@@ -483,6 +548,11 @@ impl Action3P {
     #[pyo3(name = "encode")]
     pub fn encode_py(&self) -> PyResult<i32> {
         self.encode().map_err(Into::into)
+    }
+
+    #[pyo3(name = "encode_v1")]
+    pub fn encode_v1_py(&self) -> PyResult<i32> {
+        self.encode_v1().map_err(Into::into)
     }
 
     #[pyo3(name = "to_dict")]
@@ -541,5 +611,78 @@ impl Action3P {
 
     fn __str__(&self) -> String {
         self.repr()
+    }
+}
+
+#[cfg(test)]
+mod red_aware_tests {
+    use super::*;
+
+    #[test]
+    fn v1_separates_red_and_normal_five_discards_without_changing_v0() {
+        for (encoder_v0, encoder_v1, red, normal) in [
+            (
+                ActionEncoder::FourPlayer,
+                ActionEncoderV1::FourPlayer,
+                16,
+                17,
+            ),
+            (
+                ActionEncoder::ThreePlayer,
+                ActionEncoderV1::ThreePlayer,
+                52,
+                53,
+            ),
+        ] {
+            let red = Action::new(ActionType::Discard, Some(red), vec![], None);
+            let normal = Action::new(ActionType::Discard, Some(normal), vec![], None);
+            assert_eq!(
+                encoder_v0.encode(&red).unwrap(),
+                encoder_v0.encode(&normal).unwrap()
+            );
+            assert_eq!(
+                encoder_v1.encode(&red).unwrap(),
+                encoder_v1.encode(&normal).unwrap() + 1
+            );
+        }
+    }
+
+    #[test]
+    fn v1_separates_red_consuming_calls_but_not_forced_kans() {
+        let normal_pon = Action::new(ActionType::Pon, Some(53), vec![54, 55], Some(1));
+        let red_pon = Action::new(ActionType::Pon, Some(53), vec![52, 54], Some(1));
+        assert_eq!(
+            ActionEncoder::FourPlayer.encode(&normal_pon).unwrap(),
+            ActionEncoder::FourPlayer.encode(&red_pon).unwrap()
+        );
+        assert_eq!(
+            ActionEncoderV1::FourPlayer.encode(&red_pon).unwrap(),
+            ActionEncoderV1::FourPlayer.encode(&normal_pon).unwrap() + 1
+        );
+
+        let normal_chi = Action::new(ActionType::Chi, Some(45), vec![49, 53], Some(1));
+        let red_chi = Action::new(ActionType::Chi, Some(45), vec![49, 52], Some(1));
+        assert_eq!(
+            ActionEncoder::FourPlayer.encode(&normal_chi).unwrap(),
+            ActionEncoder::FourPlayer.encode(&red_chi).unwrap()
+        );
+        assert_eq!(
+            ActionEncoderV1::FourPlayer.encode(&red_chi).unwrap(),
+            ActionEncoderV1::FourPlayer.encode(&normal_chi).unwrap() + 1
+        );
+
+        assert_eq!(
+            ActionEncoderV1::ThreePlayer.encode(&red_pon).unwrap(),
+            ActionEncoderV1::ThreePlayer.encode(&normal_pon).unwrap() + 1
+        );
+
+        let kan = Action::new(ActionType::Ankan, Some(52), vec![52, 53, 54, 55], None);
+        assert_eq!(ActionEncoderV1::FourPlayer.encode(&kan).unwrap() % 2, 0);
+    }
+
+    #[test]
+    fn v1_action_space_sizes_are_explicit() {
+        assert_eq!(ActionEncoderV1::FourPlayer.action_space_size(), 164);
+        assert_eq!(ActionEncoderV1::ThreePlayer.action_space_size(), 120);
     }
 }

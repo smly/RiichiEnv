@@ -18,6 +18,11 @@
 //!   - Hands containing kans (kan fu / suukantsu).
 //!   - Ura dora distribution (caller computes it on top of our base score).
 //!
+
+// These loops operate on fixed mahjong tile/channel indices; retaining the
+// index makes the scoring rules easier to audit against the feature schema.
+#![allow(clippy::needless_range_loop)]
+
 use crate::agari_table::{self, MAX_DIVS_PER_KEY};
 use crate::sp::SpInput;
 use crate::types::{Meld, MeldType, TILE_MAX};
@@ -193,13 +198,12 @@ pub fn compute_for_sp_tsumo(
     let melds_kotsu = &melds_kotsu_buf[..n_mk];
     let melds_shuntsu = &melds_shuntsu_buf[..n_ms];
 
-
     // For each table-decomp + the open-meld portion, compute (han, fu).
     let mut best: Option<(u32, u32)> = None; // (han, fu) — pick by total score
     for &template in list {
         let div = absolute_div_compact(template, &tile14);
 
-        let Some((han, fu)) = score_one_div(
+        let (han, fu) = score_one_div(
             input,
             &div,
             &full_counts,
@@ -216,9 +220,7 @@ pub fn compute_for_sp_tsumo(
             aka_dora,
             melds_kotsu,
             melds_shuntsu,
-        ) else {
-            return None;
-        };
+        )?;
         match best {
             None => best = Some((han, fu)),
             Some((bh, bf)) => {
@@ -235,9 +237,17 @@ pub fn compute_for_sp_tsumo(
     match (standard, chitoi_han) {
         (Some((s_han, s_fu)), Some(c_han)) => {
             if score_lt(c_han, 25, s_han, s_fu, is_oya) {
-                Some(LeanScore { han: s_han, fu: s_fu, yakuman: false })
+                Some(LeanScore {
+                    han: s_han,
+                    fu: s_fu,
+                    yakuman: false,
+                })
             } else {
-                Some(LeanScore { han: c_han, fu: 25, yakuman: false })
+                Some(LeanScore {
+                    han: c_han,
+                    fu: 25,
+                    yakuman: false,
+                })
             }
         }
         (Some((s_han, s_fu)), None) => Some(LeanScore {
@@ -307,7 +317,7 @@ pub fn has_any_yaku_for_sp_tsumo(
     for m in &input.melds {
         for &t136 in &m.tiles {
             let tt = t136 / 4;
-            if matches!(tt, 31 | 32 | 33) || tt == bakaze || tt == jikaze {
+            if matches!(tt, 31..=33) || tt == bakaze || tt == jikaze {
                 return Some(true);
             }
         }
@@ -336,8 +346,14 @@ pub fn has_any_yaku_for_sp_tsumo(
     }
     let mut yh_tiles = [31u8, 32, 33, 0, 0];
     let mut n_yh = 3usize;
-    if (27..=30).contains(&bakaze) { yh_tiles[n_yh] = bakaze; n_yh += 1; }
-    if (27..=30).contains(&jikaze) && jikaze != bakaze { yh_tiles[n_yh] = jikaze; n_yh += 1; }
+    if (27..=30).contains(&bakaze) {
+        yh_tiles[n_yh] = bakaze;
+        n_yh += 1;
+    }
+    if (27..=30).contains(&jikaze) && jikaze != bakaze {
+        yh_tiles[n_yh] = jikaze;
+        n_yh += 1;
+    }
     for i in 0..n_yh {
         if counts_14[yh_tiles[i] as usize] >= 3 {
             return Some(true); // in-hand yakuhai kotsu
@@ -412,26 +428,44 @@ fn has_any_yaku_for_div(
         (div.kotsu(), div.shuntsu())
     } else {
         let mut n_k = 0usize;
-        for &k in div.kotsu() { all_kotsu_buf[n_k] = k; n_k += 1; }
-        for &k in melds_kotsu { all_kotsu_buf[n_k] = k; n_k += 1; }
+        for &k in div.kotsu() {
+            all_kotsu_buf[n_k] = k;
+            n_k += 1;
+        }
+        for &k in melds_kotsu {
+            all_kotsu_buf[n_k] = k;
+            n_k += 1;
+        }
         let mut n_s = 0usize;
-        for &s in div.shuntsu() { all_shuntsu_buf[n_s] = s; n_s += 1; }
-        for &s in melds_shuntsu { all_shuntsu_buf[n_s] = s; n_s += 1; }
+        for &s in div.shuntsu() {
+            all_shuntsu_buf[n_s] = s;
+            n_s += 1;
+        }
+        for &s in melds_shuntsu {
+            all_shuntsu_buf[n_s] = s;
+            n_s += 1;
+        }
         (&all_kotsu_buf[..n_k], &all_shuntsu_buf[..n_s])
     };
 
     // Yakuhai (kotsu of dragon/seat/round wind) — terminate early.
     for &k in all_kotsu {
-        if matches!(k, 31 | 32 | 33) || k == bakaze || k == jikaze {
+        if matches!(k, 31..=33) || k == bakaze || k == jikaze {
             return true;
         }
     }
 
     // Tanyao / honitsu / chinitsu / honroutou: already pre-checked in caller,
     // but they remain TRUE for this div too (shape-only). Re-check for safety.
-    if !flags.has_terminal && !suit_usage.has_z { return true; }
-    if flags.single_numbered_suit { return true; }
-    if flags.all_yaocchi { return true; }
+    if !flags.has_terminal && !suit_usage.has_z {
+        return true;
+    }
+    if flags.single_numbered_suit {
+        return true;
+    }
+    if flags.all_yaocchi {
+        return true;
+    }
 
     // Toitoi: 4 kotsu (no shuntsu in division).
     if all_shuntsu.is_empty() && !all_kotsu.is_empty() {
@@ -440,7 +474,9 @@ fn has_any_yaku_for_div(
 
     // Bitmasks for sanshoku doujun / ittsu / sanshoku doukou.
     let mut shuntsu_mask: u32 = 0;
-    for &s in all_shuntsu { shuntsu_mask |= 1u32 << s; }
+    for &s in all_shuntsu {
+        shuntsu_mask |= 1u32 << s;
+    }
     let smask_m = shuntsu_mask & 0x1FF;
     let smask_p = (shuntsu_mask >> 9) & 0x1FF;
     let smask_s = (shuntsu_mask >> 18) & 0x1FF;
@@ -455,7 +491,9 @@ fn has_any_yaku_for_div(
         return true;
     }
     let mut kotsu_mask: u64 = 0;
-    for &k in all_kotsu { kotsu_mask |= 1u64 << k; }
+    for &k in all_kotsu {
+        kotsu_mask |= 1u64 << k;
+    }
     let kmask_m = (kotsu_mask & 0x1FF) as u32;
     let kmask_p = ((kotsu_mask >> 9) & 0x1FF) as u32;
     let kmask_s = ((kotsu_mask >> 18) & 0x1FF) as u32;
@@ -492,8 +530,8 @@ fn has_any_yaku_for_div(
             && !all_shuntsu.is_empty()
             && !suit_usage.has_z
             && mentsu_all_have_terminal;
-        let chanta = !honroutou_local && !junchan && !all_shuntsu.is_empty()
-            && mentsu_all_have_yaocchi;
+        let chanta =
+            !honroutou_local && !junchan && !all_shuntsu.is_empty() && mentsu_all_have_yaocchi;
         if junchan || chanta {
             return true;
         }
@@ -574,18 +612,10 @@ fn next_tile(t34: usize) -> usize {
         suit * 9 + next_num
     } else if (27..=30).contains(&t34) {
         // winds: 27→28→29→30→27
-        if t34 == 30 {
-            27
-        } else {
-            t34 + 1
-        }
+        if t34 == 30 { 27 } else { t34 + 1 }
     } else {
         // dragons: 31→32→33→31
-        if t34 == 33 {
-            31
-        } else {
-            t34 + 1
-        }
+        if t34 == 33 { 31 } else { t34 + 1 }
     }
 }
 
@@ -644,8 +674,8 @@ fn might_be_yakuman(full_counts: &[u8; TILE_MAX], melds: &[Meld]) -> bool {
         for suit in 0..3 {
             let base = suit * 9;
             // Tiles outside this suit must be 0
-            let other_suit_present = (0..TILE_MAX)
-                .any(|t| (t < base || t >= base + 9) && full_counts[t] > 0);
+            let other_suit_present =
+                (0..TILE_MAX).any(|t| (t < base || t >= base + 9) && full_counts[t] > 0);
             if other_suit_present {
                 continue;
             }
@@ -918,9 +948,7 @@ fn score_one_div(
     let mut yakuhai_han = 0u32;
     for &k in all_kotsu {
         // White, Green, Red dragons
-        if matches!(k, 31 | 32 | 33) {
-            yakuhai_han += 1;
-        } else if k == bakaze {
+        if matches!(k, 31..=33) || k == bakaze {
             yakuhai_han += 1;
         }
         if k == jikaze && k != bakaze {
@@ -1042,8 +1070,8 @@ fn score_one_div(
         }
         let fu = compute_fu(
             div,
-            &melds_kotsu,
-            &melds_shuntsu,
+            melds_kotsu,
+            melds_shuntsu,
             bakaze,
             jikaze,
             wk,
@@ -1107,7 +1135,7 @@ fn classify_waits(div: &AbsoluteDiv, win_tile: u8, out: &mut [WaitKind; 5]) -> u
 }
 
 fn is_yakuhai_pair(t: u8, bakaze: u8, jikaze: u8) -> bool {
-    matches!(t, 31 | 32 | 33) || t == bakaze || t == jikaze
+    matches!(t, 31..=33) || t == bakaze || t == jikaze
 }
 
 fn detect_peikou(in_hand_shuntsu: &[u8]) -> (bool, bool) {
@@ -1126,18 +1154,14 @@ fn detect_peikou(in_hand_shuntsu: &[u8]) -> (bool, bool) {
             i += 1;
         }
     }
-    (pairs >= 1 && pairs < 2, pairs >= 2)
+    ((1..2).contains(&pairs), pairs >= 2)
 }
 
 /// Decompose `melds` into stack buffers for kotsu (pons) and shuntsu (chis).
 /// Returns `(n_kotsu, n_shuntsu)`. Each buffer holds at most 4 entries (mahjong
 /// allows ≤ 4 melds total). Kans and special meld types are ignored — caller
 /// must reject these before invoking lean.
-fn collect_melds(
-    melds: &[Meld],
-    kotsu: &mut [u8; 4],
-    shuntsu: &mut [u8; 4],
-) -> (usize, usize) {
+fn collect_melds(melds: &[Meld], kotsu: &mut [u8; 4], shuntsu: &mut [u8; 4]) -> (usize, usize) {
     let mut nk = 0usize;
     let mut ns = 0usize;
     for m in melds {
@@ -1186,7 +1210,7 @@ fn compute_fu(
         fu += if is_yaocchi(t) { 4 } else { 2 };
     }
     // Pair
-    if matches!(div.pair_tile, 31 | 32 | 33) {
+    if matches!(div.pair_tile, 31..=33) {
         fu += 2;
     } else if div.pair_tile == bakaze {
         fu += 2;
@@ -1208,7 +1232,9 @@ fn compute_fu(
     // +2 bonus). However an open hand with NO fu sources (only shuntsu chi +
     // ryanmen wait + non-yakuhai pair + tsumo) has fu = 22. After rounding up
     // to next 10 → 30. That's the kuipinfu rule baked into the rounding.
-    if is_menzen && wait_kind != WaitKind::Tanki && wait_kind != WaitKind::Kanchan
+    if is_menzen
+        && wait_kind != WaitKind::Tanki
+        && wait_kind != WaitKind::Kanchan
         && wait_kind != WaitKind::Penchan
     {
         // menzen ron 10 fu — N/A for tsumo. Skip.

@@ -770,7 +770,7 @@ impl Observation3P {
         if buf.len() != expected {
             return Err(RiichiError::InvalidState {
                 message: format!(
-                    "extended-sp-drev-3p v0 output has length {}; expected {expected}",
+                    "extended-sp-drev-3p v1 output has length {}; expected {expected}",
                     buf.len()
                 ),
             });

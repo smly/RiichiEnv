@@ -171,6 +171,7 @@ fn lean_sp_yaku_matches_hand_evaluator_on_agari_corpus() {
             can_double_riichi: false,
             tsumos_left: 1,
             discard_candidates: vec![],
+            kita_count: 0,
         };
 
         let Some(lean) = compute_for_sp_tsumo(
@@ -252,6 +253,7 @@ fn sp_scoring_falls_back_and_matches_open_tanyao_score() {
         can_double_riichi: false,
         tsumos_left: 1,
         discard_candidates: vec![],
+        kita_count: 0,
     };
 
     assert_eq!(
@@ -301,6 +303,7 @@ fn lean_sp_yaku_falls_back_for_all_kan_types() {
             can_double_riichi: false,
             tsumos_left: 1,
             discard_candidates: vec![],
+            kita_count: 0,
         };
 
         assert_eq!(

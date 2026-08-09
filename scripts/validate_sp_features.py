@@ -1,7 +1,7 @@
 """Validate SP feature encodings on MJAI jsonl/jsonl.gz logs.
 
-The validator is intended for large MjSoul dumps such as
-``data-mjsoul-4p-2026-01``. It checks structural invariants that should hold
+The validator is intended for large 4P and 3P MjSoul dumps such as
+``data-mjsoul-{4p,3p}-2026-01``. It checks structural invariants that should hold
 for SP features used as ML inputs, and writes compact JSONL diagnostics for
 any observation that violates them.
 """
@@ -29,26 +29,66 @@ from riichienv._riichienv import ActionType, Observation, Observation3P
 try:
     from riichienv._riichienv import (
         DREV_CHANNELS,
+        OBS_EXTENDED_CHANNELS_3P,
         SP_CHANNELS,
         TILE_TYPES,
+        TILE_TYPES_3P,
     )
     from riichienv._riichienv import (
         OBS_EXTENDED_CHANNELS as EXTENDED_CHANNELS,
     )
 except ImportError:
     TILE_TYPES = 34
+    TILE_TYPES_3P = 27
     EXTENDED_CHANNELS = 215
+    OBS_EXTENDED_CHANNELS_3P = 215
     SP_CHANNELS = 178
     DREV_CHANNELS = 9
 
-EXTENDED_WITH_SP_CHANNELS = EXTENDED_CHANNELS + SP_CHANNELS + DREV_CHANNELS
-
-SP_FLOATS = SP_CHANNELS * TILE_TYPES
-DREV_FLOATS = DREV_CHANNELS * TILE_TYPES
-EXTENDED_FLOATS = EXTENDED_CHANNELS * TILE_TYPES
-EXTENDED_WITH_SP_FLOATS = EXTENDED_WITH_SP_CHANNELS * TILE_TYPES
+SP_CANDIDATE_TYPES = 34
+CANONICAL_TILES_4P = tuple(range(34))
+CANONICAL_TILES_3P = (0, 8, *range(9, 34))
 
 EPS = 1e-5
+
+
+@dataclass(frozen=True)
+class FeatureLayout:
+    name: str
+    tile_types: int
+    extended_channels: int
+    compact_to_canonical: tuple[int, ...]
+
+    @property
+    def canonical_to_compact(self) -> dict[int, int]:
+        return {tile: column for column, tile in enumerate(self.compact_to_canonical)}
+
+    @property
+    def sp_floats(self) -> int:
+        return SP_CHANNELS * self.tile_types
+
+    @property
+    def drev_floats(self) -> int:
+        return DREV_CHANNELS * self.tile_types
+
+    @property
+    def extended_floats(self) -> int:
+        return self.extended_channels * self.tile_types
+
+    @property
+    def combined_floats(self) -> int:
+        return (self.extended_channels + SP_CHANNELS + DREV_CHANNELS) * self.tile_types
+
+
+LAYOUT_4P = FeatureLayout("4p", TILE_TYPES, EXTENDED_CHANNELS, CANONICAL_TILES_4P)
+LAYOUT_3P = FeatureLayout(
+    "3p", TILE_TYPES_3P, OBS_EXTENDED_CHANNELS_3P, CANONICAL_TILES_3P
+)
+# Backward-compatible aliases for callers that validate synthetic 4P arrays.
+SP_FLOATS = LAYOUT_4P.sp_floats
+DREV_FLOATS = LAYOUT_4P.drev_floats
+EXTENDED_FLOATS = LAYOUT_4P.extended_floats
+EXTENDED_WITH_SP_FLOATS = LAYOUT_4P.combined_floats
 
 
 @dataclass
@@ -93,7 +133,8 @@ class ValidationStats:
     kyokus_seen: int = 0
     observations_seen: int = 0
     observations_validated: int = 0
-    observations_skipped_3p: int = 0
+    observations_validated_4p: int = 0
+    observations_validated_3p: int = 0
     observations_with_issues: int = 0
     issues: int = 0
     closed_riichi_assumed: int = 0
@@ -108,8 +149,12 @@ class ValidationStats:
     max_best_ev_100k: float = 0.0
     max_best_ev_30k: float = 0.0
 
-    def add_metrics(self, metrics: ObservationMetrics) -> None:
+    def add_metrics(self, metrics: ObservationMetrics, layout: FeatureLayout) -> None:
         self.observations_validated += 1
+        if layout is LAYOUT_3P:
+            self.observations_validated_3p += 1
+        else:
+            self.observations_validated_4p += 1
         self.total_candidates += metrics.candidate_count
         self.max_candidates = max(self.max_candidates, metrics.candidate_count)
         self.encode_sp_total_ns += metrics.encode_sp_ns
@@ -141,8 +186,8 @@ class ValidationStats:
         return data
 
 
-def _idx(channel: int, tile: int) -> int:
-    return channel * TILE_TYPES + tile
+def _idx(layout: FeatureLayout, channel: int, column: int) -> int:
+    return channel * layout.tile_types + column
 
 
 def _decode_float32(buf: bytes, expected: int, name: str) -> tuple[array.array | None, list[ValidationIssue]]:
@@ -162,6 +207,7 @@ def _decode_float32(buf: bytes, expected: int, name: str) -> tuple[array.array |
 
 
 def _range_issue(
+    layout: FeatureLayout,
     name: str,
     values: Sequence[float],
     start_channel: int,
@@ -169,8 +215,8 @@ def _range_issue(
     lo: float,
     hi: float,
 ) -> ValidationIssue | None:
-    start = start_channel * TILE_TYPES
-    end = end_channel * TILE_TYPES
+    start = start_channel * layout.tile_types
+    end = end_channel * layout.tile_types
     subset = values[start:end]
     if not subset:
         return None
@@ -186,17 +232,18 @@ def _range_issue(
 
 
 def _binary_issue(
+    layout: FeatureLayout,
     name: str,
     values: Sequence[float],
     start_channel: int,
     end_channel: int,
 ) -> ValidationIssue | None:
-    start = start_channel * TILE_TYPES
-    end = end_channel * TILE_TYPES
+    start = start_channel * layout.tile_types
+    end = end_channel * layout.tile_types
     for offset, value in enumerate(values[start:end]):
         if abs(value) > EPS and abs(value - 1.0) > EPS:
             flat_index = start + offset
-            channel, tile = divmod(flat_index, TILE_TYPES)
+            channel, tile = divmod(flat_index, layout.tile_types)
             return ValidationIssue(
                 "binary",
                 f"{name} contains non-binary values",
@@ -216,7 +263,7 @@ def _is_discard_action(action: Any) -> bool:
         return False
 
 
-def legal_discard_types(obs: Observation) -> set[int]:
+def legal_discard_types(obs: Observation | Observation3P) -> set[int]:
     types: set[int] = set()
     for action in obs.legal_actions():
         if _is_discard_action(action) and action.tile is not None:
@@ -224,50 +271,68 @@ def legal_discard_types(obs: Observation) -> set[int]:
     return types
 
 
-def observation_is_menzen(obs: Observation) -> bool:
+def observation_is_menzen(obs: Observation | Observation3P) -> bool:
     player = int(obs.player_id)
     melds = list(obs.melds[player])
     return not any(bool(getattr(meld, "opened", True)) for meld in melds)
 
 
-def observation_riichi_assumed(obs: Observation) -> bool:
+def observation_riichi_assumed(obs: Observation | Observation3P) -> bool:
     player = int(obs.player_id)
     return observation_is_menzen(obs) and int(obs.scores[player]) >= 1000
 
 
-def _channel_has_value(values: Sequence[float], channel: int) -> bool:
-    start = channel * TILE_TYPES
-    end = start + TILE_TYPES
+def _channel_has_value(
+    layout: FeatureLayout, values: Sequence[float], channel: int
+) -> bool:
+    start = channel * layout.tile_types
+    end = start + layout.tile_types
     return any(abs(value) > EPS for value in values[start:end])
 
 
-def _column_has_value(values: Sequence[float], start_channel: int, end_channel: int, tile: int) -> bool:
-    return any(abs(values[_idx(channel, tile)]) > EPS for channel in range(start_channel, end_channel))
+def _column_has_value(
+    layout: FeatureLayout,
+    values: Sequence[float],
+    start_channel: int,
+    end_channel: int,
+    canonical_tile: int,
+) -> bool:
+    column = layout.canonical_to_compact.get(canonical_tile)
+    return column is not None and any(
+        abs(values[_idx(layout, channel, column)]) > EPS
+        for channel in range(start_channel, end_channel)
+    )
 
 
-def candidate_discard_types(sp: Sequence[float]) -> set[int]:
+def candidate_discard_types(layout: FeatureLayout, sp: Sequence[float]) -> set[int]:
     candidates: set[int] = set()
-    for tile in range(TILE_TYPES):
-        if _channel_has_value(sp, 2 + tile):
+    for tile in range(SP_CANDIDATE_TYPES):
+        if _channel_has_value(layout, sp, 2 + tile):
             candidates.add(tile)
-        if _channel_has_value(sp, 2 + TILE_TYPES + tile):
+        if _channel_has_value(layout, sp, 2 + SP_CANDIDATE_TYPES + tile):
             candidates.add(tile)
-        if _column_has_value(sp, 72, 72 + 17, tile):
+        if _column_has_value(layout, sp, 72, 72 + 17, tile):
             candidates.add(tile)
-        if _column_has_value(sp, 72 + 17, 72 + 34, tile):
+        if _column_has_value(layout, sp, 72 + 17, 72 + 34, tile):
             candidates.add(tile)
-        if _column_has_value(sp, 72 + 34, 72 + 51, tile):
+        if _column_has_value(layout, sp, 72 + 34, 72 + 51, tile):
+            candidates.add(tile)
+        if _channel_has_value(layout, sp, 138 + tile):
+            candidates.add(tile)
+        if _column_has_value(layout, sp, 123, 138, tile):
+            candidates.add(tile)
+        if _column_has_value(layout, sp, 172, 178, tile):
             candidates.add(tile)
 
     for marker_channel in (70, 71):
-        for tile in range(TILE_TYPES):
-            if abs(sp[_idx(marker_channel, tile)]) > EPS:
+        for column, tile in enumerate(layout.compact_to_canonical):
+            if abs(sp[_idx(layout, marker_channel, column)]) > EPS:
                 candidates.add(tile)
     return candidates
 
 
 def _check_win_le_tenpai(
-    sp: Sequence[float], candidates: set[int]
+    layout: FeatureLayout, sp: Sequence[float], candidates: set[int]
 ) -> list[ValidationIssue]:
     """Per turn: win_prob[t] should not exceed tenpai_prob[t]+EPS.
 
@@ -275,9 +340,12 @@ def _check_win_le_tenpai(
     """
     issues: list[ValidationIssue] = []
     for tile in sorted(candidates):
+        column = layout.canonical_to_compact.get(tile)
+        if column is None:
+            continue
         for turn in range(17):
-            t = float(sp[_idx(72 + turn, tile)])
-            w = float(sp[_idx(89 + turn, tile)])
+            t = float(sp[_idx(layout, 72 + turn, column)])
+            w = float(sp[_idx(layout, 89 + turn, column)])
             if w > t + EPS:
                 issues.append(
                     ValidationIssue(
@@ -300,6 +368,7 @@ def _hand_counts_to_136(hand_counts: Sequence[int]) -> list[int]:
 
 
 def _check_shanten_consistency(
+    layout: FeatureLayout,
     sp: Sequence[float],
     candidates: set[int],
     hand_counts: Sequence[int],
@@ -312,7 +381,8 @@ def _check_shanten_consistency(
     """
     issues: list[ValidationIssue] = []
     for tile in sorted(candidates):
-        if tile >= TILE_TYPES or hand_counts[tile] == 0:
+        column = layout.canonical_to_compact.get(tile)
+        if column is None or tile >= len(hand_counts) or hand_counts[tile] == 0:
             continue
         post = list(hand_counts)
         post[tile] -= 1
@@ -328,7 +398,7 @@ def _check_shanten_consistency(
         if shanten < 0:
             continue
         for turn in range(min(shanten, 17)):
-            w = float(sp[_idx(89 + turn, tile)])
+            w = float(sp[_idx(layout, 89 + turn, column)])
             if w > EPS:
                 issues.append(
                     ValidationIssue(
@@ -347,7 +417,7 @@ def _check_shanten_consistency(
             # tenpai_prob は horizon (残り巡目) 内では 1.0、horizon 外は 0 で埋まる。
             # そのため最初の 0 で停止する。
             for turn in range(17):
-                tp = float(sp[_idx(72 + turn, tile)])
+                tp = float(sp[_idx(layout, 72 + turn, column)])
                 if tp < EPS:
                     break
                 if tp < 1.0 - EPS:
@@ -363,6 +433,7 @@ def _check_shanten_consistency(
 
 
 def _check_required_drawability(
+    layout: FeatureLayout,
     sp: Sequence[float],
     candidates: set[int],
     remaining: Sequence[int],
@@ -370,8 +441,8 @@ def _check_required_drawability(
     """Tiles flagged as required for a candidate must still be drawable from the wall."""
     issues: list[ValidationIssue] = []
     for d in sorted(candidates):
-        for t in range(TILE_TYPES):
-            if float(sp[_idx(2 + d, t)]) > EPS and remaining[t] == 0:
+        for column, t in enumerate(layout.compact_to_canonical):
+            if float(sp[_idx(layout, 2 + d, column)]) > EPS and remaining[t] == 0:
                 issues.append(
                     ValidationIssue(
                         "required_unreachable",
@@ -380,7 +451,19 @@ def _check_required_drawability(
                     )
                 )
                 return issues
-            if float(sp[_idx(2 + TILE_TYPES + d, t)]) > EPS and remaining[t] == 0:
+            if (
+                float(
+                    sp[
+                        _idx(
+                            layout,
+                            2 + SP_CANDIDATE_TYPES + d,
+                            column,
+                        )
+                    ]
+                )
+                > EPS
+                and remaining[t] == 0
+            ):
                 issues.append(
                     ValidationIssue(
                         "yaku_progress_unreachable",
@@ -393,7 +476,9 @@ def _check_required_drawability(
 
 
 def _check_best_marker_in_candidates(
-    sp: Sequence[float], non_marker_candidates: set[int]
+    layout: FeatureLayout,
+    sp: Sequence[float],
+    non_marker_candidates: set[int],
 ) -> list[ValidationIssue]:
     """Channel-70/71 one-hot markers must point to a tile that the SP encoder
     independently chose as a candidate (i.e. that has a non-zero presence in the
@@ -402,9 +487,9 @@ def _check_best_marker_in_candidates(
     if not non_marker_candidates:
         return issues
     for ch, name in ((70, "best_required"), (71, "best_yaku_progress")):
-        for tile in range(TILE_TYPES):
+        for column, tile in enumerate(layout.compact_to_canonical):
             if (
-                float(sp[_idx(ch, tile)]) > EPS
+                float(sp[_idx(layout, ch, column)]) > EPS
                 and tile not in non_marker_candidates
             ):
                 issues.append(
@@ -418,58 +503,78 @@ def _check_best_marker_in_candidates(
     return issues
 
 
-def _candidates_excluding_markers(sp: Sequence[float]) -> set[int]:
+def _candidates_excluding_markers(
+    layout: FeatureLayout, sp: Sequence[float]
+) -> set[int]:
     """Candidate set determined only by required/yaku/series channels — markers excluded."""
     candidates: set[int] = set()
-    for tile in range(TILE_TYPES):
-        if _channel_has_value(sp, 2 + tile):
+    for tile in range(SP_CANDIDATE_TYPES):
+        if _channel_has_value(layout, sp, 2 + tile):
             candidates.add(tile)
-        if _channel_has_value(sp, 2 + TILE_TYPES + tile):
+        if _channel_has_value(layout, sp, 2 + SP_CANDIDATE_TYPES + tile):
             candidates.add(tile)
-        if _column_has_value(sp, 72, 72 + 17, tile):
+        if _column_has_value(layout, sp, 72, 72 + 17, tile):
             candidates.add(tile)
-        if _column_has_value(sp, 72 + 17, 72 + 34, tile):
+        if _column_has_value(layout, sp, 72 + 17, 72 + 34, tile):
             candidates.add(tile)
-        if _column_has_value(sp, 72 + 34, 72 + 51, tile):
+        if _column_has_value(layout, sp, 72 + 34, 72 + 51, tile):
+            candidates.add(tile)
+        if _channel_has_value(layout, sp, 138 + tile):
+            candidates.add(tile)
+        if _column_has_value(layout, sp, 123, 138, tile):
+            candidates.add(tile)
+        if _column_has_value(layout, sp, 172, 178, tile):
             candidates.add(tile)
     return candidates
 
 
-def _compute_remaining_and_hand(obs: Observation) -> tuple[list[int], list[int]]:
+def _compute_remaining_and_hand(
+    obs: Observation | Observation3P, layout: FeatureLayout
+) -> tuple[list[int], list[int]]:
     """Return (remaining[34], hand_counts[34]) computed the same way as SpInput::from_observation."""
     d = obs.to_dict()
     player = int(d["player_id"])
-    tiles_seen = [0] * TILE_TYPES
-    hand_counts = [0] * TILE_TYPES
+    tiles_seen = [0] * SP_CANDIDATE_TYPES
+    hand_counts = [0] * SP_CANDIDATE_TYPES
     for tile in d["hands"][player]:
         ttype = int(tile) // 4
-        if 0 <= ttype < TILE_TYPES:
+        if 0 <= ttype < SP_CANDIDATE_TYPES:
             tiles_seen[ttype] += 1
             hand_counts[ttype] += 1
     for player_melds in d["melds"]:
         for meld in player_melds:
             for tile in meld.tiles:
                 ttype = int(tile) // 4
-                if 0 <= ttype < TILE_TYPES:
+                if 0 <= ttype < SP_CANDIDATE_TYPES:
                     tiles_seen[ttype] += 1
     for player_discards in d["discards"]:
         for tile in player_discards:
             ttype = int(tile) // 4
-            if 0 <= ttype < TILE_TYPES:
+            if 0 <= ttype < SP_CANDIDATE_TYPES:
                 tiles_seen[ttype] += 1
     for tile in d["dora_indicators"]:
         ttype = int(tile) // 4
-        if 0 <= ttype < TILE_TYPES:
+        if 0 <= ttype < SP_CANDIDATE_TYPES:
             tiles_seen[ttype] += 1
+    for count in d.get("kita_counts", []):
+        tiles_seen[30] += int(count)
     remaining = [max(0, 4 - min(4, c)) for c in tiles_seen]
+    if layout is LAYOUT_3P:
+        for tile in range(1, 8):
+            remaining[tile] = 0
     return remaining, hand_counts
 
 
-def _check_series_monotonic(sp: Sequence[float], candidates: set[int]) -> list[ValidationIssue]:
+def _check_series_monotonic(
+    layout: FeatureLayout, sp: Sequence[float], candidates: set[int]
+) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for base, name in ((72, "tenpai_prob"), (89, "win_prob"), (106, "ev_ratio")):
         for tile in sorted(candidates):
-            series = [sp[_idx(base + turn, tile)] for turn in range(17)]
+            column = layout.canonical_to_compact.get(tile)
+            if column is None:
+                continue
+            series = [sp[_idx(layout, base + turn, column)] for turn in range(17)]
             positive = [i for i, value in enumerate(series) if value > EPS]
             if not positive:
                 continue
@@ -492,11 +597,48 @@ def _check_series_monotonic(sp: Sequence[float], candidates: set[int]) -> list[V
     return issues
 
 
+def _check_point_progress(
+    layout: FeatureLayout, sp: Sequence[float], candidates: set[int]
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    for tile in sorted(candidates):
+        column = layout.canonical_to_compact.get(tile)
+        if column is None:
+            continue
+        minimum = float(sp[_idx(layout, 135, column)])
+        mean = float(sp[_idx(layout, 136, column)])
+        maximum = float(sp[_idx(layout, 137, column)])
+        # Pre-tenpai candidates may expose only the rough mean-point estimate;
+        # min/max are exact wait-set statistics and stay zero until available.
+        if (minimum > EPS or maximum > EPS) and (
+            minimum > mean + EPS or mean > maximum + EPS
+        ):
+            issues.append(
+                ValidationIssue(
+                    "point_order",
+                    f"min/mean/max point progress is not ordered for discard tile {tile}",
+                    {"tile": tile, "min": minimum, "mean": mean, "max": maximum},
+                )
+            )
+        targets = [float(sp[_idx(layout, channel, column)]) for channel in range(172, 178)]
+        if any(next_value > previous + EPS for previous, next_value in zip(targets, targets[1:])):
+            issues.append(
+                ValidationIssue(
+                    "point_target_monotonic",
+                    f"point target probabilities increase for discard tile {tile}",
+                    {"tile": tile, "probabilities": targets},
+                )
+            )
+    return issues
+
+
 def validate_sp_arrays(  # noqa: PLR0915
+    layout: FeatureLayout,
     sp: Sequence[float],
     *,
     legal_discards: set[int] | None = None,
     extended: Sequence[float] | None = None,
+    drev: Sequence[float] | None = None,
     extended_with_sp: Sequence[float] | None = None,
     hand_counts: Sequence[int] | None = None,
     remaining: Sequence[int] | None = None,
@@ -504,12 +646,12 @@ def validate_sp_arrays(  # noqa: PLR0915
     issues: list[ValidationIssue] = []
     metrics = ObservationMetrics()
 
-    if len(sp) != SP_FLOATS:
+    if len(sp) != layout.sp_floats:
         issues.append(
             ValidationIssue(
                 "shape",
                 "SP feature array has unexpected length",
-                {"actual": len(sp), "expected": SP_FLOATS},
+                {"actual": len(sp), "expected": layout.sp_floats, "variant": layout.name},
             )
         )
         return issues, metrics
@@ -523,8 +665,12 @@ def validate_sp_arrays(  # noqa: PLR0915
         ("yaku_progress_map", 36, 70, 0.0, 1.0),
         ("best_markers", 70, 72, 0.0, 1.0),
         ("series", 72, 123, 0.0, 1.0),
+        ("yaku_path_mask", 123, 135, 0.0, 1.0),
+        ("point_progress", 135, 138, 0.0, 1.0),
+        ("future_wait_map", 138, 172, 0.0, 1.0),
+        ("point_target_probability", 172, 178, 0.0, 1.0),
     ):
-        issue = _range_issue(name, sp, start, end, lo, hi)
+        issue = _range_issue(layout, name, sp, start, end, lo, hi)
         if issue is not None:
             issues.append(issue)
 
@@ -532,14 +678,22 @@ def validate_sp_arrays(  # noqa: PLR0915
         ("required_tile_map", 2, 36),
         ("yaku_progress_map", 36, 70),
         ("best_markers", 70, 72),
+        ("yaku_path_mask", 123, 135),
+        ("future_wait_map", 138, 172),
     ):
-        issue = _binary_issue(name, sp, start, end)
+        issue = _binary_issue(layout, name, sp, start, end)
         if issue is not None:
             issues.append(issue)
 
     for channel in (0, 1):
-        base = sp[_idx(channel, 0)]
-        if max(abs(sp[_idx(channel, tile)] - base) for tile in range(TILE_TYPES)) > EPS:
+        base = sp[_idx(layout, channel, 0)]
+        if (
+            max(
+                abs(sp[_idx(layout, channel, column)] - base)
+                for column in range(layout.tile_types)
+            )
+            > EPS
+        ):
             issues.append(
                 ValidationIssue(
                     "broadcast",
@@ -548,9 +702,12 @@ def validate_sp_arrays(  # noqa: PLR0915
                 )
             )
 
-    if float(sp[_idx(1, 0)]) < 1.0 - EPS and float(sp[_idx(0, 0)]) < 1.0 - EPS:
-        ev_from_100k = float(sp[_idx(0, 0)]) * 100_000.0
-        ev_from_30k = float(sp[_idx(1, 0)]) * 30_000.0
+    if (
+        float(sp[_idx(layout, 1, 0)]) < 1.0 - EPS
+        and float(sp[_idx(layout, 0, 0)]) < 1.0 - EPS
+    ):
+        ev_from_100k = float(sp[_idx(layout, 0, 0)]) * 100_000.0
+        ev_from_30k = float(sp[_idx(layout, 1, 0)]) * 30_000.0
         if abs(ev_from_100k - ev_from_30k) > 2.0:
             issues.append(
                 ValidationIssue(
@@ -560,10 +717,10 @@ def validate_sp_arrays(  # noqa: PLR0915
                 )
             )
 
-    candidates = candidate_discard_types(sp)
+    candidates = candidate_discard_types(layout, sp)
     metrics.candidate_count = len(candidates)
-    metrics.best_ev_100k = float(sp[_idx(0, 0)])
-    metrics.best_ev_30k = float(sp[_idx(1, 0)])
+    metrics.best_ev_100k = float(sp[_idx(layout, 0, 0)])
+    metrics.best_ev_30k = float(sp[_idx(layout, 1, 0)])
 
     if legal_discards is not None:
         metrics.legal_discard_count = len(legal_discards)
@@ -582,8 +739,11 @@ def validate_sp_arrays(  # noqa: PLR0915
                     )
                 )
 
-    if float(sp[_idx(0, 0)]) > EPS and candidates:
-        first_turn_max = max(float(sp[_idx(106, tile)]) for tile in range(TILE_TYPES))
+    if float(sp[_idx(layout, 0, 0)]) > EPS and candidates:
+        first_turn_max = max(
+            float(sp[_idx(layout, 106, column)])
+            for column in range(layout.tile_types)
+        )
         if first_turn_max < 1.0 - EPS:
             issues.append(
                 ValidationIssue(
@@ -593,52 +753,81 @@ def validate_sp_arrays(  # noqa: PLR0915
                 )
             )
 
-    marker_count = sum(1 for tile in range(TILE_TYPES) if abs(sp[_idx(70, tile)]) > EPS)
+    marker_count = sum(
+        1
+        for column in range(layout.tile_types)
+        if abs(sp[_idx(layout, 70, column)]) > EPS
+    )
     if marker_count > 1:
         issues.append(
             ValidationIssue("marker", "best required-tile marker is not one-hot", {"count": marker_count})
         )
-    yaku_marker_count = sum(1 for tile in range(TILE_TYPES) if abs(sp[_idx(71, tile)]) > EPS)
+    yaku_marker_count = sum(
+        1
+        for column in range(layout.tile_types)
+        if abs(sp[_idx(layout, 71, column)]) > EPS
+    )
     if yaku_marker_count > 1:
         issues.append(
             ValidationIssue("marker", "best yaku-progress marker is not one-hot", {"count": yaku_marker_count})
         )
 
-    issues.extend(_check_series_monotonic(sp, candidates))
-    issues.extend(_check_win_le_tenpai(sp, candidates))
+    issues.extend(_check_series_monotonic(layout, sp, candidates))
+    issues.extend(_check_win_le_tenpai(layout, sp, candidates))
+    issues.extend(_check_point_progress(layout, sp, candidates))
     issues.extend(
-        _check_best_marker_in_candidates(sp, _candidates_excluding_markers(sp))
+        _check_best_marker_in_candidates(
+            layout, sp, _candidates_excluding_markers(layout, sp)
+        )
     )
 
     if remaining is not None:
-        issues.extend(_check_required_drawability(sp, candidates, remaining))
+        issues.extend(_check_required_drawability(layout, sp, candidates, remaining))
     if hand_counts is not None:
-        issues.extend(_check_shanten_consistency(sp, candidates, hand_counts))
+        issues.extend(_check_shanten_consistency(layout, sp, candidates, hand_counts))
+
+    if drev is not None:
+        if len(drev) != layout.drev_floats:
+            issues.append(
+                ValidationIssue(
+                    "shape",
+                    "DREV feature array has unexpected length",
+                    {"actual": len(drev), "expected": layout.drev_floats},
+                )
+            )
+        elif not all(math.isfinite(value) and -EPS <= value <= 1.0 + EPS for value in drev):
+            issues.append(
+                ValidationIssue(
+                    "drev_range",
+                    "DREV features must be finite values in [0, 1]",
+                    {"min": float(min(drev)), "max": float(max(drev))},
+                )
+            )
 
     if extended is not None and extended_with_sp is not None:
-        if len(extended) != EXTENDED_FLOATS:
+        if len(extended) != layout.extended_floats:
             issues.append(
                 ValidationIssue(
                     "shape",
                     "extended feature array has unexpected length",
-                    {"actual": len(extended), "expected": EXTENDED_FLOATS},
+                    {"actual": len(extended), "expected": layout.extended_floats},
                 )
             )
-        elif len(extended_with_sp) != EXTENDED_WITH_SP_FLOATS:
+        elif len(extended_with_sp) != layout.combined_floats:
             issues.append(
                 ValidationIssue(
                     "shape",
                     "extended_with_sp feature array has unexpected length",
-                    {"actual": len(extended_with_sp), "expected": EXTENDED_WITH_SP_FLOATS},
+                    {"actual": len(extended_with_sp), "expected": layout.combined_floats},
                 )
             )
         else:
-            if not _allclose(extended_with_sp[:EXTENDED_FLOATS], extended):
+            if not _allclose(extended_with_sp[: layout.extended_floats], extended):
                 issues.append(
                     ValidationIssue("extended_prefix", "extended_with_sp prefix differs from encode_extended")
                 )
-            sp_end = EXTENDED_FLOATS + SP_FLOATS
-            if not _allclose(extended_with_sp[EXTENDED_FLOATS:sp_end], sp):
+            sp_end = layout.extended_floats + layout.sp_floats
+            if not _allclose(extended_with_sp[layout.extended_floats:sp_end], sp):
                 issues.append(
                     ValidationIssue(
                         "extended_tail",
@@ -646,26 +835,32 @@ def validate_sp_arrays(  # noqa: PLR0915
                         {"block": "sp"},
                     )
                 )
-            # The trailing DREV block should be a deterministic function of the
-            # observation; we don't validate its shape here (no standalone
-            # encode_drev() comparison) but do check it's finite.
             drev_slice = extended_with_sp[sp_end:]
             if any(not math.isfinite(value) for value in drev_slice):
                 issues.append(ValidationIssue("drev_finite", "extended_with_sp DREV tail contains non-finite values"))
+            if drev is not None and not _allclose(drev_slice, drev):
+                issues.append(
+                    ValidationIssue(
+                        "extended_tail",
+                        "extended_with_sp DREV slice differs from encode_drev",
+                        {"block": "drev"},
+                    )
+                )
 
     return issues, metrics
 
 
 def validate_sp_observation(
-    obs: Observation,
+    obs: Observation | Observation3P,
     *,
     check_extended: bool = True,
 ) -> tuple[list[ValidationIssue], ObservationMetrics]:
+    layout = LAYOUT_3P if isinstance(obs, Observation3P) else LAYOUT_4P
     start = time.perf_counter_ns()
     sp_buf = obs.encode_sp()
     sp_ns = time.perf_counter_ns() - start
 
-    sp, issues = _decode_float32(sp_buf, SP_FLOATS, "encode_sp")
+    sp, issues = _decode_float32(sp_buf, layout.sp_floats, "encode_sp")
     metrics = ObservationMetrics(encode_sp_ns=sp_ns)
     metrics.is_menzen = observation_is_menzen(obs)
     metrics.riichi_assumed = observation_riichi_assumed(obs)
@@ -673,10 +868,17 @@ def validate_sp_observation(
         return issues, metrics
 
     extended = None
+    drev = None
     extended_with_sp = None
     if check_extended:
-        extended, ext_issues = _decode_float32(obs.encode_extended(), EXTENDED_FLOATS, "encode_extended")
+        extended, ext_issues = _decode_float32(
+            obs.encode_extended(), layout.extended_floats, "encode_extended"
+        )
         issues.extend(ext_issues)
+        drev, drev_issues = _decode_float32(
+            obs.encode_drev(), layout.drev_floats, "encode_drev"
+        )
+        issues.extend(drev_issues)
 
         start = time.perf_counter_ns()
         ext_sp_buf = obs.encode_extended_with_sp()
@@ -685,16 +887,18 @@ def validate_sp_observation(
 
         extended_with_sp, ext_sp_issues = _decode_float32(
             ext_sp_buf,
-            EXTENDED_WITH_SP_FLOATS,
+            layout.combined_floats,
             "encode_extended_with_sp",
         )
         issues.extend(ext_sp_issues)
 
-    remaining, hand_counts = _compute_remaining_and_hand(obs)
+    remaining, hand_counts = _compute_remaining_and_hand(obs, layout)
     array_issues, array_metrics = validate_sp_arrays(
+        layout,
         sp,
         legal_discards=legal_discard_types(obs),
         extended=extended,
+        drev=drev,
         extended_with_sp=extended_with_sp,
         hand_counts=hand_counts,
         remaining=remaining,
@@ -775,16 +979,13 @@ def validate_log_file(
             if max_observations > 0 and stats.observations_validated >= max_observations:
                 return validated_any
 
-            if isinstance(obs, Observation3P):
-                stats.observations_skipped_3p += 1
-                continue
-            if not isinstance(obs, Observation):
+            if not isinstance(obs, (Observation, Observation3P)):
                 stats.observations_with_issues += 1
                 stats.issues += 1
                 ctx = ValidationContext(str(path), kyoku_idx, step_idx, int(player))
                 issue = ValidationIssue(
                     "observation_type",
-                    "expected 4-player Observation",
+                    "expected Observation or Observation3P",
                     {"type": type(obs).__name__},
                 )
                 _write_issues(diagnostics, ctx=ctx, issues=[issue], metrics=ObservationMetrics())
@@ -792,7 +993,8 @@ def validate_log_file(
 
             ctx = ValidationContext(str(path), kyoku_idx, step_idx, int(player))
             issues, metrics = validate_sp_observation(obs, check_extended=check_extended)
-            stats.add_metrics(metrics)
+            layout = LAYOUT_3P if isinstance(obs, Observation3P) else LAYOUT_4P
+            stats.add_metrics(metrics, layout)
             validated_any = True
 
             if issues:
@@ -810,8 +1012,8 @@ def main() -> None:
     parser.add_argument(
         "paths",
         nargs="*",
-        default=["data-mjsoul-4p-2026-01"],
-        help="MJAI log files or directories. Default: data-mjsoul-4p-2026-01",
+        default=["data-mjsoul-4p-2026-01", "data-mjsoul-3p-2026-01"],
+        help="MJAI log files or directories. Default: bundled 4P and 3P MjSoul corpus paths",
     )
     parser.add_argument("--rule", default="mjsoul", choices=["tenhou", "mjsoul"], help="Replay rule")
     parser.add_argument("--glob", action="append", default=[], help="Recursive glob pattern. Can be repeated")

@@ -5,7 +5,18 @@ import sys
 
 import pytest
 
-from riichienv import Action, Action3P, ActionType, BatchGameEngine, GameEngine, Observation3P
+from riichienv import (
+    ACTION_SPACE_3P_V0,
+    ACTION_SPACE_3P_V1,
+    ACTION_SPACE_4P_V0,
+    ACTION_SPACE_4P_V1,
+    Action,
+    Action3P,
+    ActionType,
+    BatchGameEngine,
+    GameEngine,
+    Observation3P,
+)
 
 
 def test_game_engine_has_strict_modes_and_structured_step_outcomes():
@@ -132,3 +143,30 @@ def test_missing_pending_action_is_rejected_without_implicit_pass():
     assert outcome["error"]["kind"] == "state"
     assert "missing action" in outcome["error"]["message"]
     assert engine.snapshot == before
+
+
+def test_red_aware_v1_action_ids_preserve_the_legacy_contract():
+    red = Action(ActionType.DISCARD, tile=16)
+    normal = Action(ActionType.DISCARD, tile=17)
+
+    assert red.encode() == normal.encode()
+    assert red.encode_v1() == normal.encode_v1() + 1
+    assert (ACTION_SPACE_4P_V0, ACTION_SPACE_4P_V1) == (82, 164)
+    assert (ACTION_SPACE_3P_V0, ACTION_SPACE_3P_V1) == (60, 120)
+
+
+@pytest.mark.parametrize(
+    ("game_mode", "v0_size", "v1_size"),
+    [("4p-red-single", 82, 164), ("3p-red-single", 60, 120)],
+)
+def test_observation_exposes_versioned_action_masks(game_mode, v0_size, v1_size):
+    observation = next(iter(GameEngine(game_mode, seed=42).decisions().values()))
+
+    assert observation.action_space_size == v0_size
+    assert observation.action_space_size_v1 == v1_size
+    assert len(observation.mask()) == v0_size
+    assert len(observation.mask_v1()) == v1_size
+    for action in observation.legal_actions():
+        action_id = action.encode_v1()
+        assert observation.mask_v1()[action_id] == 1
+        assert observation.find_action_v1(action_id) is not None

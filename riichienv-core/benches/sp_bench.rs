@@ -27,6 +27,7 @@ fn input_from_tiles(tile_types: &[u8], tsumos_left: u8) -> SpInput {
         can_double_riichi: false,
         tsumos_left,
         discard_candidates: vec![],
+        kita_count: 0,
     }
 }
 

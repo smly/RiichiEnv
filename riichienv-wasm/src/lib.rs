@@ -45,6 +45,8 @@ export interface EngineDecision {
     readonly playerId: number;
     readonly legalActionIds: readonly number[];
     readonly actionMask: readonly number[];
+    readonly legalActionIdsV1: readonly number[];
+    readonly actionMaskV1: readonly number[];
     readonly observationBase64: string;
     readonly baseShape: readonly [number, number];
     readonly extendedShape: readonly [number, number];
@@ -264,6 +266,8 @@ struct DecisionJs {
     player_id: u8,
     legal_action_ids: Vec<usize>,
     action_mask: Vec<u8>,
+    legal_action_ids_v1: Vec<usize>,
+    action_mask_v1: Vec<u8>,
     observation_base64: String,
     base_shape: [usize; 2],
     extended_shape: [usize; 2],
@@ -287,6 +291,12 @@ impl DecisionJs {
                 .map_err(|error| error.to_string())?,
             action_mask: observation
                 .action_mask()
+                .map_err(|error| error.to_string())?,
+            legal_action_ids_v1: observation
+                .legal_action_ids_v1()
+                .map_err(|error| error.to_string())?,
+            action_mask_v1: observation
+                .action_mask_v1()
                 .map_err(|error| error.to_string())?,
             observation_base64: observation
                 .serialize_to_base64()
@@ -521,6 +531,24 @@ impl WasmGameEngine {
             .map_err(journal_error)
     }
 
+    /// Dense red-aware v1 action mask for one pending player as a
+    /// `Uint8Array` (164 entries for 4P, 120 for 3P).
+    #[wasm_bindgen(js_name = actionMaskV1)]
+    pub fn action_mask_v1(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "number")] player_id: JsValue,
+    ) -> Result<Vec<u8>, JsValue> {
+        let player_id = parse_js_u8(&player_id, "playerId").map_err(journal_error)?;
+        self.pending_decision(player_id)
+            .and_then(|decision| {
+                decision
+                    .observation
+                    .action_mask_v1()
+                    .map_err(|error| error.to_string())
+            })
+            .map_err(journal_error)
+    }
+
     /// Step all pending players by action ID.
     #[wasm_bindgen(js_name = stepActionIds, unchecked_return_type = "StepActionIdsResult")]
     pub fn step_action_ids(
@@ -529,7 +557,19 @@ impl WasmGameEngine {
     ) -> Result<JsValue, JsValue> {
         let inputs: Vec<ActionIdInput> = serde_wasm_bindgen::from_value(actions)
             .map_err(|error| JsValue::from_str(&format!("Invalid action ID batch: {error}")))?;
-        let outcome = self.step_inputs(inputs).map_err(journal_error)?;
+        let outcome = self.step_inputs(inputs, false).map_err(journal_error)?;
+        to_js_value(&outcome)
+    }
+
+    /// Step all pending players using the red-aware v1 action IDs.
+    #[wasm_bindgen(js_name = stepActionIdsV1, unchecked_return_type = "StepActionIdsResult")]
+    pub fn step_action_ids_v1(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "readonly ActionIdInput[]")] actions: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let inputs: Vec<ActionIdInput> = serde_wasm_bindgen::from_value(actions)
+            .map_err(|error| JsValue::from_str(&format!("Invalid action ID batch: {error}")))?;
+        let outcome = self.step_inputs(inputs, true).map_err(journal_error)?;
         to_js_value(&outcome)
     }
 
@@ -572,7 +612,11 @@ impl WasmGameEngine {
         Ok(Self { inner, pending })
     }
 
-    fn step_inputs(&mut self, inputs: Vec<ActionIdInput>) -> Result<StepActionIdsResultJs, String> {
+    fn step_inputs(
+        &mut self,
+        inputs: Vec<ActionIdInput>,
+        red_aware_v1: bool,
+    ) -> Result<StepActionIdsResultJs, String> {
         let mut seen = HashSet::with_capacity(inputs.len());
         let pending_by_player: HashMap<u8, &Decision> = self
             .pending
@@ -616,7 +660,12 @@ impl WasmGameEngine {
                     Some(input.player_id),
                 ));
             };
-            let action = match decision.observation.select_action(input.action_id) {
+            let selected = if red_aware_v1 {
+                decision.observation.select_action_v1(input.action_id)
+            } else {
+                decision.observation.select_action(input.action_id)
+            };
+            let action = match selected {
                 Ok(action) => action,
                 Err(error) => {
                     return self.validation_outcome(EngineErrorJs::invalid_action_batch(
@@ -1186,6 +1235,7 @@ mod tests {
         assert_eq!(decisions[0].base_shape, [74, 34]);
         assert_eq!(decisions[0].extended_shape, [215, 34]);
         assert_eq!(decisions[0].action_mask.len(), 82);
+        assert_eq!(decisions[0].action_mask_v1.len(), 164);
         assert!(!decisions[0].observation_base64.is_empty());
 
         let player_id = decisions[0].player_id;
@@ -1211,10 +1261,13 @@ mod tests {
         );
 
         let outcome = engine
-            .step_inputs(vec![ActionIdInput {
-                player_id,
-                action_id: decisions[0].legal_action_ids[0],
-            }])
+            .step_inputs(
+                vec![ActionIdInput {
+                    player_id,
+                    action_id: decisions[0].legal_action_ids[0],
+                }],
+                false,
+            )
             .unwrap();
 
         assert!(outcome.error.is_none());
@@ -1235,6 +1288,7 @@ mod tests {
         assert_eq!(decisions[0].drev_shape, [9, 27]);
         assert_eq!(decisions[0].extended_with_sp_shape, [402, 27]);
         assert_eq!(decisions[0].action_mask.len(), 60);
+        assert_eq!(decisions[0].action_mask_v1.len(), 120);
 
         let player_id = decisions[0].player_id;
         assert_eq!(
@@ -1286,10 +1340,13 @@ mod tests {
         let before = GameSnapshotJs::from(&engine.inner.snapshot());
 
         let outcome = engine
-            .step_inputs(vec![ActionIdInput {
-                player_id,
-                action_id: usize::MAX,
-            }])
+            .step_inputs(
+                vec![ActionIdInput {
+                    player_id,
+                    action_id: usize::MAX,
+                }],
+                false,
+            )
             .unwrap();
 
         assert_eq!(outcome.error.as_ref().unwrap().kind, "invalidActionBatch");

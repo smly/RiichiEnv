@@ -249,7 +249,7 @@ impl GameState {
             is_tenpai,
             self.riichi_sutehais,
             self.last_tedashis,
-            self.last_discard.map(|(tile, _pid)| tile as u32),
+            self.last_discard.map(|(_pid, tile)| tile as u32),
             if player_id == self.current_player {
                 self.drawn_tile
             } else {

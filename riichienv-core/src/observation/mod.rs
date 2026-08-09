@@ -11,7 +11,7 @@ pub(crate) mod sequence_features;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 
-use crate::action::{Action, ActionEncoder, ActionType};
+use crate::action::{Action, ActionEncoder, ActionEncoderV1, ActionType};
 use crate::errors::{RiichiError, RiichiResult};
 use crate::types::{Meld, MeldType, TILES_4P};
 
@@ -292,6 +292,19 @@ impl Observation {
             }
         }
         fallback.cloned()
+    }
+
+    /// Resolve a red-aware v1 action ID without collapsing red and normal
+    /// five choices. The legacy [`Self::find_action`] remains unchanged.
+    pub fn find_action_v1(&self, action_id: usize) -> Option<Action> {
+        self._legal_actions
+            .iter()
+            .find(|action| {
+                ActionEncoderV1::FourPlayer
+                    .encode(action)
+                    .is_ok_and(|encoded| encoded >= 0 && encoded as usize == action_id)
+            })
+            .cloned()
     }
 
     /// Return absolute player indices in relative order: [self, shimocha, toimen, kamicha].

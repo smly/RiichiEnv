@@ -69,9 +69,7 @@ def test_mjai_replay_loads_from_text_or_events_without_a_temporary_file(sample_m
 
     assert from_text.num_rounds() == 1
     assert from_events.num_rounds() == 1
-    assert list(from_text.take_kyokus())[0].grp_features() == list(from_events.take_kyokus())[
-        0
-    ].grp_features()
+    assert list(from_text.take_kyokus())[0].grp_features() == list(from_events.take_kyokus())[0].grp_features()
 
 
 def test_mjai_replay_jsonl_gzip(tmp_path, sample_mjai_data):

@@ -7,9 +7,13 @@ mod python;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 
-use crate::action::{Action, Action3P, ActionType};
+use crate::action::{Action, Action3P, ActionEncoderV1, ActionType};
 use crate::errors::{RiichiError, RiichiResult};
 use crate::types::{Meld, MeldType, TILES_4P, is_sanma_excluded_tile};
+
+fn no_kita(counts: &[u8; 3]) -> bool {
+    *counts == [0; 3]
+}
 
 #[cfg_attr(
     feature = "python",
@@ -24,6 +28,10 @@ pub struct Observation3P {
     pub dora_indicators: Vec<u32>,
     pub scores: [i32; 3],
     pub riichi_declared: [bool; 3],
+    /// Public North tiles set aside by each player. Added additively to the
+    /// observation wire; older v0 payloads decode as all-zero.
+    #[serde(default, skip_serializing_if = "no_kita")]
+    pub kita_counts: [u8; 3],
 
     pub(crate) _legal_actions: Vec<Action3P>,
 
@@ -81,6 +89,7 @@ impl Observation3P {
             dora_indicators: dora_u32,
             scores,
             riichi_declared,
+            kita_counts: [0; 3],
             _legal_actions: legal_actions
                 .into_iter()
                 .map(Action3P::from_action)
@@ -134,6 +143,17 @@ impl Observation3P {
             return Err(invalid_observation(format!(
                 "round_wind {} is out of range; expected 0..=3",
                 self.round_wind
+            )));
+        }
+        let total_kita = self
+            .kita_counts
+            .iter()
+            .copied()
+            .try_fold(0u8, u8::checked_add)
+            .ok_or_else(|| invalid_observation("kita_counts overflow".to_string()))?;
+        if total_kita > 4 {
+            return Err(invalid_observation(format!(
+                "kita_counts contain {total_kita} North tiles; expected at most 4"
             )));
         }
         let player = self.player_id as usize;
@@ -277,6 +297,19 @@ impl Observation3P {
             }
         }
         fallback.cloned()
+    }
+
+    /// Resolve a red-aware v1 action ID without collapsing red and normal
+    /// five choices. The legacy [`Self::find_action`] remains unchanged.
+    pub fn find_action_v1(&self, action_id: usize) -> Option<Action3P> {
+        self._legal_actions
+            .iter()
+            .find(|action| {
+                ActionEncoderV1::ThreePlayer
+                    .encode(&action.0)
+                    .is_ok_and(|encoded| encoded >= 0 && encoded as usize == action_id)
+            })
+            .cloned()
     }
 
     /// Return absolute player indices in relative order: [self, next, prev].

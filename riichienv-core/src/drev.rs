@@ -18,6 +18,10 @@
 //! Future steps will add reach-state weighting, per-opponent breakdowns,
 //! and SP-derived deal-in EV.
 
+// DREV channels are defined by fixed tile/seat indices. Indexed loops make
+// the feature-plane mapping explicit and avoid accidental zip truncation.
+#![allow(clippy::needless_range_loop)]
+
 use crate::feature_context::{FeatureContext, FeatureContext3P};
 use crate::observation::Observation;
 use crate::observation_3p::Observation3P;
@@ -121,17 +125,11 @@ impl DrevInput {
         let mut opp_reach = [false; 3];
         let mut opp_open_melds = [0u8; 3];
         let mut opp_discard_count = [0u8; 3];
-        let mut n_active_opponents = 0u8;
         for slot in 0..3usize {
             let opp_idx = ((obs.player_id as usize) + slot + 1) % 4;
             if opp_idx == player_idx {
                 continue;
             }
-            let has_activity = !obs.hands[opp_idx].is_empty() || !obs.discards[opp_idx].is_empty();
-            if !has_activity {
-                continue;
-            }
-            n_active_opponents += 1;
             let mut mask = 0u64;
             for &tile in &obs.discards[opp_idx] {
                 let tile_type = (tile / 4) as usize;
@@ -151,7 +149,10 @@ impl DrevInput {
 
         Self {
             opp_safe_mask,
-            n_active_opponents,
+            // All three opponents remain part of safety normalization even
+            // before they have discarded. Omitting quiet seats turns one
+            // opponent's genbutsu into 1.0 instead of the correct 1/3.
+            n_active_opponents: 3,
             tiles_seen: *context.all_observed_counts_capped(),
             opp_reach,
             opp_open_melds,
@@ -464,6 +465,7 @@ fn suji_norm(input: &DrevInput) -> [f32; TILE_MAX] {
 ///     pair is trivially "blocked" (can't form ryanmen at all).
 ///   - Low pair (num-2, num-1) — needs `num >= 2`. If absent, the low pair
 ///     is trivially "blocked".
+///
 /// A pair is "blocked" if either partner has `tiles_seen >= 4`.
 /// Tile T is no-chance iff *both* pairs are blocked.
 fn kabe_nochance(input: &DrevInput) -> [f32; TILE_MAX] {
@@ -874,7 +876,7 @@ mod tests {
         //   blocker hit fraction for slot 0 = 1/1, averaged over 2 active = 0.5
         assert!((buf[TILE_MAX + 2] - 0.5).abs() < 1e-6, "suji ch 1 for 3m");
         // ch 2 (kabe): tile 0 (1m) is no-chance because 2m exhausted.
-        assert_eq!(buf[2 * TILE_MAX + 0], 1.0, "kabe ch 2 for 1m");
+        assert_eq!(buf[2 * TILE_MAX], 1.0, "kabe ch 2 for 1m");
         // ch 3 (reach_genbutsu): only shimocha is in reach; she discarded
         // tile 5. reach_genbutsu_norm[5] = 1/1 = 1.0.
         assert!(
@@ -900,7 +902,7 @@ mod tests {
         // ch 8 (threat): tile 5 is genbutsu vs slot 0 → safety = 1 → 0.
         assert_eq!(buf[8 * TILE_MAX + 5], 0.0, "threat ch 8 tile 5 (genbutsu)");
         // tile 0 (1m): kabe = 1 → safety = 1 → 0.
-        assert_eq!(buf[8 * TILE_MAX + 0], 0.0, "threat ch 8 tile 0 (kabe)");
+        assert_eq!(buf[8 * TILE_MAX], 0.0, "threat ch 8 tile 0 (kabe)");
         // tile 8 (9m): kabe? num=8, high pair (9,10) doesn't exist → blocked.
         // low pair (7,8) = tiles 6,7. Neither exhausted → not blocked.
         // So kabe[8] = 0. tile 8 in slot 0's mask? Only bit 5 is set → no.

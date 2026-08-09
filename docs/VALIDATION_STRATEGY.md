@@ -132,7 +132,7 @@ Optimization order is:
 ## Foundation currently present
 
 - pure Rust base/extended/SP/DREV Observation entry points;
-- v0 `FeatureSpec` constants and caller-buffer batch writers;
+- explicit v0/v1 `FeatureSpec` constants and caller-buffer batch writers;
 - typed `GameEngine`/`BatchGameEngine` facade;
 - pure append-only `EventJournal` and schema-v1 cursor envelope;
 - synthetic journal censorship/property tests;
@@ -171,6 +171,24 @@ Optimization order is:
 - differential SP yaku/fu checks against `HandEvaluator` over the committed
   winning-hand corpus, explicit kan/open-hand fallback checks, and exact
   without-replacement probability oracles for tenpai and one-shanten paths.
+
+## Latest replay-corpus feature validation
+
+On 2026-08-09, `scripts/validate_sp_features.py` was run against both local
+MjSoul corpora after rebuilding the Python extension. The validator checks the
+compact/canonical tile mapping, all SP shape/yaku/point ranges, binary planes,
+probability monotonicity, `win <= tenpai`, shanten lower bounds, drawable waits,
+min/mean/max and point-threshold ordering, DREV range, and exact standalone vs
+combined block equality.
+
+| Variant | Files | Sampled observations | Issues |
+|---|---:|---:|---:|
+| 4P | 17 | 500 | 0 |
+| 3P | 25 | 474 | 0 |
+
+Commands used `--sample-every 20`, `--max-files 25`, and
+`--max-observations 500` for each corpus. This is a broad semantic sample, not
+a replacement for full-corpus validation before a release.
 
 The next rule-heavy priorities are pao payment settlement for ron/tsumo and
 honba/kyotaku combinations, exhaustive-draw tenpai/noten payments and dealer

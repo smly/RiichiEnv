@@ -134,6 +134,22 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
             + riichienv_core::drev::DREV_CHANNELS,
     )?;
     m.add("TILE_TYPES_3P", 27u32)?;
+    m.add(
+        "ACTION_SPACE_4P_V0",
+        riichienv_core::action::ACTION_SPACE_4P,
+    )?;
+    m.add(
+        "ACTION_SPACE_3P_V0",
+        riichienv_core::action::ACTION_SPACE_3P,
+    )?;
+    m.add(
+        "ACTION_SPACE_4P_V1",
+        riichienv_core::action::ACTION_SPACE_4P_V1,
+    )?;
+    m.add(
+        "ACTION_SPACE_3P_V1",
+        riichienv_core::action::ACTION_SPACE_3P_V1,
+    )?;
 
     Ok(())
 }

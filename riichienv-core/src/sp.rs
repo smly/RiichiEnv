@@ -1,3 +1,8 @@
+// SP is a dense dynamic program over fixed tile, turn and channel indices.
+// Explicit indices document the mathematical dimensions and benchmark better
+// than iterator/zipping variants in this hot path.
+#![allow(clippy::needless_range_loop)]
+
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
@@ -61,6 +66,10 @@ pub struct SpInput {
     pub can_double_riichi: bool,
     pub tsumos_left: u8,
     pub discard_candidates: Vec<u8>,
+    /// Number of public North tiles set aside by this player in sanma.
+    /// Always zero for four-player inputs.
+    #[serde(default)]
+    pub kita_count: u8,
 }
 
 /// Sanma SP input. The calculation retains the canonical 34-tile indexing
@@ -84,6 +93,8 @@ pub struct SpInput3P {
     pub can_double_riichi: bool,
     pub tsumos_left: u8,
     pub discard_candidates: Vec<u8>,
+    #[serde(default)]
+    pub kita_count: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,6 +252,7 @@ impl SpInput {
             can_double_riichi,
             tsumos_left: remaining_self_draws(obs),
             discard_candidates: context.discard_candidates().to_vec(),
+            kita_count: 0,
         }
     }
 }
@@ -274,6 +286,7 @@ impl SpInput3P {
             can_double_riichi,
             tsumos_left: remaining_self_draws_3p(obs),
             discard_candidates: context.discard_candidates().to_vec(),
+            kita_count: obs.kita_counts[player_idx],
         }
     }
 
@@ -292,6 +305,7 @@ impl SpInput3P {
             can_double_riichi: self.can_double_riichi,
             tsumos_left: self.tsumos_left,
             discard_candidates: self.discard_candidates.clone(),
+            kita_count: self.kita_count,
         }
     }
 }
@@ -780,6 +794,7 @@ fn shanten_of_counts_for_variant(counts: &[u8; TILE_MAX], variant: SpVariant) ->
 /// re-hashing only the affected suit/honor slice. `next` already reflects the
 /// perturbation. `len_div3` corresponds to `next` (= sum/3 of post-add counts).
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn shanten_after_add_incremental(
     next: &[u8; TILE_MAX],
     tile: usize,
@@ -934,7 +949,7 @@ fn fused_tenpai_pass(
             .input
             .melds
             .iter()
-            .any(|m| m.tiles.iter().any(|&t| matches!(t / 4, 31 | 32 | 33)));
+            .any(|m| m.tiles.iter().any(|&t| matches!(t / 4, 31..=33)));
     let yakuhai_round_pre = (27..=30).contains(&bakaze_yh)
         && (counts[bakaze_yh as usize] >= 3
             || dp
@@ -1101,7 +1116,7 @@ fn fused_tenpai_pass(
 
         // Per-wait yakuhai-completion: wait IS a yakuhai tile, and counts
         // already had 2 of it (so it completes the kotsu).
-        let waits_complete_dragon = matches!(tile_u, 31 | 32 | 33) && counts[tile] == 2;
+        let waits_complete_dragon = matches!(tile_u, 31..=33) && counts[tile] == 2;
         let waits_complete_round =
             (27..=30).contains(&bakaze_yh) && tile_u == bakaze_yh && counts[tile] == 2;
         let waits_complete_seat =
@@ -1808,7 +1823,7 @@ fn has_yaku_tenpai_after_best_discard(
 
         // Derive full13's structural flags from full14 by removing 1 of tile_X.
         let tile_x_yaocchi = if tile_x < 27 {
-            tile_x % 9 == 0 || tile_x % 9 == 8
+            tile_x.is_multiple_of(9) || tile_x % 9 == 8
         } else {
             true
         };
@@ -2014,6 +2029,7 @@ fn probability_series(
     (tenpai, win)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn series_for_candidate(
     dp: &mut DpContext<'_>,
     counts: &[u8; TILE_MAX],
@@ -2248,7 +2264,7 @@ struct DpContext<'a> {
 
 impl<'a> DpContext<'a> {
     fn new(input: &'a SpInput, variant: SpVariant) -> Self {
-        let horizon = (input.tsumos_left as usize).min(SP_MAX_TURNS).max(1);
+        let horizon = (input.tsumos_left as usize).clamp(1, SP_MAX_TURNS);
         let remaining = remaining_counts_for_variant(input, variant);
         let n_left_tiles = remaining.iter().map(|&v| v as u32).sum::<u32>();
         let tsumo_prob = build_tsumo_prob_table(n_left_tiles, horizon);
@@ -2492,7 +2508,7 @@ impl<'a> DpContext<'a> {
         self.ensure_prob_tables(n_left, horizon);
 
         let s = self.shanten(counts);
-        if s < 0 || s > SHANTEN_THRES {
+        if !(0..=SHANTEN_THRES).contains(&s) {
             return (tenpai, win, ev);
         }
 
@@ -3543,6 +3559,11 @@ fn base_score_tsumo(
         riichi: assume_riichi,
         player_wind: wind_from_tile(input.jikaze),
         round_wind: wind_from_tile(input.bakaze),
+        kita_count: if variant == SpVariant::ThreePlayer {
+            input.kita_count
+        } else {
+            0
+        },
         ..Conditions::default()
     };
     let win_tile_136 = tile_type_to_136(win_tile, win_is_aka);
@@ -3671,6 +3692,11 @@ fn exact_score_tsumo(
         haitei: mods.haitei,
         player_wind: wind_from_tile(input.jikaze),
         round_wind: wind_from_tile(input.bakaze),
+        kita_count: if variant == SpVariant::ThreePlayer {
+            input.kita_count
+        } else {
+            0
+        },
         ..Conditions::default()
     };
     let result = match variant {
@@ -3969,6 +3995,7 @@ mod tests {
             can_double_riichi: false,
             tsumos_left,
             discard_candidates: vec![],
+            kita_count: 0,
         }
     }
 
@@ -4013,6 +4040,7 @@ mod tests {
             can_double_riichi: common.can_double_riichi,
             tsumos_left: common.tsumos_left,
             discard_candidates: common.discard_candidates,
+            kita_count: 0,
         };
 
         let result = calculate_sp_3p(&input);
@@ -4054,6 +4082,7 @@ mod tests {
             can_double_riichi: common.can_double_riichi,
             tsumos_left: common.tsumos_left,
             discard_candidates: vec![27],
+            kita_count: 0,
         };
         let result = calculate_sp_3p(&input);
         let candidate = result
@@ -4087,6 +4116,49 @@ mod tests {
         assert_eq!(candidate.min_point, expected);
         assert_eq!(candidate.mean_point, expected);
         assert_eq!(candidate.max_point, expected);
+    }
+
+    #[test]
+    fn sanma_sp_score_includes_nukidora() {
+        // 123p 456p 456s 789s + East pair. Discard one East and wait on
+        // East; South/West winds keep the baseline below a limit hand so one
+        // nukidora has a visible point effect.
+        let mut common =
+            input_from_tiles(&[9, 10, 11, 12, 13, 14, 21, 22, 23, 24, 25, 26, 27, 27], 1);
+        common.bakaze = 28;
+        common.jikaze = 29;
+        let base = SpInput3P {
+            tehai: common.tehai,
+            akas_in_hand: common.akas_in_hand,
+            tiles_seen: common.tiles_seen,
+            akas_seen: common.akas_seen,
+            dora_indicators: common.dora_indicators,
+            melds: common.melds,
+            bakaze: common.bakaze,
+            jikaze: common.jikaze,
+            is_menzen: common.is_menzen,
+            can_riichi: common.can_riichi,
+            can_double_riichi: common.can_double_riichi,
+            tsumos_left: common.tsumos_left,
+            discard_candidates: vec![27],
+            kita_count: 0,
+        };
+        let without_kita = calculate_sp_3p(&base)
+            .candidates
+            .into_iter()
+            .find(|candidate| candidate.tile == 27)
+            .unwrap();
+        let mut with_kita_input = base;
+        with_kita_input.kita_count = 1;
+        let with_kita = calculate_sp_3p(&with_kita_input)
+            .candidates
+            .into_iter()
+            .find(|candidate| candidate.tile == 27)
+            .unwrap();
+
+        assert!(with_kita.min_point > without_kita.min_point);
+        assert!(with_kita.mean_point > without_kita.mean_point);
+        assert!(with_kita.max_point > without_kita.max_point);
     }
 
     #[test]

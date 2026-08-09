@@ -3,7 +3,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
-use crate::action::{Action, Action3P, ActionEncoder, ActionType};
+use crate::action::{Action, Action3P, ActionEncoder, ActionEncoderV1, ActionType};
 use crate::shanten;
 use crate::types::{Meld, MeldType};
 use crate::yaku_checker;
@@ -27,7 +27,7 @@ fn exact_array<T, const N: usize>(values: Vec<T>, name: &str) -> PyResult<[T; N]
 impl Observation3P {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (player_id, hands, melds, discards, dora_indicators, scores, riichi_declared, legal_actions, events, honba, riichi_sticks, round_wind, oya, kyoku_index, waits, is_tenpai, riichi_sutehais, last_tedashis, last_discard, drawn_tile=None))]
+    #[pyo3(signature = (player_id, hands, melds, discards, dora_indicators, scores, riichi_declared, legal_actions, events, honba, riichi_sticks, round_wind, oya, kyoku_index, waits, is_tenpai, riichi_sutehais, last_tedashis, last_discard, drawn_tile=None, kita_counts=None))]
     pub fn py_new(
         player_id: u8,
         hands: Vec<Vec<u8>>,
@@ -49,6 +49,7 @@ impl Observation3P {
         last_tedashis: Vec<Option<u8>>,
         last_discard: Option<u32>,
         drawn_tile: Option<u8>,
+        kita_counts: Option<Vec<u8>>,
     ) -> PyResult<Self> {
         let hands = exact_array(hands, "hands")?;
         let melds = exact_array(melds, "melds")?;
@@ -57,7 +58,7 @@ impl Observation3P {
         let riichi_declared = exact_array(riichi_declared, "riichi_declared")?;
         let riichi_sutehais = exact_array(riichi_sutehais, "riichi_sutehais")?;
         let last_tedashis = exact_array(last_tedashis, "last_tedashis")?;
-        let observation = Self::new(
+        let mut observation = Self::new(
             player_id,
             hands,
             melds,
@@ -79,6 +80,9 @@ impl Observation3P {
             last_discard,
             drawn_tile,
         );
+        if let Some(kita_counts) = kita_counts {
+            observation.kita_counts = exact_array(kita_counts, "kita_counts")?;
+        }
         observation
             .validate_action_selection_compat()
             .map_err(PyErr::from)?;
@@ -121,14 +125,43 @@ impl Observation3P {
         Ok(pyo3::types::PyBytes::new(py, &mask))
     }
 
+    /// Red-aware v1 action mask (120 entries).
+    #[pyo3(name = "mask_v1")]
+    pub fn mask_v1_method<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let encoder = ActionEncoderV1::ThreePlayer;
+        let mut mask = vec![0u8; encoder.action_space_size()];
+        for action in &self._legal_actions {
+            if let Ok(idx) = encoder.encode(&action.0)
+                && idx >= 0
+                && (idx as usize) < mask.len()
+            {
+                mask[idx as usize] = 1;
+            }
+        }
+        Ok(pyo3::types::PyBytes::new(py, &mask))
+    }
+
     #[getter]
     pub fn action_space_size(&self) -> usize {
         ActionEncoder::ThreePlayer.action_space_size()
     }
 
+    #[getter]
+    pub fn action_space_size_v1(&self) -> usize {
+        ActionEncoderV1::ThreePlayer.action_space_size()
+    }
+
     #[pyo3(name = "find_action", signature = (action_id))]
     pub fn find_action_py(&self, action_id: usize) -> Option<Action3P> {
         self.find_action(action_id)
+    }
+
+    #[pyo3(name = "find_action_v1", signature = (action_id))]
+    pub fn find_action_v1_py(&self, action_id: usize) -> Option<Action3P> {
+        self.find_action_v1(action_id)
     }
 
     #[pyo3(signature = (mjai_data))]
@@ -173,6 +206,7 @@ impl Observation3P {
         dict.set_item("dora_indicators", self.dora_indicators.clone())?;
         dict.set_item("scores", self.scores)?;
         dict.set_item("riichi_declared", self.riichi_declared)?;
+        dict.set_item("kita_counts", self.kita_counts)?;
 
         let actions_py = pyo3::types::PyList::empty(py);
         for a in &self._legal_actions {
