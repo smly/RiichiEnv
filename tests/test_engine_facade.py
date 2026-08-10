@@ -15,6 +15,7 @@ from riichienv import (
     ActionType,
     BatchGameEngine,
     GameEngine,
+    GameRule,
     Observation3P,
 )
 
@@ -60,6 +61,12 @@ def test_game_engine_dispatches_three_player_observations():
     assert isinstance(observation, Observation3P)
     assert engine.num_players == 3
     assert engine.mjai_log == []
+
+
+def test_nagashi_mangan_transition_rule_is_exposed_to_python():
+    assert GameRule.default_tenhou().nagashi_mangan_is_win is False
+    assert GameRule.default_mjsoul().nagashi_mangan_is_win is False
+    assert GameRule(nagashi_mangan_is_win=True).nagashi_mangan_is_win is True
 
 
 def test_batch_game_engine_flattens_decisions_and_steps_all_environments():

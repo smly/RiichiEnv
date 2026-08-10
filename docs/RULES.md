@@ -61,6 +61,15 @@ Controls whether specific Yakuman pattern variants are treated as Double Yakuman
 |------|-------------|
 | `.sanchaho_is_draw` | Whether triple ron (三家和, all non-discarders declaring Ron simultaneously) causes an abortive draw. When enabled (Tenhou), no scoring occurs and the round ends as a draw with renchan. When disabled (Mahjong Soul), all three Ron declarations are processed normally. |
 
+## Nagashi Mangan
+
+Nagashi mangan always replaces the ordinary tenpai/noten payments with mangan
+payments. The configurable difference is how the following round is selected:
+
+| Flag | Description |
+|------|-------------|
+| `.nagashi_mangan_is_win` | When `True`, treat nagashi mangan as a win: a dealer winner continues, a non-dealer winner advances the dealer and resets honba. When `False`, treat it as an exhaustive-draw settlement: dealer continuation follows the dealer's tenpai state and honba always increases. Tenhou and Mahjong Soul use `False`; `True` supports Sega MJ-style rules. |
+
 ## Kan Dora Reveal Timing
 
 The timing of kan dora revelation is fixed and defines an invariant event order in the mjai event stream. The behavior differs between closed kan (ankan) and open kan (daiminkan/kakan):
@@ -90,5 +99,6 @@ Differences in standard ranked match rules across major platforms.
 | `.is_daisuushii_double` | `False` | `True` |
 | `.yakuman_pao_is_liability_only` | `False` | `True` |
 | `.sanchaho_is_draw` | `True` | `False` |
+| `.nagashi_mangan_is_win` | `False` | `False` |
 
 The same presets apply to both 4-player and 3-player (sanma) games. The number of players is determined automatically from the game mode or replay data.

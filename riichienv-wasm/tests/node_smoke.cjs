@@ -130,3 +130,45 @@ assert.equal(sanmaCombined.length, 402 * 27);
 assert.equal(sanmaDecision.actionMask.length, 60);
 assert.equal(sanmaDecision.actionMaskV1.length, 120);
 sanma.free();
+
+function runFullEastGame(mode, seed, numPlayers) {
+    const full = new wasm.GameEngine(mode, seed, true);
+    const winId = numPlayers === 4 ? 79 : 56;
+    const passId = numPlayers === 4 ? 81 : 58;
+    const discardLimit = numPlayers === 4 ? 34 : 27;
+    let pending = full.decisions();
+    let steps = 0;
+
+    while (!full.snapshot().done) {
+        steps += 1;
+        assert.ok(steps < 20000, `${mode} exceeded the full-game step cap`);
+        const inputs = pending.map((decision) => {
+            const ids = decision.legalActionIds;
+            let actionId;
+            if (ids.includes(winId)) {
+                actionId = winId;
+            } else if (ids.includes(passId)) {
+                actionId = passId;
+            } else {
+                actionId = ids.find((id) => id < discardLimit) ?? ids[0];
+            }
+            return { playerId: decision.playerId, actionId };
+        });
+        const outcome = full.stepActionIds(inputs);
+        assert.equal(outcome.error, null);
+        pending = outcome.nextDecisions;
+    }
+
+    assert.deepEqual(pending, []);
+    const log = full.mjaiLog();
+    assert.equal(JSON.parse(log.at(-1)).type, 'end_game');
+    const journal = full.eventJournal();
+    assert.equal(journal.complete, true);
+    assert.equal(journal.revision, log.length);
+    assert.ok(journal.completedKyokuSpans().length >= numPlayers);
+    journal.free();
+    full.free();
+}
+
+runFullEastGame('4p-red-east', 0x4e01, 4);
+runFullEastGame('3p-red-east', 0x3e01, 3);

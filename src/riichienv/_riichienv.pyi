@@ -29,6 +29,7 @@ class GameRule:
     is_daisuushii_double: bool
     yakuman_pao_is_liability_only: bool
     sanchaho_is_draw: bool
+    nagashi_mangan_is_win: bool
     kuikae_forbidden: bool
     def __init__(
         self,
@@ -40,6 +41,7 @@ class GameRule:
         yakuman_pao_is_liability_only: bool = False,
         sanchaho_is_draw: bool = False,
         kuikae_forbidden: bool = True,
+        nagashi_mangan_is_win: bool = False,
     ) -> None: ...
     @staticmethod
     def default_tenhou() -> GameRule: ...

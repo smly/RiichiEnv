@@ -16,6 +16,12 @@ pub struct GameRule {
     pub yakuman_pao_is_liability_only: bool,
     pub sanchaho_is_draw: bool,
 
+    /// Whether nagashi mangan advances the round as a win. When false, its
+    /// mangan payments replace exhaustive-draw payments while renchan follows
+    /// the dealer's tenpai state, as on Tenhou and Mahjong Soul.
+    #[serde(default)]
+    pub nagashi_mangan_is_win: bool,
+
     pub kuikae_forbidden: bool,
 }
 
@@ -37,6 +43,8 @@ impl GameRule {
 
             sanchaho_is_draw: true,
 
+            nagashi_mangan_is_win: false,
+
             kuikae_forbidden: true,
         }
     }
@@ -52,6 +60,8 @@ impl GameRule {
 
             sanchaho_is_draw: false,
 
+            nagashi_mangan_is_win: false,
+
             kuikae_forbidden: true,
         }
     }
@@ -61,7 +71,7 @@ impl GameRule {
 #[pymethods]
 impl GameRule {
     #[new]
-    #[pyo3(signature = (allows_ron_on_ankan_for_kokushi_musou=false, is_kokushi_musou_13machi_double=false, is_suuankou_tanki_double=false, is_junsei_chuurenpoutou_double=false, is_daisuushii_double=false, yakuman_pao_is_liability_only=false, sanchaho_is_draw=false, kuikae_forbidden=true))]
+    #[pyo3(signature = (allows_ron_on_ankan_for_kokushi_musou=false, is_kokushi_musou_13machi_double=false, is_suuankou_tanki_double=false, is_junsei_chuurenpoutou_double=false, is_daisuushii_double=false, yakuman_pao_is_liability_only=false, sanchaho_is_draw=false, kuikae_forbidden=true, nagashi_mangan_is_win=false))]
     #[allow(clippy::too_many_arguments)]
     pub fn py_new(
         allows_ron_on_ankan_for_kokushi_musou: bool,
@@ -72,6 +82,7 @@ impl GameRule {
         yakuman_pao_is_liability_only: bool,
         sanchaho_is_draw: bool,
         kuikae_forbidden: bool,
+        nagashi_mangan_is_win: bool,
     ) -> Self {
         Self {
             allows_ron_on_ankan_for_kokushi_musou,
@@ -81,6 +92,7 @@ impl GameRule {
             is_daisuushii_double,
             yakuman_pao_is_liability_only,
             sanchaho_is_draw,
+            nagashi_mangan_is_win,
             kuikae_forbidden,
         }
     }
@@ -99,7 +111,7 @@ impl GameRule {
 
     fn __repr__(&self) -> String {
         format!(
-            "GameRule(allows_ron_on_ankan_for_kokushi_musou={}, is_kokushi_musou_13machi_double={}, is_suuankou_tanki_double={}, is_junsei_chuurenpoutou_double={}, is_daisuushii_double={}, yakuman_pao_is_liability_only={}, sanchaho_is_draw={}, kuikae_forbidden={})",
+            "GameRule(allows_ron_on_ankan_for_kokushi_musou={}, is_kokushi_musou_13machi_double={}, is_suuankou_tanki_double={}, is_junsei_chuurenpoutou_double={}, is_daisuushii_double={}, yakuman_pao_is_liability_only={}, sanchaho_is_draw={}, kuikae_forbidden={}, nagashi_mangan_is_win={})",
             self.allows_ron_on_ankan_for_kokushi_musou,
             self.is_kokushi_musou_13machi_double,
             self.is_suuankou_tanki_double,
@@ -107,7 +119,8 @@ impl GameRule {
             self.is_daisuushii_double,
             self.yakuman_pao_is_liability_only,
             self.sanchaho_is_draw,
-            self.kuikae_forbidden
+            self.kuikae_forbidden,
+            self.nagashi_mangan_is_win
         )
     }
 }

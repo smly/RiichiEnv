@@ -168,6 +168,20 @@ Optimization order is:
 - two-kyoku 4P/3P JSONL integration coverage shared by `ReplayLog` and
   `EventJournal`, including score continuity, typed action order, cursor seek,
   completed spans, and whole-kyoku spectator delay;
+- table-driven 4P/3P exhaustive-draw settlement for every tenpai count and
+  both dealer-continuation branches, with exact deltas, honba, kyotaku, and
+  next-kyoku assertions;
+- composite Daisangen + Tsuuiisou Pao settlement across 4P/3P, Ron/Tsumo, and
+  Tenhou/Mahjong Soul liability policies, including honba and kyotaku;
+- configurable nagashi-mangan round semantics for win-style and draw-style
+  rules, plus last-live-draw Ankan/Kakan prohibition and the tedashi Ron-tile
+  regression;
+- fixed-seed 4P/3P East and half-game simulations that run to `end_game`
+  twice, compare every pending action mask and appended event suffix, then
+  round-trip the complete log through `ReplayLog` and `EventJournal` with
+  action-order, score-continuity, truncated-prefix, and corrupt-actor checks;
+- Python and real Node/WASM fixed-seed East-game smoke tests that exercise the
+  shipped engine facade through completion and validate replay/journal output;
 - differential SP yaku/fu checks against `HandEvaluator` over the committed
   winning-hand corpus, explicit kan/open-hand fallback checks, and exact
   without-replacement probability oracles for tenpai and one-shanten paths.
@@ -190,8 +204,8 @@ Commands used `--sample-every 20`, `--max-files 25`, and
 `--max-observations 500` for each corpus. This is a broad semantic sample, not
 a replacement for full-corpus validation before a release.
 
-The next rule-heavy priorities are pao payment settlement for ron/tsumo and
-honba/kyotaku combinations, exhaustive-draw tenpai/noten payments and dealer
-continuation, engine-generated multi-kyoku trace differentials, and deeper SP
-s2/s3 probability oracles. These remaining items are migration gates, not
-permission to remove legacy APIs.
+The next integration priorities are engine-generated policies that deliberately
+exercise calls, riichi, kan/kita, and multiple-Ron paths inside a full game;
+external Tenhou/Mahjong Soul result differentials; and deeper SP s2/s3
+probability oracles. These remaining items are migration gates, not permission
+to remove legacy APIs.

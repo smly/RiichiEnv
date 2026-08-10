@@ -1841,12 +1841,16 @@ impl GameState3P {
             }
         }
 
-        let is_renchan = if final_reason == "exhaustive_draw" {
-            tenpai[self.oya as usize]
+        let (is_renchan, is_draw) = if final_reason == "exhaustive_draw" {
+            (tenpai[self.oya as usize], true)
         } else if final_reason == "nagashimangan" {
-            nagashi_winners.contains(&self.oya)
+            if self.rule.nagashi_mangan_is_win {
+                (nagashi_winners.contains(&self.oya), false)
+            } else {
+                (tenpai[self.oya as usize], true)
+            }
         } else {
-            true
+            (true, true)
         };
 
         if !self.skip_mjai_logging {
@@ -1861,7 +1865,7 @@ impl GameState3P {
             self._push_mjai_event(Value::Object(ev));
         }
 
-        self._initialize_next_round(is_renchan, true);
+        self._initialize_next_round(is_renchan, is_draw);
     }
 
     fn check_abortive_draw(&mut self) -> bool {
