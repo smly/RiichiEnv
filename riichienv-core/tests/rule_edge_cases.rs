@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use riichienv_core::action::{Action, ActionType, Phase};
 use riichienv_core::engine::{Decision, EngineConfig, GameEngine, GameMode, StepOutcome};
 use riichienv_core::game_variant::GameStateVariant;
+use riichienv_core::replay::{Action as ReplayAction, ReplayLog};
 use riichienv_core::rule::GameRule;
 use riichienv_core::types::{Meld, MeldType};
 
@@ -525,6 +526,41 @@ fn all_opponents_ron_distinguishes_four_player_sanchaho_from_sanma_double_ron() 
                     horas
                         .iter()
                         .map(|event| event["actor"].as_u64().expect("numeric actor") as u8)
+                        .collect::<Vec<_>>(),
+                    (1..num_players as u8).collect::<Vec<_>>()
+                );
+            }
+
+            assert!(outcome.snapshot.done, "single-round game must finish");
+            let journal = game
+                .event_journal()
+                .expect("multi-ron engine log must form a journal");
+            assert!(journal.is_complete());
+            assert_eq!(journal.completed_kyokus().len(), 1);
+            assert_eq!(journal.spectator_prefix(1), game.mjai_log());
+
+            let replay = ReplayLog::from_jsonl(&journal.to_jsonl(), rule)
+                .expect("multi-ron engine log must form a typed replay");
+            assert_eq!(replay.len(), 1);
+            let replay_hules = replay.rounds()[0]
+                .actions()
+                .iter()
+                .filter_map(|action| match action {
+                    ReplayAction::Hule { hules } => Some(hules),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            if should_abort {
+                assert!(
+                    replay_hules.is_empty(),
+                    "sanchaho draw must not become a typed win"
+                );
+            } else {
+                assert_eq!(replay_hules.len(), 1);
+                assert_eq!(
+                    replay_hules[0]
+                        .iter()
+                        .map(|hule| hule.seat as u8)
                         .collect::<Vec<_>>(),
                     (1..num_players as u8).collect::<Vec<_>>()
                 );

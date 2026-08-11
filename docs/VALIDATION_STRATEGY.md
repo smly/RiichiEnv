@@ -157,7 +157,9 @@ Optimization order is:
 - rule-edge integration matrices for kokushi chankan on ankan, riichi-time
   wait-preserving ankan, fourth-kan ownership, and red-five chi/pon kuikae;
 - complete multi-responder action batches for 4P triple ron (including the
-  `sanchaho_is_draw` switch), 3P double ron, and 4P ron/pon/chi priority;
+  `sanchaho_is_draw` switch), 3P double ron, and 4P ron/pon/chi priority, with
+  the multi-ron terminal logs round-tripped through `ReplayLog` and
+  `EventJournal`;
 - public-`GameEngine` pao establishment when the final dragon or wind set is
   completed by daiminkan, for daisangen/daisuushii in both variants;
 - last-live-tile call coverage from pon through the final draw and discard,
@@ -180,6 +182,11 @@ Optimization order is:
   twice, compare every pending action mask and appended event suffix, then
   round-trip the complete log through `ReplayLog` and `EventJournal` with
   action-order, score-continuity, truncated-prefix, and corrupt-actor checks;
+- fixed-seed forced-policy 4P/3P East games that prefer legal scoring and call
+  actions over discard/pass, guaranteeing coverage for reach/reach-accepted,
+  pon, every kan form, 4P chi, and 3P kita while checking exact called-tile
+  ownership, reach-discard flags, dora order, score continuity, and replay
+  determinism;
 - Python and real Node/WASM fixed-seed East-game smoke tests that exercise the
   shipped engine facade through completion and validate replay/journal output;
 - differential SP yaku/fu checks against `HandEvaluator` over the committed
@@ -204,8 +211,6 @@ Commands used `--sample-every 20`, `--max-files 25`, and
 `--max-observations 500` for each corpus. This is a broad semantic sample, not
 a replacement for full-corpus validation before a release.
 
-The next integration priorities are engine-generated policies that deliberately
-exercise calls, riichi, kan/kita, and multiple-Ron paths inside a full game;
-external Tenhou/Mahjong Soul result differentials; and deeper SP s2/s3
-probability oracles. These remaining items are migration gates, not permission
-to remove legacy APIs.
+The next integration priorities are external Tenhou/Mahjong Soul result
+differentials and deeper SP s2/s3 probability oracles. These remaining items
+are migration gates, not permission to remove legacy APIs.

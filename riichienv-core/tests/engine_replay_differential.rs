@@ -1,6 +1,6 @@
 //! End-to-end deterministic engine/replay differential traces.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use riichienv_core::action::{Action, ActionType, Phase};
 use riichienv_core::engine::{Decision, EngineConfig, GameEngine, GameMode, GameSnapshot};
@@ -11,6 +11,16 @@ use riichienv_core::types::MeldType;
 use serde_json::Value;
 
 const MAX_STEPS: usize = 20_000;
+
+#[derive(Debug, Clone, Copy)]
+enum ActionPolicy {
+    /// Finish games without deliberately opening the hand. This keeps the
+    /// original baseline trace stable and cheap.
+    Conservative,
+    /// Prefer every scoring/call transition over an ordinary discard/pass so
+    /// that fixed seeds cover the public engine's less common lifecycle paths.
+    ExerciseCalls,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DecisionTrace {
@@ -43,7 +53,7 @@ fn sorted_ones(mask: &[u8]) -> Vec<usize> {
         .collect()
 }
 
-fn choose_action(decision: &Decision, phase: Phase) -> Action {
+fn choose_action(decision: &Decision, phase: Phase, policy: ActionPolicy) -> Action {
     let mut legal = decision.observation.legal_actions();
     legal.sort_by_key(|action| {
         (
@@ -53,8 +63,8 @@ fn choose_action(decision: &Decision, phase: Phase) -> Action {
         )
     });
 
-    let preferred = match phase {
-        Phase::WaitAct => [
+    let preferred = match (policy, phase) {
+        (ActionPolicy::Conservative, Phase::WaitAct) => [
             ActionType::Tsumo,
             ActionType::Discard,
             ActionType::KyushuKyuhai,
@@ -68,7 +78,7 @@ fn choose_action(decision: &Decision, phase: Phase) -> Action {
             ActionType::Pon,
             ActionType::Chi,
         ],
-        Phase::WaitResponse => [
+        (ActionPolicy::Conservative, Phase::WaitResponse) => [
             ActionType::Ron,
             ActionType::Pass,
             ActionType::Daiminkan,
@@ -81,6 +91,20 @@ fn choose_action(decision: &Decision, phase: Phase) -> Action {
             ActionType::Ankan,
             ActionType::Kakan,
             ActionType::Riichi,
+        ],
+        (ActionPolicy::ExerciseCalls, _) => [
+            ActionType::Tsumo,
+            ActionType::Ron,
+            ActionType::Riichi,
+            ActionType::Ankan,
+            ActionType::Kakan,
+            ActionType::Kita,
+            ActionType::Daiminkan,
+            ActionType::Pon,
+            ActionType::Chi,
+            ActionType::Discard,
+            ActionType::KyushuKyuhai,
+            ActionType::Pass,
         ],
     };
 
@@ -95,7 +119,7 @@ fn choose_action(decision: &Decision, phase: Phase) -> Action {
         .unwrap_or_else(|| panic!("player {} has no selectable action", decision.player_id))
 }
 
-fn trace_decision(decision: &Decision, phase: Phase) -> DecisionTrace {
+fn trace_decision(decision: &Decision, phase: Phase, policy: ActionPolicy) -> DecisionTrace {
     assert_eq!(decision.player_id, decision.observation.player_id());
 
     let mut legal_action_ids = decision
@@ -144,11 +168,15 @@ fn trace_decision(decision: &Decision, phase: Phase) -> DecisionTrace {
         player_id: decision.player_id,
         legal_action_ids,
         legal_action_ids_v1,
-        selected: choose_action(decision, phase),
+        selected: choose_action(decision, phase, policy),
     }
 }
 
 fn simulate(mode: GameMode, seed: u64) -> Simulation {
+    simulate_with_policy(mode, seed, ActionPolicy::Conservative)
+}
+
+fn simulate_with_policy(mode: GameMode, seed: u64, policy: ActionPolicy) -> Simulation {
     let mut engine = GameEngine::new(
         EngineConfig::new(mode)
             .with_seed(seed)
@@ -175,7 +203,7 @@ fn simulate(mode: GameMode, seed: u64) -> Simulation {
 
         let decision_trace = decisions
             .iter()
-            .map(|decision| trace_decision(decision, before.phase))
+            .map(|decision| trace_decision(decision, before.phase, policy))
             .collect::<Vec<_>>();
         let actions = decision_trace
             .iter()
@@ -218,6 +246,20 @@ fn simulate(mode: GameMode, seed: u64) -> Simulation {
     }
 }
 
+fn assert_event_coverage(simulation: &Simulation, expected: &[&str], mode: GameMode, seed: u64) {
+    let actual = simulation
+        .events
+        .iter()
+        .map(|raw| event_type(raw))
+        .collect::<Vec<_>>();
+    for &kind in expected {
+        assert!(
+            actual.iter().any(|actual_kind| actual_kind == kind),
+            "{mode:?} seed {seed} did not exercise {kind}; event coverage changed"
+        );
+    }
+}
+
 fn json(raw: &str) -> Value {
     serde_json::from_str(raw).expect("engine MJAI event must be valid JSON")
 }
@@ -229,30 +271,66 @@ fn event_type(raw: &str) -> String {
 
 fn raw_action_trace(events: &[String]) -> Vec<String> {
     let mut result = Vec::new();
+    let mut pending_reach = HashSet::new();
     let mut index = 0;
     while index < events.len() {
         let event = json(&events[index]);
         match event["type"].as_str().expect("event type") {
+            "reach" => {
+                let actor = event["actor"].as_u64().expect("reach actor");
+                assert!(
+                    pending_reach.insert(actor),
+                    "actor {actor} declared reach twice before discarding"
+                );
+            }
             "tsumo" => result.push(format!(
                 "tsumo:{}:{}",
                 event["actor"].as_u64().expect("tsumo actor"),
                 event["pai"].as_str().expect("tsumo tile")
             )),
-            "dahai" => result.push(format!(
-                "dahai:{}:{}",
-                event["actor"].as_u64().expect("dahai actor"),
-                event["pai"].as_str().expect("dahai tile")
-            )),
-            "chi" | "pon" | "daiminkan" | "kan" => result.push(format!(
-                "call:{}:{}",
-                event["type"].as_str().expect("call type"),
-                event["actor"].as_u64().expect("call actor")
-            )),
-            "ankan" | "kakan" => result.push(format!(
-                "closed_kan:{}:{}",
-                event["type"].as_str().expect("kan type"),
-                event["actor"].as_u64().expect("kan actor")
-            )),
+            "dahai" => {
+                let actor = event["actor"].as_u64().expect("dahai actor");
+                result.push(format!(
+                    "dahai:{actor}:{}:reach={}",
+                    event["pai"].as_str().expect("dahai tile"),
+                    pending_reach.remove(&actor)
+                ));
+            }
+            "chi" | "pon" | "daiminkan" | "kan" => {
+                let kind = event["type"].as_str().expect("call type");
+                let actor = event["actor"].as_u64().expect("call actor");
+                let target = event["target"].as_u64().expect("call target");
+                let mut tiles = event["consumed"]
+                    .as_array()
+                    .expect("call consumed tiles")
+                    .iter()
+                    .map(|tile| format!("{}@{actor}", tile.as_str().expect("consumed tile string")))
+                    .collect::<Vec<_>>();
+                tiles.push(format!(
+                    "{}@{target}",
+                    event["pai"].as_str().expect("called tile")
+                ));
+                tiles.sort();
+                result.push(format!("call:{kind}:{actor}:{tiles:?}"));
+            }
+            "ankan" | "kakan" => {
+                let kind = event["type"].as_str().expect("kan type");
+                let actor = event["actor"].as_u64().expect("kan actor");
+                // The typed replay action intentionally stores only the newly
+                // added tile for kakan, while ankan carries all four tiles.
+                let mut tiles = if kind == "kakan" {
+                    vec![event["pai"].as_str().expect("added kan tile").to_owned()]
+                } else {
+                    event["consumed"]
+                        .as_array()
+                        .expect("kan consumed tiles")
+                        .iter()
+                        .map(|tile| tile.as_str().expect("kan tile string").to_owned())
+                        .collect::<Vec<_>>()
+                };
+                tiles.sort();
+                result.push(format!("closed_kan:{kind}:{actor}:{tiles:?}"));
+            }
             "dora" => result.push(format!(
                 "dora:{}",
                 event["dora_marker"].as_str().expect("dora marker")
@@ -279,6 +357,10 @@ fn raw_action_trace(events: &[String]) -> Vec<String> {
         }
         index += 1;
     }
+    assert!(
+        pending_reach.is_empty(),
+        "every reach declaration must be followed by its discard"
+    );
     result
 }
 
@@ -289,11 +371,24 @@ fn replay_action_trace(actions: &[ReplayAction]) -> Vec<String> {
             ReplayAction::DealTile { seat, tile, .. } => {
                 format!("tsumo:{seat}:{}", tid_to_mjai(*tile))
             }
-            ReplayAction::DiscardTile { seat, tile, .. } => {
-                format!("dahai:{seat}:{}", tid_to_mjai(*tile))
+            ReplayAction::DiscardTile {
+                seat,
+                tile,
+                is_liqi,
+                is_wliqi,
+                ..
+            } => {
+                format!(
+                    "dahai:{seat}:{}:reach={}",
+                    tid_to_mjai(*tile),
+                    *is_liqi || *is_wliqi
+                )
             }
             ReplayAction::ChiPengGang {
-                seat, meld_type, ..
+                seat,
+                meld_type,
+                tiles,
+                froms,
             } => {
                 let kind = match meld_type {
                     MeldType::Chi => "chi",
@@ -301,17 +396,32 @@ fn replay_action_trace(actions: &[ReplayAction]) -> Vec<String> {
                     MeldType::Daiminkan => "daiminkan",
                     other => panic!("unexpected open-call type {other:?}"),
                 };
-                format!("call:{kind}:{seat}")
+                assert_eq!(tiles.len(), froms.len());
+                let mut tiles = tiles
+                    .iter()
+                    .zip(froms)
+                    .map(|(&tile, from)| format!("{}@{from}", tid_to_mjai(tile)))
+                    .collect::<Vec<_>>();
+                tiles.sort();
+                format!("call:{kind}:{seat}:{tiles:?}")
             }
             ReplayAction::AnGangAddGang {
-                seat, meld_type, ..
+                seat,
+                meld_type,
+                tiles,
+                ..
             } => {
                 let kind = match meld_type {
                     MeldType::Ankan => "ankan",
                     MeldType::Kakan => "kakan",
                     other => panic!("unexpected closed-kan type {other:?}"),
                 };
-                format!("closed_kan:{kind}:{seat}")
+                let mut tiles = tiles
+                    .iter()
+                    .map(|&tile| tid_to_mjai(tile))
+                    .collect::<Vec<_>>();
+                tiles.sort();
+                format!("closed_kan:{kind}:{seat}:{tiles:?}")
             }
             ReplayAction::Dora { dora_marker } => {
                 format!("dora:{}", tid_to_mjai(*dora_marker))
@@ -492,6 +602,55 @@ fn deterministic_east_and_half_games_round_trip_through_replay() {
             "decision trace changed for {mode:?}"
         );
         assert_eq!(first.events, second.events, "MJAI log changed for {mode:?}");
+        assert_eq!(first.final_snapshot, second.final_snapshot);
+        validate_replay(&first, mode);
+    }
+}
+
+#[test]
+fn forced_policy_games_cover_riichi_calls_kans_and_kita() {
+    let fixtures: &[(GameMode, u64, &[&str])] = &[
+        (
+            GameMode::FourPlayerEast,
+            22,
+            &[
+                "reach",
+                "reach_accepted",
+                "chi",
+                "pon",
+                "daiminkan",
+                "ankan",
+                "kakan",
+            ],
+        ),
+        (
+            GameMode::ThreePlayerEast,
+            1,
+            &[
+                "reach",
+                "reach_accepted",
+                "pon",
+                "daiminkan",
+                "ankan",
+                "kakan",
+                "kita",
+            ],
+        ),
+    ];
+
+    for &(mode, seed, expected) in fixtures {
+        let first = simulate_with_policy(mode, seed, ActionPolicy::ExerciseCalls);
+        let second = simulate_with_policy(mode, seed, ActionPolicy::ExerciseCalls);
+
+        assert_event_coverage(&first, expected, mode, seed);
+        assert_eq!(
+            first.trace, second.trace,
+            "forced decision trace changed for {mode:?}"
+        );
+        assert_eq!(
+            first.events, second.events,
+            "forced MJAI log changed for {mode:?}"
+        );
         assert_eq!(first.final_snapshot, second.final_snapshot);
         validate_replay(&first, mode);
     }
