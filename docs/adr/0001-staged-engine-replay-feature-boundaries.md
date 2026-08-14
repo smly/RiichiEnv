@@ -97,6 +97,20 @@ Observation feature calculation is pure Rust and available without the Python fe
 
 Changing a channel's meaning, order, normalization, tile axis, or dtype requires a new feature version. Existing model ABI is not changed in place.
 
+SP's frozen 4P v0 and Kita-aware 3P v1 encoders retain the historical
+tail-indexed intermediate probability planes. Their terminal cell remains the
+DP endpoint, but an earlier cell can depend on the total horizon and is not a
+prefix probability from the current draw. Low-level
+`calculate_sp_v1`/`calculate_sp_3p_v2` diagnostics expose prefix-corrected 4P
+v1 and 3P v2 results. Distinct `Sp4PV1Result`/`Sp3PV2Result` wrappers provide
+the matching encoders and prevent accidental mixing with the unversioned
+frozen result. Regular Observation and batch encoders deliberately remain
+wired to the frozen layouts. The corrected calculators solve shanten 1 through
+3 once per prefix and are substantially slower, so they are validation/
+feature-experiment APIs rather than the default inference path. They also
+retain the existing high-shanten and missed-tile-identity approximations; the
+version change corrects series indexing, not every SP modelling approximation.
+
 Issue #210 begins as an additive action-ABI migration: the v0 masks above stay
 82/60, while red-aware v1 masks are 164/120 and use `2*v0_id + red_choice`.
 SP already publishes separate shape-progress, yaku-validity/yaku-path, and
@@ -127,6 +141,15 @@ introduced later when state-owned observations can avoid DTO construction too.
 `replay::EventJournal` is the canonical append-only MJAI JSONL boundary. It accepts text, any `BufRead`, or individual raw events; preserves unknown JSON fields and original event text; indexes only explicit `start_kyoku`/`end_kyoku` pairs; and never treats an unfinished EOF as a completed hand.
 
 Cursor envelopes use schema version 1 and half-open event positions. Filesystem paths, gzip, HTTP caching, and WebSocket transport belong in adapters.
+
+The pre-1.0 replay extraction DTOs are experimental rather than frozen wire
+contracts. External-result validation adds `HuleData.fan_values`, an optional
+authoritative `HuleData.riichi_sticks`, and optional Mahjong Soul
+`RawAction::{Hule, NoTile}` score vectors. Missing optional values remain
+accepted and omitted raw score vectors are skipped during serialization, so
+old JSON does not gain `null` fields. Rust consumers that construct these
+public DTOs with struct literals or exhaustively destructure the affected
+variants must add the new fields (or `..`) when migrating.
 
 For a spectator delay of one kyoku:
 

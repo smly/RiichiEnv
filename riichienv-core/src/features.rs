@@ -53,6 +53,15 @@ pub const SP_4P_V0: FeatureSpec = FeatureSpec {
     tile_types: OBS_TILE_TYPES,
 };
 
+/// Prefix-corrected SP probability planes produced by
+/// `sp::calculate_sp_v1`. The regular Observation encoders intentionally
+/// remain wired to frozen v0; the returned `sp::Sp4PV1Result` provides the
+/// version-matched encoder.
+pub const SP_4P_V1: FeatureSpec = FeatureSpec {
+    version: 1,
+    ..SP_4P_V0
+};
+
 pub const DREV_4P_V0: FeatureSpec = FeatureSpec {
     name: "drev-4p",
     version: 0,
@@ -104,6 +113,15 @@ pub const SP_3P_V0: FeatureSpec = FeatureSpec {
 /// projection. Old Observation payloads decode with zero Kita counts.
 pub const SP_3P_V1: FeatureSpec = FeatureSpec {
     version: 1,
+    ..SP_3P_V0
+};
+
+/// Kita-aware, prefix-corrected sanma SP planes produced by
+/// `sp::calculate_sp_3p_v2`. The regular Observation3P encoder remains wired
+/// to v1 for compatibility; `sp::Sp3PV2Result` provides the version-matched
+/// encoder.
+pub const SP_3P_V2: FeatureSpec = FeatureSpec {
+    version: 2,
     ..SP_3P_V0
 };
 
@@ -357,14 +375,22 @@ mod tests {
     use crate::engine::{EngineConfig, GameEngine, GameMode, ObservationVariant};
 
     #[test]
-    fn corrected_feature_semantics_have_explicit_v1_specs() {
+    fn corrected_feature_semantics_have_explicit_versioned_specs() {
+        assert_eq!(SP_4P_V1.version, 1);
+        assert_eq!(SP_4P_V1.version, crate::sp::Sp4PV1Result::VERSION);
         assert_eq!(DREV_4P_V1.version, 1);
         assert_eq!(EXTENDED_SP_DREV_4P_V1.version, 1);
         assert_eq!(SP_3P_V1.version, 1);
+        assert_eq!(SP_3P_V2.version, 2);
+        assert_eq!(SP_3P_V2.version, crate::sp::Sp3PV2Result::VERSION);
         assert_eq!(DREV_3P_V1.version, 1);
         assert_eq!(EXTENDED_SP_DREV_3P_V1.version, 1);
         assert_eq!(
-            SP_3P_V1.values_per_observation(),
+            SP_4P_V1.values_per_observation(),
+            SP_4P_V0.values_per_observation()
+        );
+        assert_eq!(
+            SP_3P_V2.values_per_observation(),
             SP_3P_V0.values_per_observation()
         );
     }

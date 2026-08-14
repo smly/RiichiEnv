@@ -103,6 +103,60 @@ pub fn get_yaku_by_id(id: u32) -> Option<Yaku> {
     )
 }
 
+/// Resolve the yaku labels emitted by supported Tenhou/MJAI converters.
+///
+/// Wind yakuhai labels carry the concrete wind in external logs (for example
+/// `自風 南`), while RiichiEnv intentionally uses one ID for every seat/round
+/// wind.  All other labels must match either the canonical Japanese or English
+/// name.  Returning `None` is deliberate: replay validation must report an
+/// unknown external label instead of silently dropping it.
+pub fn get_yaku_id_by_name(name: &str) -> Option<u32> {
+    let name = name.trim();
+
+    if matches!(name, "自風 東" | "自風 南" | "自風 西" | "自風 北")
+        || [
+            "Seat Wind East",
+            "Seat Wind South",
+            "Seat Wind West",
+            "Seat Wind North",
+        ]
+        .iter()
+        .any(|label| name.eq_ignore_ascii_case(label))
+    {
+        return Some(ID_JIKAZE);
+    }
+    if matches!(name, "場風 東" | "場風 南" | "場風 西" | "場風 北")
+        || [
+            "Round Wind East",
+            "Round Wind South",
+            "Round Wind West",
+            "Round Wind North",
+        ]
+        .iter()
+        .any(|label| name.eq_ignore_ascii_case(label))
+    {
+        return Some(ID_BAKAZE);
+    }
+
+    YAKU_TABLE
+        .iter()
+        .find(|&&(_, name_ja, name_en, ..)| name == name_ja || name.eq_ignore_ascii_case(name_en))
+        .map(|&(id, ..)| id)
+}
+
+#[cfg(test)]
+mod name_resolution_tests {
+    use super::*;
+
+    #[test]
+    fn concrete_wind_labels_are_exact_and_unknown_suffixes_are_rejected() {
+        assert_eq!(get_yaku_id_by_name("自風 南"), Some(ID_JIKAZE));
+        assert_eq!(get_yaku_id_by_name("round wind north"), Some(ID_BAKAZE));
+        assert_eq!(get_yaku_id_by_name("自風 typo"), None);
+        assert_eq!(get_yaku_id_by_name("Round Wind dragon"), None);
+    }
+}
+
 #[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(name = "get_yaku_by_id")]

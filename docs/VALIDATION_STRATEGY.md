@@ -191,7 +191,17 @@ Optimization order is:
   shipped engine facade through completion and validate replay/journal output;
 - differential SP yaku/fu checks against `HandEvaluator` over the committed
   winning-hand corpus, explicit kan/open-hand fallback checks, and exact
-  without-replacement probability oracles for tenpai and one-shanten paths.
+  without-replacement probability oracles for tenpai and one-shanten paths;
+- four attributed external-result differentials: Tenhou 4P call/Ron, dealer
+  tsumo, and terminal honba/kyotaku rounds plus a Mahjong Soul 3P
+  Kita/double-Ron round. They cover normalized actions, winner/target/tile,
+  han/fu/yaku values, Ron and split-tsumo payments, recorded deltas, end scores,
+  next-round metadata, and the no-next-round terminal path;
+- independent physical-copy, without-replacement SP oracles for 4P/3P s2 and
+  s3 small walls. Every miss is removed from the wall and every discard is
+  enumerated; all reachable tenpai/win prefixes are compared with the
+  versioned prefix-corrected calculator, while the frozen ABI's terminal cell
+  is checked against the same oracle.
 
 ## Latest replay-corpus feature validation
 
@@ -211,6 +221,53 @@ Commands used `--sample-every 20`, `--max-files 25`, and
 `--max-observations 500` for each corpus. This is a broad semantic sample, not
 a replacement for full-corpus validation before a release.
 
-The next integration priorities are external Tenhou/Mahjong Soul result
-differentials and deeper SP s2/s3 probability oracles. These remaining items
-are migration gates, not permission to remove legacy APIs.
+## External result and deeper SP validation
+
+The committed external replay manifest lives under
+`tests/data/external_replay/`. It records immutable upstream revisions,
+licenses, transformations, source hashes, normalized action hashes, provider
+results, score transitions, and next-round metadata. CI validates four small
+anonymized excerpts; larger local manifests remain an explicit pre-release
+job:
+
+```bash
+uv run python scripts/validate_external_replays.py
+uv run python scripts/validate_external_replays.py --no-committed /path/to/manifest.json
+```
+
+The replay path now retains external yaku values and Mahjong Soul terminal
+score deltas, selects `HandEvaluator` or `HandEvaluator3P` from the variant,
+and rejects unknown yaku labels instead of silently dropping them. The
+validator composes separately emitted `reach_accepted` deposits into the round
+delta and checks the resulting in-hand kyotaku count against the calculator
+context. The committed fixtures exercise Tenhou 4P call/Ron, dealer tsumo
+with split payments, and a terminal non-zero-honba/kyotaku Ron result, plus a
+Mahjong Soul 3P Kita/double-Ron result. They are intentionally not a claim of
+exhaustive platform parity; pao, abortive draws, non-dealer tsumo, and rare
+limit-hand results remain appropriate additions to the opt-in corpus.
+
+Adapter regressions additionally require every winner in a double/triple-Ron
+batch to produce a decision sample, distinguish declaration from accepted
+riichi deposits, preserve exclusive double-riichi/ippatsu/ura state in 4P and
+3P, and score Mahjong Soul ron-on-Kita as Ron rather than Tsumo. Public native
+replay input rejects empty rounds/results, inconsistent player counts,
+out-of-range seats/rounds/winds, malformed call cardinality, and invalid tile
+tokens before state replay; these cases must raise a typed error rather than a
+Rust panic.
+
+The s2/s3 oracle exposed a historical SP series property: for the frozen 4P
+v0 and 3P v1 layouts, the terminal cell is the DP endpoint, but earlier cells
+are tail-indexed and can depend on the total horizon. Changing those values in
+place would break trained-model ABI. `calculate_sp_v1` and
+`calculate_sp_3p_v2` therefore return distinct, low-level
+`Sp4PV1Result`/`Sp3PV2Result` diagnostics with version-matched encoding methods,
+while regular Observation and batch encoders remain frozen. The corrected path
+is substantially slower and retains the documented high-shanten and
+missed-tile-identity approximations; it is a correctness reference and feature
+experiment, not yet the default inference path.
+
+The next SP implementation task is to build the state-transition graph once
+and evaluate all deadlines over it, then consider end-to-end versioned
+Observation/batch bindings only after correctness goldens and replay-derived
+performance gates are green. Legacy APIs remain supported throughout that
+migration.

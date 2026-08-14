@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "tenhou-4p-ranked-excerpt",
+      "fixture": "tenhou_4p_ranked_excerpt.jsonl",
+      "fixture_sha256": "8bdc0a17b9dcb14b982320ae42d21b352829716d6b662207b2c46c11f66f5788",
+      "provider": "tenhou",
+      "rule": "tenhou",
+      "source": {
+        "url": "https://github.com/NikkeTryHard/tenhou-to-mjai/blob/69fb75a51c7efef3212be603227b2a58a9717237/crates/convlog/tests/testdata/ranked_game.json",
+        "commit": "69fb75a51c7efef3212be603227b2a58a9717237",
+        "sha256": "bbec9341902ba0216371c95de7ec15abceb1b2946d86c2b2a61e349a88fafafd",
+        "license": "CC-BY-4.0",
+        "license_url": "https://github.com/NikkeTryHard/tenhou-to-mjai/blob/69fb75a51c7efef3212be603227b2a58a9717237/LICENSE-DATA",
+        "transform": "Converted with that revision's convlog, anonymized the already-placeholder names, retained the first complete kyoku and next-round header, and copied pai/yaku/han/fu/hora_points from the source Tenhou result tuple into the MJAI hora event."
+      },
+      "rounds": [
+        {
+          "index": 0,
+          "start": {
+            "bakaze": "E",
+            "kyoku": 1,
+            "honba": 0,
+            "kyotaku": 0,
+            "oya": 0,
+            "scores": [25000, 25000, 25000, 25000]
+          },
+          "action_count": 117,
+          "action_sha256": "e53afd7dea1eefd15fb5e17ffea11fb547ee52f9eee19ac18e8ab09431ba9410",
+          "wins": [
+            {
+              "winner": 3,
+              "target": 2,
+              "win_tile": "9p",
+              "han": 4,
+              "fu": 30,
+              "yaku_values": [[8, 1], [27, 2], [32, 1]],
+              "payment": {"ron": 7700, "tsumo_oya": 0, "tsumo_ko": 0}
+            }
+          ],
+          "delta": [0, 0, -7700, 7700],
+          "end_scores": [25000, 25000, 17300, 32700],
+          "next_round": {
+            "bakaze": "E",
+            "kyoku": 2,
+            "honba": 0,
+            "kyotaku": 0,
+            "oya": 1,
+            "scores": [25000, 25000, 17300, 32700]
+          }
+        }
+      ]
+    },
+    {
+      "id": "mjsoul-3p-nuki-double-ron-excerpt",
+      "fixture": "mjsoul_3p_double_ron_excerpt.jsonl",
+      "fixture_sha256": "f2f7ccd71d6f34292375b6c909ba2b94cabe13a634127c8ff3e9ec2fa44dd1f6",
+      "provider": "mahjong_soul",
+      "rule": "mjsoul",
+      "source": {
+        "url": "https://github.com/hidacow/mjai-reviewer3p/blob/a6c0a25332e972ad30ebb9fa62c30e7a5ee3f1d5/convlog/tests/testdata/nukidora_doubleron.json",
+        "commit": "a6c0a25332e972ad30ebb9fa62c30e7a5ee3f1d5",
+        "sha256": "7f003d14c7aa10ba14b82fddd292db282661268fd181629a085ec38522796f03",
+        "license": "Apache-2.0",
+        "license_url": "https://github.com/hidacow/mjai-reviewer3p/blob/a6c0a25332e972ad30ebb9fa62c30e7a5ee3f1d5/LICENSE",
+        "transform": "Converted the Mahjong Soul three-player Tenhou-format fixture with that revision's convlog, removed the dummy fourth seat, mapped nukidora to MJAI kita, retained the first complete kyoku and next-round header, and copied the source result tuples into the two MJAI hora events."
+      },
+      "rounds": [
+        {
+          "index": 0,
+          "start": {
+            "bakaze": "E",
+            "kyoku": 1,
+            "honba": 0,
+            "kyotaku": 0,
+            "oya": 0,
+            "scores": [35000, 35000, 35000]
+          },
+          "action_count": 124,
+          "action_sha256": "b38dd5b094e366daa7a79ff06ba37374c170dee8359115ee37f4e57a86887f21",
+          "wins": [
+            {
+              "winner": 0,
+              "target": 2,
+              "win_tile": "4z",
+              "han": 5,
+              "fu": null,
+              "yaku_values": [[21, 2], [31, 3]],
+              "payment": {"ron": 12000, "tsumo_oya": 0, "tsumo_ko": 0}
+            },
+            {
+              "winner": 1,
+              "target": 2,
+              "win_tile": "4z",
+              "han": 8,
+              "fu": null,
+              "yaku_values": [[7, 1], [20, 2], [31, 5]],
+              "payment": {"ron": 16000, "tsumo_oya": 0, "tsumo_ko": 0}
+            }
+          ],
+          "delta": [12000, 16000, -28000],
+          "end_scores": [47000, 51000, 7000],
+          "next_round": {
+            "bakaze": "E",
+            "kyoku": 1,
+            "honba": 1,
+            "kyotaku": 0,
+            "oya": 0,
+            "scores": [47000, 51000, 7000]
+          }
+        }
+      ]
+    },
+    {
+      "id": "tenhou-4p-dealer-tsumo-excerpt",
+      "fixture": "tenhou_4p_dealer_tsumo_excerpt.jsonl",
+      "fixture_sha256": "a302df3487baf1c024ef19267a3faa1a36715c0f5adbfd187436ca70c0a14bb2",
+      "provider": "tenhou",
+      "rule": "tenhou",
+      "source": {
+        "url": "https://github.com/NikkeTryHard/tenhou-to-mjai/blob/69fb75a51c7efef3212be603227b2a58a9717237/crates/convlog/tests/testdata/ranked_game.json",
+        "commit": "69fb75a51c7efef3212be603227b2a58a9717237",
+        "sha256": "bbec9341902ba0216371c95de7ec15abceb1b2946d86c2b2a61e349a88fafafd",
+        "license": "CC-BY-4.0",
+        "license_url": "https://github.com/NikkeTryHard/tenhou-to-mjai/blob/69fb75a51c7efef3212be603227b2a58a9717237/LICENSE-DATA",
+        "transform": "Converted with that revision's convlog, anonymized names, retained the second complete kyoku and next-round header, copied pai/yaku/han/fu from the source Tenhou result tuple, and derived the child split payment from the source result delta."
+      },
+      "rounds": [
+        {
+          "index": 0,
+          "start": {
+            "bakaze": "E",
+            "kyoku": 2,
+            "honba": 0,
+            "kyotaku": 0,
+            "oya": 1,
+            "scores": [25000, 25000, 17300, 32700]
+          },
+          "action_count": 74,
+          "action_sha256": "191cb700ca5f26559e940def762c2f46095f38c9cde0e4ca4ac62fd646b480cf",
+          "wins": [
+            {
+              "winner": 1,
+              "target": 1,
+              "win_tile": "6p",
+              "han": 4,
+              "fu": 30,
+              "yaku_values": [[12, 1], [31, 1], [32, 2]],
+              "payment": {"ron": 0, "tsumo_oya": 0, "tsumo_ko": 3900}
+            }
+          ],
+          "delta": [-3900, 11700, -3900, -3900],
+          "end_scores": [21100, 36700, 13400, 28800],
+          "next_round": {
+            "bakaze": "E",
+            "kyoku": 2,
+            "honba": 1,
+            "kyotaku": 0,
+            "oya": 1,
+            "scores": [21100, 36700, 13400, 28800]
+          }
+        }
+      ]
+    },
+    {
+      "id": "tenhou-4p-honba-kyotaku-excerpt",
+      "fixture": "tenhou_4p_honba_kyotaku_excerpt.jsonl",
+      "fixture_sha256": "0ffb953fcd99992bbda25dac0055487d885591a8052128bb45874a68b0f7c842",
+      "provider": "tenhou",
+      "rule": "tenhou",
+      "source": {
+        "url": "https://github.com/NikkeTryHard/tenhou-to-mjai/blob/69fb75a51c7efef3212be603227b2a58a9717237/crates/convlog/tests/testdata/confusing_nakis_4.json",
+        "commit": "69fb75a51c7efef3212be603227b2a58a9717237",
+        "sha256": "a2bf5ae19e5c69fc0ee338b979981780ff561d4416162294458cf6aac1d87b83",
+        "license": "CC-BY-4.0",
+        "license_url": "https://github.com/NikkeTryHard/tenhou-to-mjai/blob/69fb75a51c7efef3212be603227b2a58a9717237/LICENSE-DATA",
+        "transform": "Converted with that revision's convlog, anonymized names, retained the complete terminal kyoku, copied pai/yaku/han/fu from the source Tenhou result tuple, and derived the honba-inclusive ron payment from the source result delta."
+      },
+      "rounds": [
+        {
+          "index": 0,
+          "start": {
+            "bakaze": "S",
+            "kyoku": 4,
+            "honba": 1,
+            "kyotaku": 1,
+            "oya": 3,
+            "scores": [25300, 27400, 30600, 15700]
+          },
+          "action_count": 95,
+          "action_sha256": "363e9f79f26b7e5f33cdfe96d2b403343261f495a5e09ffdeec52ba1ed8d9a96",
+          "wins": [
+            {
+              "winner": 0,
+              "target": 3,
+              "win_tile": "9s",
+              "han": 3,
+              "fu": 30,
+              "yaku_values": [[8, 1], [31, 2]],
+              "payment": {"ron": 4200, "tsumo_oya": 0, "tsumo_ko": 0}
+            }
+          ],
+          "delta": [5200, 0, 0, -4200],
+          "end_scores": [30500, 27400, 30600, 11500],
+          "next_round": null
+        }
+      ]
+    }
+  ]
+}

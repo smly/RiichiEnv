@@ -171,6 +171,39 @@ encoder, but result encoding itself is only about 1 us. Sharing one
 `FeatureContext` reduces SP+DREV input-preparation time by 6.29%, also a small
 absolute improvement compared with the recursive SP calculation.
 
+### Frozen versus prefix-corrected SP series
+
+On 2026-08-14, the prefix-semantics group was measured from revision
+`cca35a200a7982fbfae134444ec5184c327d2ff6` plus the working-tree changes in
+this section, on the same arm64 macOS machine with Rust 1.92.0:
+
+```bash
+cargo bench -p riichienv-core --bench sp_bench -- 'sp/prefix_semantics' --noplot
+```
+
+Each fixture asserts its best post-discard shanten before timing. The frozen
+path is the model-compatible 4P v0 implementation; corrected v1 independently
+solves each prefix from the current draw and returns a version-tagged result.
+
+| SP prefix benchmark | Estimate | 95% CI | Corrected/frozen |
+|---|---:|---:|---:|
+| 4P s2, horizon 3, frozen v0 | 105.90 us | 105.76–106.06 us | — |
+| 4P s2, horizon 3, corrected v1 | 531.51 us | 528.25–536.18 us | 5.02x |
+| 4P s3, horizon 4, frozen v0 | 5.473 ms | 5.414–5.546 ms | — |
+| 4P s3, horizon 4, corrected v1 | 52.754 ms | 52.298–53.313 ms | 9.64x |
+| 3P s2, horizon 3, frozen v1 | 149.24 us | 148.66–149.99 us | — |
+| 3P s2, horizon 3, corrected v2 | 672.85 us | 667.18–679.48 us | 4.51x |
+| 3P s3, horizon 4, frozen v1 | 696.91 us | 686.34–716.15 us | — |
+| 3P s3, horizon 4, corrected v2 | 6.456 ms | 6.360–6.567 ms | 9.26x |
+
+The corrected implementation deliberately clears and rebuilds the probability
+DP for every prefix. This is a simple correctness reference, not a production
+optimization: cost grows rapidly with both shanten and horizon. Regular
+Observation and batch encoders therefore remain on the frozen ABI. Before a
+prefix-corrected layout becomes a default feature path, the transition graph
+must be shared across deadlines and the resulting implementation must be
+remeasured on representative 4P/3P replay positions.
+
 ## Interpretation and limitations
 
 - Correctness is a prerequisite: all fixture han, fu, yaku, masks, feature
@@ -195,7 +228,9 @@ Track the following as the stable, reviewable performance surface:
 2. base and extended batch encoders in both allocation modes;
 3. combined 4P/3P encoders, with SP and DREV reported separately;
 4. true SP s0/s1/s2/s3 fixtures and the open aka/dora fixture;
-5. caller-buffer SP encoding and shared `FeatureContext` preprocessing.
+5. caller-buffer SP encoding and shared `FeatureContext` preprocessing;
+6. frozen versus prefix-corrected 4P/3P s2/s3 reference costs, reported as
+   informational ratios until the corrected transition graph is shared.
 
 Do not gate on a single absolute number across heterogeneous CI runners. Use a
 fixed runner or a named local baseline, and treat a statistically significant

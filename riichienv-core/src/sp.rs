@@ -222,6 +222,57 @@ pub struct SpResult {
     pub candidates: Vec<SpCandidate>,
 }
 
+/// Result of the opt-in, prefix-corrected 4P SP v1 calculator.
+///
+/// This wrapper prevents a corrected result from being passed accidentally to
+/// the frozen, unversioned SP encoder. Use [`Self::encode`] or
+/// [`Self::encode_into`] to produce the v1 layout explicitly.
+#[derive(Debug, Clone)]
+pub struct Sp4PV1Result {
+    inner: SpResult,
+}
+
+impl Sp4PV1Result {
+    pub const VERSION: u16 = 1;
+
+    pub fn candidates(&self) -> &[SpCandidate] {
+        &self.inner.candidates
+    }
+
+    pub fn encode(&self) -> Vec<f32> {
+        encode_sp(&self.inner)
+    }
+
+    pub fn encode_into(&self, buf: &mut [f32], ch_offset: usize) {
+        encode_sp_into(&self.inner, buf, ch_offset);
+    }
+}
+
+/// Result of the opt-in, prefix-corrected 3P SP v2 calculator.
+///
+/// Sanma v1 is the frozen Kita-aware ABI. This distinct type keeps its v2
+/// prefix semantics from being mixed with the frozen 3P encoder by accident.
+#[derive(Debug, Clone)]
+pub struct Sp3PV2Result {
+    inner: SpResult,
+}
+
+impl Sp3PV2Result {
+    pub const VERSION: u16 = 2;
+
+    pub fn candidates(&self) -> &[SpCandidate] {
+        &self.inner.candidates
+    }
+
+    pub fn encode(&self) -> Vec<f32> {
+        encode_sp_3p(&self.inner)
+    }
+
+    pub fn encode_into(&self, buf: &mut [f32], ch_offset: usize) {
+        encode_sp_3p_into(&self.inner, buf, ch_offset);
+    }
+}
+
 impl SpInput {
     pub fn from_observation(obs: &Observation) -> Self {
         let context = FeatureContext::new_unchecked(obs);
@@ -363,15 +414,54 @@ fn aka_after_discard(akas: [bool; 3], counts: &[u8; TILE_MAX], tile: u8) -> [boo
 }
 
 pub fn calculate_sp(input: &SpInput) -> SpResult {
-    calculate_sp_for_variant(input, SpVariant::FourPlayer)
+    calculate_sp_for_variant(input, SpVariant::FourPlayer, SpSeriesSemantics::Frozen)
 }
 
 pub fn calculate_sp_3p(input: &SpInput3P) -> SpResult {
     let common = input.as_common_input();
-    calculate_sp_for_variant(&common, SpVariant::ThreePlayer)
+    calculate_sp_for_variant(&common, SpVariant::ThreePlayer, SpSeriesSemantics::Frozen)
 }
 
-fn calculate_sp_for_variant(input: &SpInput, variant: SpVariant) -> SpResult {
+/// Low-level, opt-in 4P SP diagnostic with corrected probability-series
+/// semantics. The frozen `calculate_sp` API and every regular
+/// Observation/batch encoder retain the historical tail-indexed intermediate
+/// planes for model ABI compatibility. The returned [`Sp4PV1Result`] has its
+/// own encoding methods so it cannot be confused with a frozen [`SpResult`].
+///
+/// This evaluates each `i` as the prefix from now through draw `i`. It is
+/// intentionally slower because shanten 1..=3 prefixes are solved separately.
+/// It remains an SP projection rather than a full-wall simulator: shanten >=4
+/// and non-optimal discards use the existing approximation, and missed-tile
+/// identity is not added to the production DP state. It is therefore intended
+/// for validation and feature-version experiments, not default inference.
+pub fn calculate_sp_v1(input: &SpInput) -> Sp4PV1Result {
+    Sp4PV1Result {
+        inner: calculate_sp_for_variant(input, SpVariant::FourPlayer, SpSeriesSemantics::Prefix),
+    }
+}
+
+/// Low-level sanma counterpart of [`calculate_sp_v1`]. Sanma v1 already names
+/// the Kita-aware feature ABI, so the opt-in prefix-corrected result is v2.
+/// Regular Observation3P/batch encoders remain frozen at v1; the returned
+/// [`Sp3PV2Result`] exposes explicit v2 encoding methods.
+pub fn calculate_sp_3p_v2(input: &SpInput3P) -> Sp3PV2Result {
+    let common = input.as_common_input();
+    Sp3PV2Result {
+        inner: calculate_sp_for_variant(&common, SpVariant::ThreePlayer, SpSeriesSemantics::Prefix),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpSeriesSemantics {
+    Frozen,
+    Prefix,
+}
+
+fn calculate_sp_for_variant(
+    input: &SpInput,
+    variant: SpVariant,
+    series_semantics: SpSeriesSemantics,
+) -> SpResult {
     let raw_discard_tiles: Vec<u8> = if input.discard_candidates.is_empty() {
         input
             .tehai
@@ -449,6 +539,7 @@ fn calculate_sp_for_variant(input: &SpInput, variant: SpVariant) -> SpResult {
                 total_remaining,
                 post_discard_akas,
                 waits,
+                series_semantics,
             )
         } else {
             // Shanten-down discard: skip the expensive DP and use the
@@ -2041,6 +2132,7 @@ fn series_for_candidate(
     total_remaining: f32,
     akas_in_hand: [bool; 3],
     waits_for_tenpai: Option<&[f32; TILE_MAX]>,
+    series_semantics: SpSeriesSemantics,
 ) -> (
     [f32; SP_MAX_TURNS],
     [f32; SP_MAX_TURNS],
@@ -2056,7 +2148,14 @@ fn series_for_candidate(
         return dp.tenpai_series_from_waits(counts, remaining, waits, akas_in_hand);
     }
     if shanten_after_discard <= SHANTEN_THRES {
-        return dp.series_with_akas(counts, remaining, horizon, akas_in_hand);
+        return match series_semantics {
+            SpSeriesSemantics::Frozen => {
+                dp.series_with_akas(counts, remaining, horizon, akas_in_hand)
+            }
+            SpSeriesSemantics::Prefix => {
+                dp.series_with_akas_prefixes(counts, remaining, horizon, akas_in_hand)
+            }
+        };
     }
     series_for_candidate_approx(
         shanten_after_discard,
@@ -2227,6 +2326,10 @@ struct DpContext<'a> {
     variant: SpVariant,
     /// 計算したいホライズン (= 入力 tsumos_left).
     horizon: usize,
+    /// Actual last self-draw in the input. Prefix-v1 may temporarily solve a
+    /// shorter probability horizon, but haitei must remain tied to the real
+    /// final draw rather than each intermediate prefix endpoint.
+    actual_last_turn_idx: usize,
     /// 山+他家手牌などの未公開牌合計枚数 (= sum(remaining)).
     n_left_tiles: u32,
 
@@ -2334,6 +2437,7 @@ impl<'a> DpContext<'a> {
             input,
             variant,
             horizon,
+            actual_last_turn_idx: horizon - 1,
             n_left_tiles,
             tsumo_prob,
             not_tsumo_prob,
@@ -2540,6 +2644,39 @@ impl<'a> DpContext<'a> {
         (tenpai, win, ev)
     }
 
+    /// Prefix-corrected series used by the versioned SP API. The frozen DP
+    /// stores a vector over absolute *entry turns* for one terminal horizon;
+    /// reversing that vector made an `i+1`-draw prefix start at turn
+    /// `H-1-i`, changing its without-replacement denominator. Evaluate the
+    /// terminal cell once per prefix instead. This is intentionally opt-in so
+    /// the historical feature ABI and its performance remain unchanged.
+    fn series_with_akas_prefixes(
+        &mut self,
+        counts: &[u8; TILE_MAX],
+        remaining: &[u8; TILE_MAX],
+        tsumos_left: usize,
+        akas_in_hand: [bool; 3],
+    ) -> (
+        [f32; SP_MAX_TURNS],
+        [f32; SP_MAX_TURNS],
+        [f32; SP_MAX_TURNS],
+    ) {
+        let mut tenpai = [0.0; SP_MAX_TURNS];
+        let mut win = [0.0; SP_MAX_TURNS];
+        let mut ev = [0.0; SP_MAX_TURNS];
+        let horizon = tsumos_left.min(SP_MAX_TURNS);
+
+        for prefix in 1..=horizon {
+            let (prefix_tenpai, prefix_win, prefix_ev) =
+                self.series_with_akas(counts, remaining, prefix, akas_in_hand);
+            let terminal = prefix - 1;
+            tenpai[terminal] = prefix_tenpai[terminal];
+            win[terminal] = prefix_win[terminal];
+            ev[terminal] = prefix_ev[terminal];
+        }
+        (tenpai, win, ev)
+    }
+
     /// Closed-form `series_with_akas` for the tenpai (`shanten==0`) case.
     /// Skips the full `draw_dp` cache lookup + 34-tile re-enumeration by taking
     /// the wait set as input. Wait tiles come from `fused_tenpai_pass`, so the
@@ -2586,7 +2723,7 @@ impl<'a> DpContext<'a> {
 
         let assume_riichi = self.input.is_menzen && self.input.can_riichi;
         let calc_double_riichi = assume_riichi && self.input.can_double_riichi;
-        let last_turn_idx = horizon - 1;
+        let last_turn_idx = self.actual_last_turn_idx;
         let akas_in_wall = initial_akas_in_wall(self.input);
 
         let total_idx = (sum_required as usize).min(self.not_tsumo_prob.len() - 1);
@@ -2798,7 +2935,7 @@ impl<'a> DpContext<'a> {
         let horizon = self.horizon;
         let assume_riichi = self.input.is_menzen && self.input.can_riichi;
         let calc_double_riichi = assume_riichi && self.input.can_double_riichi;
-        let last_turn_idx = horizon - 1;
+        let last_turn_idx = self.actual_last_turn_idx;
 
         // 有効牌を列挙し、合計枚数を計算する。
         // Per-suit incremental shanten: cache base k0 once, recompute only
@@ -3968,6 +4105,8 @@ fn set_layout(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap as StdHashMap;
+
     use super::*;
 
     fn encoded_at(buf: &[f32], ch: usize, tile: usize) -> f32 {
@@ -4013,6 +4152,387 @@ mod tests {
         }
     }
 
+    /// Terminal event used by the small-wall SP oracle below.  The oracle is
+    /// intentionally a physical-draw enumerator, rather than a second copy of
+    /// SP's effective-tile recurrence: every miss is removed from `wall`, and
+    /// every legal tile type in the 14-tile hand is considered as a discard.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    enum OracleGoal {
+        Tenpai,
+        Win,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    struct OracleState {
+        counts: [u8; TILE_MAX],
+        wall: [u8; TILE_MAX],
+        draws_left: u8,
+        goal: OracleGoal,
+        is_sanma: bool,
+    }
+
+    fn oracle_shanten(counts: &[u8; TILE_MAX], variant: SpVariant) -> i8 {
+        let len_div3 = counts.iter().sum::<u8>() / 3;
+        match variant {
+            SpVariant::FourPlayer => shanten::calc_shanten_from_counts(counts, len_div3),
+            SpVariant::ThreePlayer => shanten::calc_shanten_from_counts_3p(counts, len_div3),
+        }
+    }
+
+    /// Brute-force, without-replacement probability oracle for a 13-tile
+    /// state.  Unlike production SP, it does not pre-compress the wall to
+    /// effective draws or call `DpContext`, `required_tiles`, or `series`.
+    ///
+    /// At each draw it enumerates every distinct discard and retains the
+    /// policy with the highest probability of the requested terminal event.
+    /// The fixtures use the first theoretically reachable horizon, so a
+    /// shanten-preserving choice cannot tie a progressing choice: it has no
+    /// draws left to recover the lost step.
+    fn exhaustive_small_wall_probability(
+        counts: [u8; TILE_MAX],
+        wall: [u8; TILE_MAX],
+        draws: usize,
+        variant: SpVariant,
+        goal: OracleGoal,
+    ) -> f64 {
+        fn visit(
+            counts: [u8; TILE_MAX],
+            wall: [u8; TILE_MAX],
+            draws_left: usize,
+            variant: SpVariant,
+            goal: OracleGoal,
+            memo: &mut StdHashMap<OracleState, f64>,
+        ) -> f64 {
+            let current_shanten = oracle_shanten(&counts, variant);
+            if goal == OracleGoal::Tenpai && current_shanten <= 0 {
+                return 1.0;
+            }
+            if draws_left == 0 {
+                return 0.0;
+            }
+
+            // One draw lowers shanten by at most one.  This exact lower bound
+            // only prunes branches that cannot reach the requested event.
+            let minimum_draws = match goal {
+                OracleGoal::Tenpai => current_shanten.max(0) as usize,
+                OracleGoal::Win => current_shanten.saturating_add(1).max(1) as usize,
+            };
+            if minimum_draws > draws_left {
+                return 0.0;
+            }
+
+            let key = OracleState {
+                counts,
+                wall,
+                draws_left: draws_left as u8,
+                goal,
+                is_sanma: variant == SpVariant::ThreePlayer,
+            };
+            if let Some(&cached) = memo.get(&key) {
+                return cached;
+            }
+
+            let total = wall.iter().map(|&count| count as u32).sum::<u32>();
+            if total == 0 {
+                return 0.0;
+            }
+
+            let mut probability = 0.0f64;
+            for draw in 0..TILE_MAX {
+                let copies = wall[draw];
+                if copies == 0 {
+                    continue;
+                }
+
+                let mut next_wall = wall;
+                next_wall[draw] -= 1;
+                let mut counts_14 = counts;
+                counts_14[draw] += 1;
+
+                let drawn_shanten = oracle_shanten(&counts_14, variant);
+                let branch = if goal == OracleGoal::Win && current_shanten == 0 && drawn_shanten < 0
+                {
+                    // Every fixture is closed and riichi-eligible, so a
+                    // structurally complete tsumo has a yaku.
+                    1.0
+                } else {
+                    let mut best_after_discard = 0.0f64;
+                    for discard in 0..TILE_MAX {
+                        if counts_14[discard] == 0 {
+                            continue;
+                        }
+                        let mut next_counts = counts_14;
+                        next_counts[discard] -= 1;
+                        best_after_discard = best_after_discard.max(visit(
+                            next_counts,
+                            next_wall,
+                            draws_left - 1,
+                            variant,
+                            goal,
+                            memo,
+                        ));
+                    }
+                    best_after_discard
+                };
+                probability += copies as f64 / total as f64 * branch;
+            }
+
+            memo.insert(key, probability);
+            probability
+        }
+
+        visit(counts, wall, draws, variant, goal, &mut StdHashMap::new())
+    }
+
+    fn counts_from_types(tile_types: &[u8]) -> [u8; TILE_MAX] {
+        let mut counts = [0u8; TILE_MAX];
+        for &tile in tile_types {
+            counts[tile as usize] += 1;
+        }
+        counts
+    }
+
+    fn wall_from_counts(entries: &[(u8, u8)]) -> [u8; TILE_MAX] {
+        let mut wall = [0u8; TILE_MAX];
+        for &(tile, count) in entries {
+            wall[tile as usize] = count;
+        }
+        wall
+    }
+
+    fn small_wall_input(
+        tehai: [u8; TILE_MAX],
+        wall: &[u8; TILE_MAX],
+        discard: u8,
+        horizon: usize,
+    ) -> SpInput {
+        let mut tiles_seen = [0u8; TILE_MAX];
+        for tile in 0..TILE_MAX {
+            tiles_seen[tile] = 4 - wall[tile];
+            assert!(
+                tehai[tile] <= tiles_seen[tile],
+                "fixture has more tile {tile} in hand than outside its wall"
+            );
+        }
+        SpInput {
+            tehai,
+            akas_in_hand: [false; 3],
+            tiles_seen,
+            akas_seen: [true; 3],
+            dora_indicators: vec![],
+            melds: vec![],
+            bakaze: 27,
+            jikaze: 28,
+            is_menzen: true,
+            can_riichi: true,
+            can_double_riichi: false,
+            tsumos_left: horizon as u8,
+            discard_candidates: vec![discard],
+            kita_count: 0,
+        }
+    }
+
+    fn corrected_small_wall_candidate(
+        tehai: [u8; TILE_MAX],
+        wall: &[u8; TILE_MAX],
+        discard: u8,
+        horizon: usize,
+        variant: SpVariant,
+    ) -> SpCandidate {
+        let input = small_wall_input(tehai, wall, discard, horizon);
+        match variant {
+            SpVariant::FourPlayer => calculate_sp_v1(&input)
+                .candidates()
+                .iter()
+                .find(|candidate| candidate.tile == discard)
+                .cloned()
+                .expect("4P oracle discard candidate"),
+            SpVariant::ThreePlayer => {
+                let input_3p = SpInput3P {
+                    tehai: input.tehai,
+                    akas_in_hand: input.akas_in_hand,
+                    tiles_seen: input.tiles_seen,
+                    akas_seen: input.akas_seen,
+                    dora_indicators: input.dora_indicators,
+                    melds: input.melds,
+                    bakaze: input.bakaze,
+                    jikaze: input.jikaze,
+                    is_menzen: input.is_menzen,
+                    can_riichi: input.can_riichi,
+                    can_double_riichi: input.can_double_riichi,
+                    tsumos_left: input.tsumos_left,
+                    discard_candidates: input.discard_candidates,
+                    kita_count: 0,
+                };
+                calculate_sp_3p_v2(&input_3p)
+                    .candidates()
+                    .iter()
+                    .find(|candidate| candidate.tile == discard)
+                    .cloned()
+                    .expect("3P oracle discard candidate")
+            }
+        }
+    }
+
+    fn frozen_small_wall_candidate(
+        tehai: [u8; TILE_MAX],
+        wall: &[u8; TILE_MAX],
+        discard: u8,
+        horizon: usize,
+        variant: SpVariant,
+    ) -> SpCandidate {
+        let input = small_wall_input(tehai, wall, discard, horizon);
+        match variant {
+            SpVariant::FourPlayer => calculate_sp(&input)
+                .candidates
+                .into_iter()
+                .find(|candidate| candidate.tile == discard)
+                .expect("frozen 4P oracle discard candidate"),
+            SpVariant::ThreePlayer => {
+                let input_3p = SpInput3P {
+                    tehai: input.tehai,
+                    akas_in_hand: input.akas_in_hand,
+                    tiles_seen: input.tiles_seen,
+                    akas_seen: input.akas_seen,
+                    dora_indicators: input.dora_indicators,
+                    melds: input.melds,
+                    bakaze: input.bakaze,
+                    jikaze: input.jikaze,
+                    is_menzen: input.is_menzen,
+                    can_riichi: input.can_riichi,
+                    can_double_riichi: input.can_double_riichi,
+                    tsumos_left: input.tsumos_left,
+                    discard_candidates: input.discard_candidates,
+                    kita_count: 0,
+                };
+                calculate_sp_3p(&input_3p)
+                    .candidates
+                    .into_iter()
+                    .find(|candidate| candidate.tile == discard)
+                    .expect("frozen 3P oracle discard candidate")
+            }
+        }
+    }
+
+    fn assert_small_wall_oracle(
+        name: &str,
+        tile_types_14: &[u8],
+        discard: u8,
+        wall: [u8; TILE_MAX],
+        expected_shanten: i8,
+        variant: SpVariant,
+    ) {
+        let tehai = counts_from_types(tile_types_14);
+        let mut best_post_discard = i8::MAX;
+        for tile in 0..TILE_MAX {
+            if tehai[tile] == 0 {
+                continue;
+            }
+            let mut post = tehai;
+            post[tile] -= 1;
+            best_post_discard = best_post_discard.min(oracle_shanten(&post, variant));
+        }
+        let mut post = tehai;
+        post[discard as usize] -= 1;
+        assert_eq!(
+            best_post_discard, expected_shanten,
+            "{name}: unexpected best post-discard shanten"
+        );
+        assert_eq!(
+            oracle_shanten(&post, variant),
+            expected_shanten,
+            "{name}: selected discard is not shanten-optimal"
+        );
+
+        let horizon = expected_shanten as usize + 1;
+        let candidate = corrected_small_wall_candidate(tehai, &wall, discard, horizon, variant);
+        let frozen_candidate = frozen_small_wall_candidate(tehai, &wall, discard, horizon, variant);
+
+        let first_tenpai_turn = expected_shanten as usize - 1;
+        let first_win_turn = expected_shanten as usize;
+        for turn in 0..first_tenpai_turn {
+            assert!(
+                candidate.tenpai_probs[turn].abs() < 1e-7,
+                "{name}: tenpai became non-zero too early at turn {turn}: {}",
+                candidate.tenpai_probs[turn]
+            );
+        }
+        for turn in 0..first_win_turn {
+            assert!(
+                candidate.win_probs[turn].abs() < 1e-7,
+                "{name}: win became non-zero too early at turn {turn}: {}",
+                candidate.win_probs[turn]
+            );
+        }
+
+        let exact_tenpai = (1..=horizon)
+            .map(|draws| {
+                exhaustive_small_wall_probability(post, wall, draws, variant, OracleGoal::Tenpai)
+            })
+            .collect::<Vec<_>>();
+        let exact_win = (1..=horizon)
+            .map(|draws| {
+                exhaustive_small_wall_probability(post, wall, draws, variant, OracleGoal::Win)
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            exact_tenpai[first_tenpai_turn] > 0.0,
+            "{name}: oracle tenpai must be reachable"
+        );
+        assert!(
+            exact_win[first_win_turn] > 0.0,
+            "{name}: oracle win must be reachable"
+        );
+        let (hand_tenpai, hand_win) = match expected_shanten {
+            // Three progress copies among seven physical wall copies.
+            2 => (1.0 / 7.0, 1.0 / 35.0),
+            // Four progress copies among eight physical wall copies.
+            3 => (1.0 / 14.0, 1.0 / 70.0),
+            _ => unreachable!("small-wall fixtures only cover s2/s3"),
+        };
+        assert!(
+            (exact_tenpai[first_tenpai_turn] - hand_tenpai).abs() < 1e-12,
+            "{name}: enumerator disagrees with hand-calculated tenpai probability"
+        );
+        assert!(
+            (exact_win[first_win_turn] - hand_win).abs() < 1e-12,
+            "{name}: enumerator disagrees with hand-calculated win probability"
+        );
+        for turn in 0..horizon {
+            assert!(
+                (candidate.tenpai_probs[turn] as f64 - exact_tenpai[turn]).abs() < 1e-6,
+                "{name}: s{expected_shanten} turn {turn} tenpai mismatch: production={}, oracle={}",
+                candidate.tenpai_probs[turn],
+                exact_tenpai[turn]
+            );
+            assert!(
+                (candidate.win_probs[turn] as f64 - exact_win[turn]).abs() < 1e-6,
+                "{name}: s{expected_shanten} turn {turn} win mismatch: production={}, oracle={}",
+                candidate.win_probs[turn],
+                exact_win[turn]
+            );
+            assert!(
+                candidate.win_probs[turn] <= candidate.tenpai_probs[turn] + 1e-6,
+                "{name}: win probability exceeds tenpai probability at turn {turn}"
+            );
+        }
+        assert_series_monotonic(&candidate.tenpai_probs, horizon);
+        assert_series_monotonic(&candidate.win_probs, horizon);
+        let terminal = horizon - 1;
+        assert!(
+            (frozen_candidate.tenpai_probs[terminal] as f64 - exact_tenpai[terminal]).abs() < 1e-6,
+            "{name}: frozen terminal tenpai must retain the exact endpoint"
+        );
+        assert!(
+            (frozen_candidate.win_probs[terminal] as f64 - exact_win[terminal]).abs() < 1e-6,
+            "{name}: frozen terminal win must retain the exact endpoint"
+        );
+        assert!(
+            (frozen_candidate.exp_values[terminal] - candidate.exp_values[terminal]).abs() < 1e-3,
+            "{name}: prefix correction must not change the terminal EV endpoint"
+        );
+    }
+
     #[test]
     fn sp_generates_candidates_and_178_channels() {
         let input = tenpai_fixture(10);
@@ -4021,6 +4541,35 @@ mod tests {
         let encoded = encode_sp(&result);
         assert_eq!(encoded.len(), SP_CHANNELS * TILE_MAX);
         assert_eq!(SP_CHANNELS, 178);
+    }
+
+    #[test]
+    fn corrected_results_use_versioned_encoding_wrappers() {
+        let input = tenpai_fixture(3);
+        let result_4p = calculate_sp_v1(&input);
+        assert_eq!(Sp4PV1Result::VERSION, 1);
+        assert_eq!(result_4p.encode().len(), SP_CHANNELS * TILE_MAX);
+
+        let common = input_from_tiles(&[0, 0, 0, 8, 8, 8, 9, 10, 11, 18, 19, 20, 27, 27], 3);
+        let input_3p = SpInput3P {
+            tehai: common.tehai,
+            akas_in_hand: common.akas_in_hand,
+            tiles_seen: common.tiles_seen,
+            akas_seen: common.akas_seen,
+            dora_indicators: common.dora_indicators,
+            melds: common.melds,
+            bakaze: common.bakaze,
+            jikaze: common.jikaze,
+            is_menzen: common.is_menzen,
+            can_riichi: common.can_riichi,
+            can_double_riichi: common.can_double_riichi,
+            tsumos_left: common.tsumos_left,
+            discard_candidates: common.discard_candidates,
+            kita_count: 0,
+        };
+        let result_3p = calculate_sp_3p_v2(&input_3p);
+        assert_eq!(Sp3PV2Result::VERSION, 2);
+        assert_eq!(result_3p.encode().len(), SP_CHANNELS * 27);
     }
 
     #[test]
@@ -4702,6 +5251,172 @@ mod tests {
             1.0 / 45.0
         );
         assert!(ev[1] > 0.0);
+    }
+
+    #[test]
+    fn s2_s3_four_player_series_match_independent_small_wall_enumeration() {
+        // s2: two sets, two taatsu and three isolated winds; White is the
+        // selected outer discard.  3p, 3s and West are symmetric progress
+        // steps, so every shanten-lowering policy has the same first-reachable
+        // tenpai/win probability even before positive EV can break ties.
+        assert_small_wall_oracle(
+            "4P s2",
+            &[0, 1, 2, 3, 4, 5, 9, 10, 18, 19, 27, 28, 29, 31],
+            31,
+            wall_from_counts(&[
+                (11, 1),
+                (20, 1),
+                (29, 1),
+                (13, 1),
+                (17, 1),
+                (23, 1),
+                (33, 1),
+            ]),
+            2,
+            SpVariant::FourPlayer,
+        );
+
+        // s3: one set, one pair, two taatsu and four isolated honors.  Red is
+        // the highest-id equal-priority honor, so the documented tie-break
+        // keeps it while 3p, 3s and two Red copies form four progress steps.
+        assert_small_wall_oracle(
+            "4P s3",
+            &[0, 1, 2, 9, 10, 18, 19, 27, 28, 29, 30, 31, 31, 33],
+            30,
+            wall_from_counts(&[
+                (11, 1),
+                (20, 1),
+                (33, 2),
+                (13, 1),
+                (17, 1),
+                (23, 1),
+                (32, 1),
+            ]),
+            3,
+            SpVariant::FourPlayer,
+        );
+    }
+
+    #[test]
+    fn s2_s3_three_player_series_match_independent_small_wall_enumeration() {
+        // Sanma analogues keep every 2m..8m count at zero.  1m/9m are used
+        // only as one-copy miss tiles, exercising the sanma wall layout while
+        // leaving the progression in pinzu/souzu and honors.
+        assert_small_wall_oracle(
+            "3P s2",
+            &[9, 10, 11, 12, 13, 14, 18, 19, 24, 25, 27, 28, 29, 31],
+            31,
+            wall_from_counts(&[(20, 1), (26, 1), (29, 1), (0, 1), (8, 1), (31, 1), (33, 1)]),
+            2,
+            SpVariant::ThreePlayer,
+        );
+        assert_small_wall_oracle(
+            "3P s3",
+            &[9, 10, 11, 18, 19, 24, 25, 27, 28, 29, 30, 31, 31, 33],
+            30,
+            wall_from_counts(&[(20, 1), (26, 1), (33, 2), (0, 1), (8, 1), (30, 1), (32, 1)]),
+            3,
+            SpVariant::ThreePlayer,
+        );
+    }
+
+    #[test]
+    fn corrected_prefix_probabilities_do_not_depend_on_total_horizon() {
+        let fixtures = [
+            (
+                "4P s2",
+                SpVariant::FourPlayer,
+                counts_from_types(&[0, 1, 2, 3, 4, 5, 9, 10, 18, 19, 27, 28, 29, 31]),
+                31,
+                wall_from_counts(&[
+                    (11, 1),
+                    (20, 1),
+                    (29, 1),
+                    (13, 1),
+                    (17, 1),
+                    (23, 1),
+                    (33, 1),
+                ]),
+                3,
+                true,
+            ),
+            (
+                "4P s3",
+                SpVariant::FourPlayer,
+                counts_from_types(&[0, 1, 2, 9, 10, 18, 19, 27, 28, 29, 30, 31, 31, 33]),
+                30,
+                wall_from_counts(&[
+                    (11, 1),
+                    (20, 1),
+                    (33, 2),
+                    (13, 1),
+                    (17, 1),
+                    (23, 1),
+                    (32, 1),
+                ]),
+                4,
+                false,
+            ),
+            (
+                "3P s2",
+                SpVariant::ThreePlayer,
+                counts_from_types(&[9, 10, 11, 12, 13, 14, 18, 19, 24, 25, 27, 28, 29, 31]),
+                31,
+                wall_from_counts(&[(20, 1), (26, 1), (29, 1), (0, 1), (8, 1), (31, 1), (33, 1)]),
+                3,
+                false,
+            ),
+            (
+                "3P s3",
+                SpVariant::ThreePlayer,
+                counts_from_types(&[9, 10, 11, 18, 19, 24, 25, 27, 28, 29, 30, 31, 31, 33]),
+                30,
+                wall_from_counts(&[(20, 1), (26, 1), (33, 2), (0, 1), (8, 1), (30, 1), (32, 1)]),
+                4,
+                false,
+            ),
+        ];
+
+        for (name, variant, tehai, discard, wall, prefix_len, check_frozen_abi) in fixtures {
+            let short = corrected_small_wall_candidate(tehai, &wall, discard, prefix_len, variant);
+            let long = corrected_small_wall_candidate(tehai, &wall, discard, 17, variant);
+            if check_frozen_abi {
+                let frozen_input = small_wall_input(tehai, &wall, discard, 3);
+                let frozen = calculate_sp(&frozen_input)
+                    .candidates
+                    .into_iter()
+                    .find(|candidate| candidate.tile == discard)
+                    .unwrap();
+                let frozen_long_input = small_wall_input(tehai, &wall, discard, 17);
+                let frozen_long = calculate_sp(&frozen_long_input)
+                    .candidates
+                    .into_iter()
+                    .find(|candidate| candidate.tile == discard)
+                    .unwrap();
+                assert!(
+                    (frozen.tenpai_probs[1] - 0.2).abs() < 1e-6,
+                    "frozen v0 H3 prefix changed unexpectedly"
+                );
+                assert!(
+                    frozen_long.tenpai_probs[1].abs() < 1e-7,
+                    "frozen v0 H17 prefix changed unexpectedly"
+                );
+            }
+            for turn in 0..prefix_len {
+                assert!(
+                    (short.tenpai_probs[turn] - long.tenpai_probs[turn]).abs() < 1e-6,
+                    "{name} turn {turn}: tenpai prefix changed with total horizon: {} != {}",
+                    short.tenpai_probs[turn],
+                    long.tenpai_probs[turn]
+                );
+                assert!(
+                    (short.win_probs[turn] - long.win_probs[turn]).abs() < 1e-6,
+                    "{name} turn {turn}: win prefix changed with total horizon: {} != {}",
+                    short.win_probs[turn],
+                    long.win_probs[turn]
+                );
+            }
+        }
     }
 
     // ----- Semantic correctness tests -----

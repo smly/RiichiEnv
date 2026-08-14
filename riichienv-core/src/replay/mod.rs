@@ -17,6 +17,8 @@ use crate::action::Action3P;
 use crate::action::ActionType;
 #[cfg(feature = "python")]
 use crate::hand_evaluator::HandEvaluator;
+#[cfg(feature = "python")]
+use crate::hand_evaluator_3p::HandEvaluator3P;
 use crate::types::MeldType;
 #[cfg(feature = "python")]
 use crate::types::WinResult;
@@ -92,11 +94,15 @@ pub struct HuleData {
     pub count: u32,
     pub fu: u32,
     pub fans: Vec<u32>,
+    /// External yaku IDs with their platform-reported han/count value.
+    pub fan_values: Vec<(u32, u32)>,
     pub li_doras: Option<Vec<u8>>,
     pub yiman: bool,
     pub point_rong: u32,
     pub point_zimo_qin: u32,
     pub point_zimo_xian: u32,
+    /// Authoritative stick count when the source has a separate acceptance event.
+    pub riichi_sticks: Option<u32>,
 }
 
 #[cfg(feature = "python")]
@@ -111,6 +117,8 @@ pub struct KyokuStepIterator {
     /// Queued (pid, observation) pairs for players who implicitly passed
     /// on a claim opportunity (pon/chi/ron) that existed in the log.
     pending_pass_obs: Vec<(u8, crate::observation::Observation)>,
+    /// Terminal decisions captured before applying a batched multi-ron.
+    pending_hule_obs: Vec<(u8, crate::observation::Observation, EnvAction)>,
 }
 
 #[cfg(feature = "python")]
@@ -125,6 +133,8 @@ pub struct KyokuStepIterator3P {
     /// Queued (pid, observation) pairs for players who implicitly passed
     /// on a claim opportunity (pon/ron) that existed in the log.
     pending_pass_obs: Vec<(u8, crate::observation_3p::Observation3P)>,
+    /// Terminal decisions captured before applying a batched double-ron.
+    pending_hule_obs: Vec<(u8, crate::observation_3p::Observation3P, EnvAction)>,
 }
 
 #[cfg(feature = "python")]
@@ -233,6 +243,21 @@ impl KyokuStepIterator {
                 }
             }
 
+            if let Some((pid, obs, action)) = slf.pending_hule_obs.pop() {
+                if let Some(target) = slf.filter_seat {
+                    if pid != target {
+                        continue;
+                    }
+                    if slf.skip_single_action && obs._legal_actions.len() <= 1 {
+                        continue;
+                    }
+                    let py = slf.py();
+                    return Ok(Some((obs, action).into_pyobject(py)?.unbind().into()));
+                }
+                let py = slf.py();
+                return Ok(Some((pid, obs, action).into_pyobject(py)?.unbind().into()));
+            }
+
             if let Some((pid, action)) = slf.pending_action.take() {
                 let mut staged_riichi = false;
                 if action.action_type == crate::action::ActionType::Discard {
@@ -306,6 +331,7 @@ impl KyokuStepIterator {
                     seat,
                     tile,
                     is_liqi,
+                    is_wliqi,
                     ..
                 } => {
                     let pid = *seat as u8;
@@ -316,7 +342,7 @@ impl KyokuStepIterator {
                         None,
                     );
 
-                    if *is_liqi {
+                    if *is_liqi || *is_wliqi {
                         let riichi_action = EnvAction::new(
                             crate::action::ActionType::Riichi,
                             None,
@@ -486,49 +512,35 @@ impl KyokuStepIterator {
                     }
                 }
                 Action::Hule { hules } => {
-                    let first = &hules[0];
-                    let pid = first.seat as u8;
-
-                    // Detect chankan on Kita: mjsoul marks this as zimo=true,
-                    // but the winner is not the current player (they're ronning
-                    // the Kita declaration).
-                    let is_actual_tsumo = first.zimo && pid == slf.state.current_player;
-
-                    let atype = if is_actual_tsumo {
-                        crate::action::ActionType::Tsumo
-                    } else {
-                        crate::action::ActionType::Ron
-                    };
-                    let tile = if is_actual_tsumo {
-                        slf.state.drawn_tile
-                    } else {
-                        slf.state.last_discard.map(|(_, t)| t)
-                    };
-                    let env_action = EnvAction::new(atype, tile, Vec::new(), None);
-
-                    let obs = slf.state.get_observation_for_replay(
-                        pid,
-                        &env_action,
-                        &format!("{:?}", action),
-                    )?;
+                    let mut decisions = Vec::with_capacity(hules.len());
+                    for hule in hules {
+                        let pid = hule.seat as u8;
+                        // Mahjong Soul reports ron on Kita as zimo=true. It is
+                        // only a real tsumo when the winner is the current player.
+                        let is_actual_tsumo = hule.zimo && pid == slf.state.current_player;
+                        let atype = if is_actual_tsumo {
+                            crate::action::ActionType::Tsumo
+                        } else {
+                            crate::action::ActionType::Ron
+                        };
+                        let tile = if is_actual_tsumo {
+                            slf.state.drawn_tile
+                        } else {
+                            slf.state.last_discard.map(|(_, t)| t)
+                        };
+                        let env_action = EnvAction::new(atype, tile, Vec::new(), None);
+                        let obs = slf.state.get_observation_for_replay(
+                            pid,
+                            &env_action,
+                            &format!("{:?}", action),
+                        )?;
+                        decisions.push((pid, obs, env_action));
+                    }
 
                     slf.state.apply_log_action(action);
                     slf.idx += 1;
-
-                    if let Some(target) = slf.filter_seat {
-                        if pid == target {
-                            if slf.skip_single_action && obs._legal_actions.len() <= 1 {
-                                continue;
-                            }
-                            let py = slf.py();
-                            return Ok(Some((obs, env_action).into_pyobject(py)?.unbind().into()));
-                        }
-                    } else {
-                        let py = slf.py();
-                        return Ok(Some(
-                            (pid, obs, env_action).into_pyobject(py)?.unbind().into(),
-                        ));
-                    }
+                    decisions.reverse();
+                    slf.pending_hule_obs = decisions;
                 }
             }
         }
@@ -654,6 +666,22 @@ impl KyokuStepIterator3P {
                 }
             }
 
+            if let Some((pid, obs, action)) = slf.pending_hule_obs.pop() {
+                let action = Action3P::from_action(action);
+                if let Some(target) = slf.filter_seat {
+                    if pid != target {
+                        continue;
+                    }
+                    if slf.skip_single_action && obs._legal_actions.len() <= 1 {
+                        continue;
+                    }
+                    let py = slf.py();
+                    return Ok(Some((obs, action).into_pyobject(py)?.unbind().into()));
+                }
+                let py = slf.py();
+                return Ok(Some((pid, obs, action).into_pyobject(py)?.unbind().into()));
+            }
+
             if let Some((pid, action)) = slf.pending_action.take() {
                 let mut staged_riichi = false;
                 if action.action_type == crate::action::ActionType::Discard {
@@ -761,6 +789,7 @@ impl KyokuStepIterator3P {
                     seat,
                     tile,
                     is_liqi,
+                    is_wliqi,
                     ..
                 } => {
                     let pid = *seat as u8;
@@ -771,7 +800,7 @@ impl KyokuStepIterator3P {
                         None,
                     );
 
-                    if *is_liqi {
+                    if *is_liqi || *is_wliqi {
                         let riichi_action = EnvAction::new(
                             crate::action::ActionType::Riichi,
                             None,
@@ -955,52 +984,35 @@ impl KyokuStepIterator3P {
                     }
                 }
                 Action::Hule { hules } => {
-                    let first = &hules[0];
-                    let pid = first.seat as u8;
-
-                    // Detect chankan on Kita: mjsoul marks this as zimo=true,
-                    // but the winner is not the current player (they're ronning
-                    // the Kita declaration).
-                    let is_actual_tsumo = first.zimo && pid == slf.state.current_player;
-
-                    let atype = if is_actual_tsumo {
-                        crate::action::ActionType::Tsumo
-                    } else {
-                        crate::action::ActionType::Ron
-                    };
-                    let tile = if is_actual_tsumo {
-                        slf.state.drawn_tile
-                    } else {
-                        slf.state.last_discard.map(|(_, t)| t)
-                    };
-                    let env_action = EnvAction::new(atype, tile, Vec::new(), None);
-
-                    let obs = slf.state.get_observation_for_replay(
-                        pid,
-                        &env_action,
-                        &format!("{:?}", action),
-                    )?;
+                    let mut decisions = Vec::with_capacity(hules.len());
+                    for hule in hules {
+                        let pid = hule.seat as u8;
+                        // Mahjong Soul reports ron on Kita as zimo=true. It is
+                        // only a real tsumo when the winner is the current player.
+                        let is_actual_tsumo = hule.zimo && pid == slf.state.current_player;
+                        let atype = if is_actual_tsumo {
+                            crate::action::ActionType::Tsumo
+                        } else {
+                            crate::action::ActionType::Ron
+                        };
+                        let tile = if is_actual_tsumo {
+                            slf.state.drawn_tile
+                        } else {
+                            slf.state.last_discard.map(|(_, t)| t)
+                        };
+                        let env_action = EnvAction::new(atype, tile, Vec::new(), None);
+                        let obs = slf.state.get_observation_for_replay(
+                            pid,
+                            &env_action,
+                            &format!("{:?}", action),
+                        )?;
+                        decisions.push((pid, obs, env_action));
+                    }
 
                     slf.state.apply_log_action(action);
                     slf.idx += 1;
-
-                    let env_action_3p = Action3P::from_action(env_action);
-                    if let Some(target) = slf.filter_seat {
-                        if pid == target {
-                            if slf.skip_single_action && obs._legal_actions.len() <= 1 {
-                                continue;
-                            }
-                            let py = slf.py();
-                            return Ok(Some(
-                                (obs, env_action_3p).into_pyobject(py)?.unbind().into(),
-                            ));
-                        }
-                    } else {
-                        let py = slf.py();
-                        return Ok(Some(
-                            (pid, obs, env_action_3p).into_pyobject(py)?.unbind().into(),
-                        ));
-                    }
+                    decisions.reverse();
+                    slf.pending_hule_obs = decisions;
                 }
             }
         }
@@ -1035,6 +1047,22 @@ impl LogKyoku {
     /// Typed replay actions in their original decision order.
     pub fn actions(&self) -> &[Action] {
         &self.actions
+    }
+
+    #[cfg(feature = "python")]
+    fn initial_doras_for_action_replay(&self) -> Vec<u8> {
+        let has_sequential_updates = self.actions.iter().any(|action| match action {
+            Action::Dora { .. } => true,
+            Action::DealTile { doras, .. }
+            | Action::DiscardTile { doras, .. }
+            | Action::AnGangAddGang { doras, .. } => doras.is_some(),
+            _ => false,
+        });
+        if has_sequential_updates {
+            self.doras.first().copied().into_iter().collect()
+        } else {
+            self.doras.clone()
+        }
     }
 }
 
@@ -1129,7 +1157,7 @@ impl LogKyoku {
             wall = Some(w);
         }
 
-        let doras = self.doras.clone();
+        let doras = self.initial_doras_for_action_replay();
         let np = if is_3p { 3usize } else { 4usize };
 
         let mut oya_idx = (self.ju % np as u8) as usize;
@@ -1210,6 +1238,7 @@ impl LogKyoku {
                 filter_seat: seat,
                 skip_single_action,
                 pending_pass_obs: Vec::new(),
+                pending_hule_obs: Vec::new(),
             };
             Ok(Py::new(py, iter)?.into_any())
         } else {
@@ -1297,6 +1326,7 @@ impl LogKyoku {
                 pending_action: None,
                 filter_seat: seat,
                 pending_pass_obs: Vec::new(),
+                pending_hule_obs: Vec::new(),
                 skip_single_action,
             };
             Ok(Py::new(py, iter)?.into_any())
@@ -1457,9 +1487,15 @@ impl LogKyoku {
                         h_dict.set_item("count", h.count)?;
                         h_dict.set_item("fu", h.fu)?;
                         let f_list = PyList::empty(py);
-                        for f_id in &h.fans {
+                        let fan_values = if h.fan_values.is_empty() {
+                            h.fans.iter().map(|id| (*id, 1)).collect::<Vec<_>>()
+                        } else {
+                            h.fan_values.clone()
+                        };
+                        for (f_id, value) in fan_values {
                             let f_dict = PyDict::new(py);
                             f_dict.set_item("id", f_id)?;
+                            f_dict.set_item("val", value)?;
                             f_list.append(f_dict)?;
                         }
                         h_dict.set_item("fans", f_list)?;
@@ -1616,10 +1652,13 @@ pub struct WinResultContextIterator {
     is_first_turn: Vec<bool>,
     last_action_was_kakan: bool,
     kakan_tile: Option<u8>,
+    pending_rinshan_seat: Option<usize>,
     last_action_was_babei: bool,
+    last_babei_seat: Option<usize>,
     ippatsu_before_babei: Vec<bool>,
     current_doras: Vec<u8>,
-    _current_liqibang: u8,
+    current_liqibang: u32,
+    pending_riichi_acceptance: Option<usize>,
     current_left_tile_count: u8,
     wall: Vec<u8>,
     dora_count: u8,
@@ -1655,6 +1694,11 @@ fn parse_paishan(s: &str) -> Vec<u8> {
 #[cfg(feature = "python")]
 impl WinResultContextIterator {
     pub fn new(kyoku: LogKyoku) -> Self {
+        let num_players = kyoku.scores.len();
+        let mut current_hands = kyoku.hands.clone();
+        current_hands.resize_with(num_players, Vec::new);
+        current_hands.truncate(num_players);
+        let initial_doras = kyoku.initial_doras_for_action_replay();
         let wall = if let Some(ref p) = kyoku.paishan {
             parse_paishan(p)
         } else {
@@ -1665,24 +1709,30 @@ impl WinResultContextIterator {
             kyoku: kyoku.clone(),
             action_index: 0,
             pending_win_results: Vec::new(),
-            melds: vec![Vec::new(); 4],
-            current_hands: kyoku.hands.clone(),
-            liqi: vec![false; 4],
-            wliqi: vec![false; 4],
-            ippatsu: vec![false; 4],
-            rinshan: vec![false; 4],
-            is_first_turn: vec![true; 4],
+            melds: vec![Vec::new(); num_players],
+            current_hands,
+            liqi: vec![false; num_players],
+            wliqi: vec![false; num_players],
+            ippatsu: vec![false; num_players],
+            rinshan: vec![false; num_players],
+            is_first_turn: vec![true; num_players],
             last_action_was_kakan: false,
             kakan_tile: None,
+            pending_rinshan_seat: None,
             last_action_was_babei: false,
-            ippatsu_before_babei: vec![false; 4],
-            current_doras: kyoku.doras.clone(),
-            _current_liqibang: kyoku.liqibang,
+            last_babei_seat: None,
+            ippatsu_before_babei: vec![false; num_players],
+            // LogKyoku may store the complete round-level indicator list.
+            // When actions reveal indicators sequentially, start from the
+            // initial marker to avoid counting every kan indicator twice.
+            current_doras: initial_doras,
+            current_liqibang: kyoku.liqibang as u32,
+            pending_riichi_acceptance: None,
             current_left_tile_count: kyoku.left_tile_count,
             wall,
             dora_count: 1, // Initial Dora is always 1
             pending_minkan_doras: 0,
-            kita_counts: vec![0; 4],
+            kita_counts: vec![0; num_players],
         }
     }
 
@@ -1745,10 +1795,10 @@ impl WinResultContextIterator {
             self.action_index += 1;
 
             if !matches!(action, Action::Hule { .. }) {
-                self.rinshan = vec![false; 4];
                 // Reset BaBei flag for non-Hule actions; ron-on-kita needs it in Hule handler
                 if !matches!(action, Action::BaBei { .. }) {
                     self.last_action_was_babei = false;
+                    self.last_babei_seat = None;
                 }
             }
 
@@ -1761,22 +1811,26 @@ impl WinResultContextIterator {
                     doras,
                 } => {
                     if self.last_action_was_kakan {
-                        self.ippatsu = vec![false; 4];
-                        self.is_first_turn = vec![false; 4];
+                        self.ippatsu.fill(false);
+                        self.is_first_turn.fill(false);
                         self.last_action_was_kakan = false;
                         self.last_action_was_babei = false;
                         self.kakan_tile = None;
                     }
 
+                    let declares_riichi = *is_liqi || *is_wliqi;
                     if *is_wliqi {
                         self.wliqi[*seat] = true;
-                        self.ippatsu[*seat] = true;
                     }
-                    if *is_liqi {
+                    if declares_riichi && !self.liqi[*seat] {
                         self.liqi[*seat] = true;
                         self.ippatsu[*seat] = true;
+                        // Mahjong Soul marks the declaration discard itself.
+                        // The deposit only becomes established once a later
+                        // draw/call proves that the discard was not ronned.
+                        self.pending_riichi_acceptance = Some(*seat);
                     }
-                    if !*is_liqi {
+                    if !declares_riichi {
                         self.ippatsu[*seat] = false;
                     }
                     self.is_first_turn[*seat] = false;
@@ -1794,6 +1848,8 @@ impl WinResultContextIterator {
                     }
 
                     self._sync_doras_with_wall();
+                    self.rinshan.fill(false);
+                    self.pending_rinshan_seat = None;
                 }
                 Action::DealTile {
                     seat,
@@ -1801,9 +1857,17 @@ impl WinResultContextIterator {
                     doras,
                     left_tile_count,
                 } => {
+                    if self.pending_riichi_acceptance.take().is_some() {
+                        self.current_liqibang += 1;
+                    }
+                    self.rinshan.fill(false);
+                    if self.pending_rinshan_seat == Some(*seat) {
+                        self.rinshan[*seat] = true;
+                    }
+                    self.pending_rinshan_seat = None;
                     if self.last_action_was_kakan {
-                        self.ippatsu = vec![false; 4];
-                        self.is_first_turn = vec![false; 4];
+                        self.ippatsu.fill(false);
+                        self.is_first_turn.fill(false);
                         self.last_action_was_kakan = false;
                         self.last_action_was_babei = false;
                         self.kakan_tile = None;
@@ -1817,7 +1881,6 @@ impl WinResultContextIterator {
 
                     if let Some(d) = doras {
                         self.current_doras = d.clone();
-                        self.rinshan[*seat] = true;
                     }
                     self._sync_doras_with_wall();
                 }
@@ -1827,9 +1890,13 @@ impl WinResultContextIterator {
                     tiles,
                     froms,
                 } => {
-                    self.rinshan = vec![false; 4];
-                    self.ippatsu = vec![false; 4];
-                    self.is_first_turn = vec![false; 4];
+                    if self.pending_riichi_acceptance.take().is_some() {
+                        self.current_liqibang += 1;
+                    }
+                    self.rinshan.fill(false);
+                    self.pending_rinshan_seat = None;
+                    self.ippatsu.fill(false);
+                    self.is_first_turn.fill(false);
                     self.last_action_was_kakan = false;
                     self.last_action_was_babei = false;
                     self.kakan_tile = None;
@@ -1861,6 +1928,7 @@ impl WinResultContextIterator {
                     });
                     if *meld_type == MeldType::Daiminkan {
                         self.rinshan[*seat] = true;
+                        self.pending_rinshan_seat = Some(*seat);
 
                         // New Kan flushes pending
                         if self.pending_minkan_doras > 0 {
@@ -1895,7 +1963,8 @@ impl WinResultContextIterator {
                     tile_raw_id,
                     doras,
                 } => {
-                    self.rinshan = vec![false; 4];
+                    self.rinshan.fill(false);
+                    self.pending_rinshan_seat = None;
                     if let Some(d) = doras {
                         self.current_doras = d.clone();
                     }
@@ -1907,8 +1976,8 @@ impl WinResultContextIterator {
                     }
 
                     if *meld_type == MeldType::Ankan {
-                        self.ippatsu = vec![false; 4];
-                        self.is_first_turn = vec![false; 4];
+                        self.ippatsu.fill(false);
+                        self.is_first_turn.fill(false);
                         self.last_action_was_kakan = false;
                         self.last_action_was_babei = false;
                         self.kakan_tile = None;
@@ -1946,6 +2015,7 @@ impl WinResultContextIterator {
                             called_tile: None,
                         });
                         self.rinshan[*seat] = true;
+                        self.pending_rinshan_seat = Some(*seat);
 
                         // Ankan: Immediate Reveal
                         if !self.wall.is_empty() {
@@ -1955,6 +2025,7 @@ impl WinResultContextIterator {
                         self.last_action_was_kakan = true;
                         self.kakan_tile = Some(tiles[0]);
                         self.rinshan[*seat] = true;
+                        self.pending_rinshan_seat = Some(*seat);
                         let mut upgraded = false;
                         for m in self.melds[*seat].iter_mut() {
                             if m.meld_type == MeldType::Pon && (m.tiles[0] / 4 == tiles[0] / 4) {
@@ -1983,12 +2054,15 @@ impl WinResultContextIterator {
                     self._sync_doras_with_wall();
                 }
                 Action::BaBei { seat, .. } => {
+                    self.rinshan.fill(false);
+                    self.pending_rinshan_seat = None;
                     // Save ippatsu state before clearing — ron on kita (chankan-like)
                     // needs the pre-BaBei ippatsu state.
                     self.ippatsu_before_babei = self.ippatsu.clone();
-                    self.ippatsu = vec![false; 4];
-                    self.is_first_turn = vec![false; 4];
+                    self.ippatsu.fill(false);
+                    self.is_first_turn.fill(false);
                     self.last_action_was_babei = true;
+                    self.last_babei_seat = Some(*seat);
                     // Remove a North tile (z4 = tile_34=30) from hand
                     let north_34: u8 = 30;
                     if let Some(pos) = self.current_hands[*seat]
@@ -1998,14 +2072,16 @@ impl WinResultContextIterator {
                         self.current_hands[*seat].remove(pos);
                     }
                     self.kita_counts[*seat] += 1;
-                    self.rinshan[*seat] = true;
                 }
                 Action::Hule { hules } => {
                     for hule_data in hules {
                         let seat = hule_data.seat;
                         let win_tile = hule_data.hu_tile;
 
-                        let is_zimo = hule_data.zimo;
+                        // Mahjong Soul encodes ron on a Kita tile as zimo=true.
+                        // It is only a real tsumo when the winner is the Kita actor.
+                        let is_zimo = hule_data.zimo
+                            && (!self.last_action_was_babei || self.last_babei_seat == Some(seat));
 
                         let mut is_chankan = false;
                         if !is_zimo
@@ -2026,7 +2102,7 @@ impl WinResultContextIterator {
                         let mut hand_136 = self.current_hands[seat].clone();
                         let melds_136 = self.melds[seat].clone();
 
-                        let num_players = self.kyoku.hands.len();
+                        let num_players = self.kyoku.scores.len();
                         let conditions = Conditions {
                             tsumo: is_zimo,
                             riichi: self.liqi[seat],
@@ -2045,10 +2121,11 @@ impl WinResultContextIterator {
                                 % num_players) as u8)
                                 .into(),
                             round_wind: self.kyoku.chang.into(),
-                            riichi_sticks: 0, // Not tracked in basic loop?
-                            honba: 0,         // Not tracked
+                            riichi_sticks: hule_data.riichi_sticks.unwrap_or(self.current_liqibang),
+                            honba: self.kyoku.ben as u32,
                             kita_count: self.kita_counts[seat],
-                            ..Default::default()
+                            is_sanma: num_players == 3,
+                            num_players: num_players as u8,
                         };
 
                         if !is_zimo {
@@ -2069,7 +2146,15 @@ impl WinResultContextIterator {
                             vec![]
                         };
 
-                        let actual_result = {
+                        let actual_result = if num_players == 3 {
+                            let calc = HandEvaluator3P::new(hand_136.clone(), melds_136.clone());
+                            calc.calc(
+                                win_tile,
+                                dora_indicators.clone(),
+                                ura_indicators.clone(),
+                                Some(conditions.clone()),
+                            )
+                        } else {
                             let calc = HandEvaluator::new(hand_136.clone(), melds_136.clone());
                             calc.calc(
                                 win_tile,
@@ -2088,6 +2173,7 @@ impl WinResultContextIterator {
                             ura_indicators,
                             conditions,
                             expected_yaku: hule_data.fans.clone(),
+                            expected_yaku_values: hule_data.fan_values.clone(),
                             expected_han: hule_data.count,
                             expected_fu: hule_data.fu,
                             actual: actual_result,
@@ -2115,6 +2201,7 @@ pub struct WinResultContext {
     pub ura_indicators: Vec<u8>,
     pub conditions: Conditions,
     pub expected_yaku: Vec<u32>,
+    pub expected_yaku_values: Vec<(u32, u32)>,
     pub expected_han: u32,
     pub expected_fu: u32,
     pub actual: WinResult,
@@ -2156,6 +2243,10 @@ impl WinResultContext {
         self.expected_yaku.clone()
     }
     #[getter]
+    pub fn expected_yaku_values(&self) -> Vec<(u32, u32)> {
+        self.expected_yaku_values.clone()
+    }
+    #[getter]
     pub fn expected_han(&self) -> u32 {
         self.expected_han
     }
@@ -2168,25 +2259,66 @@ impl WinResultContext {
         self.actual.clone()
     }
 
-    /// Creates an HandEvaluator initialized with the hand and melds from this context.
-    pub fn create_calculator(&self) -> HandEvaluator {
-        HandEvaluator::new(self.tiles.clone(), self.melds.clone())
+    /// Creates a 4-player evaluator initialized with this context's hand and melds.
+    pub fn create_calculator(&self) -> PyResult<HandEvaluator> {
+        if self.conditions.is_sanma || self.conditions.num_players == 3 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "cannot create a 4-player evaluator for a 3-player context; use create_calculator_3p()",
+            ));
+        }
+        Ok(HandEvaluator::new(self.tiles.clone(), self.melds.clone()))
     }
 
-    /// Calculates the agari result using the provided calculator and conditions.
+    /// Creates a 3-player evaluator initialized with this context's hand and melds.
+    pub fn create_calculator_3p(&self) -> PyResult<HandEvaluator3P> {
+        if !self.conditions.is_sanma && self.conditions.num_players != 3 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "cannot create a 3-player evaluator for a 4-player context; use create_calculator()",
+            ));
+        }
+        Ok(HandEvaluator3P::new(self.tiles.clone(), self.melds.clone()))
+    }
+
+    /// Calculates the agari result using a 4-player evaluator and conditions.
     #[pyo3(signature = (calculator, conditions=None))]
     pub fn calculate(
         &self,
         calculator: &HandEvaluator,
         conditions: Option<Conditions>,
-    ) -> WinResult {
+    ) -> PyResult<WinResult> {
+        if self.conditions.is_sanma || self.conditions.num_players == 3 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "cannot calculate a 3-player context with a 4-player evaluator; use calculate_3p()",
+            ));
+        }
         let cond = conditions.unwrap_or_else(|| self.conditions.clone());
-        calculator.calc(
+        Ok(calculator.calc(
             self.agari_tile,
             self.dora_indicators.clone(),
             self.ura_indicators.clone(),
             Some(cond),
-        )
+        ))
+    }
+
+    /// Calculates the agari result using a 3-player evaluator and conditions.
+    #[pyo3(signature = (calculator, conditions=None))]
+    pub fn calculate_3p(
+        &self,
+        calculator: &HandEvaluator3P,
+        conditions: Option<Conditions>,
+    ) -> PyResult<WinResult> {
+        if !self.conditions.is_sanma && self.conditions.num_players != 3 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "cannot calculate a 4-player context with a 3-player evaluator; use calculate()",
+            ));
+        }
+        let cond = conditions.unwrap_or_else(|| self.conditions.clone());
+        Ok(calculator.calc(
+            self.agari_tile,
+            self.dora_indicators.clone(),
+            self.ura_indicators.clone(),
+            Some(cond),
+        ))
     }
 }
 

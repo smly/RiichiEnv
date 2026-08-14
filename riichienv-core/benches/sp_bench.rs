@@ -3,7 +3,10 @@ use riichienv_core::drev::DrevInput;
 use riichienv_core::engine::{EngineConfig, GameEngine, GameMode, ObservationVariant};
 use riichienv_core::feature_context::FeatureContext;
 use riichienv_core::shanten;
-use riichienv_core::sp::{SP_CHANNELS, SpInput, calculate_sp, encode_sp, encode_sp_into};
+use riichienv_core::sp::{
+    SP_CHANNELS, SpInput, SpInput3P, calculate_sp, calculate_sp_3p, calculate_sp_3p_v2,
+    calculate_sp_v1, encode_sp, encode_sp_into,
+};
 use riichienv_core::types::{Meld, MeldType, TILE_MAX};
 
 fn input_from_tiles(tile_types: &[u8], tsumos_left: u8) -> SpInput {
@@ -63,6 +66,51 @@ fn assert_fixture(name: &str, input: &SpInput, expected: i32) {
         expected,
         "{name} benchmark fixture drifted away from its labeled shanten"
     );
+}
+
+fn input_3p_from_tiles(tile_types: &[u8], tsumos_left: u8) -> SpInput3P {
+    let input = input_from_tiles(tile_types, tsumos_left);
+    SpInput3P {
+        tehai: input.tehai,
+        akas_in_hand: input.akas_in_hand,
+        tiles_seen: input.tiles_seen,
+        akas_seen: input.akas_seen,
+        dora_indicators: input.dora_indicators,
+        melds: input.melds,
+        bakaze: input.bakaze,
+        jikaze: input.jikaze,
+        is_menzen: input.is_menzen,
+        can_riichi: input.can_riichi,
+        can_double_riichi: input.can_double_riichi,
+        tsumos_left: input.tsumos_left,
+        discard_candidates: input.discard_candidates,
+        kita_count: 0,
+    }
+}
+
+fn best_post_discard_shanten_3p(input: &SpInput3P) -> i32 {
+    input
+        .tehai
+        .iter()
+        .enumerate()
+        .filter_map(|(discard, &count)| {
+            if count == 0
+                || (!input.discard_candidates.is_empty()
+                    && !input.discard_candidates.contains(&(discard as u8)))
+            {
+                return None;
+            }
+            let mut hand = Vec::with_capacity(input.tehai.iter().map(|&c| c as usize).sum());
+            for (tile, &tile_count) in input.tehai.iter().enumerate() {
+                let adjusted = tile_count - u8::from(tile == discard);
+                for copy in 0..adjusted {
+                    hand.push((tile as u32) * 4 + copy as u32);
+                }
+            }
+            Some(shanten::calculate_shanten_3p(&hand))
+        })
+        .min()
+        .expect("3P SP benchmark fixture must have a legal discard")
 }
 
 fn s0_closed(tsumos_left: u8) -> SpInput {
@@ -159,6 +207,45 @@ fn bench_calculate_sp_by_horizon(c: &mut Criterion) {
     });
 }
 
+fn bench_corrected_prefix_semantics(c: &mut Criterion) {
+    let s2 = s2_closed(3);
+    let s3 = s3_closed(4);
+    let s2_3p = input_3p_from_tiles(&[9, 10, 11, 12, 13, 14, 18, 19, 24, 25, 27, 28, 29, 31], 3);
+    let s3_3p = input_3p_from_tiles(&[9, 10, 11, 18, 19, 24, 25, 27, 28, 29, 30, 31, 31, 33], 4);
+    assert_fixture("s2_closed_prefix", &s2, 2);
+    assert_fixture("s3_closed_prefix", &s3, 3);
+    assert_eq!(best_post_discard_shanten_3p(&s2_3p), 2);
+    assert_eq!(best_post_discard_shanten_3p(&s3_3p), 3);
+
+    let mut group = c.benchmark_group("sp/prefix_semantics");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function("s2_frozen_v0_h3", |b| {
+        b.iter(|| black_box(calculate_sp(black_box(&s2))))
+    });
+    group.bench_function("s2_corrected_v1_h3", |b| {
+        b.iter(|| black_box(calculate_sp_v1(black_box(&s2))))
+    });
+    group.bench_function("s3_frozen_v0_h4", |b| {
+        b.iter(|| black_box(calculate_sp(black_box(&s3))))
+    });
+    group.bench_function("s3_corrected_v1_h4", |b| {
+        b.iter(|| black_box(calculate_sp_v1(black_box(&s3))))
+    });
+    group.bench_function("3p_s2_frozen_v1_h3", |b| {
+        b.iter(|| black_box(calculate_sp_3p(black_box(&s2_3p))))
+    });
+    group.bench_function("3p_s2_corrected_v2_h3", |b| {
+        b.iter(|| black_box(calculate_sp_3p_v2(black_box(&s2_3p))))
+    });
+    group.bench_function("3p_s3_frozen_v1_h4", |b| {
+        b.iter(|| black_box(calculate_sp_3p(black_box(&s3_3p))))
+    });
+    group.bench_function("3p_s3_corrected_v2_h4", |b| {
+        b.iter(|| black_box(calculate_sp_3p_v2(black_box(&s3_3p))))
+    });
+    group.finish();
+}
+
 fn bench_shanten_baseline(c: &mut Criterion) {
     let input = s1_closed(10);
     assert_fixture("s1_closed_shanten_baseline", &input, 1);
@@ -244,6 +331,7 @@ criterion_group!(
     benches,
     bench_calculate_sp,
     bench_calculate_sp_by_horizon,
+    bench_corrected_prefix_semantics,
     bench_shanten_baseline,
     bench_encode_sp,
     bench_feature_context

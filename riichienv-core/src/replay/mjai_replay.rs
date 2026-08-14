@@ -229,10 +229,21 @@ pub enum MjaiEvent {
         pai: Option<String>, // Winning tile (optional in some logs)
         #[serde(alias = "ura_markers")]
         uradora_markers: Option<Vec<String>>,
-        #[serde(default)]
+        #[serde(default, alias = "yakus")]
         yaku: Option<Vec<(String, u32)>>, // List of [yaku_name, han_value]
         fu: Option<u32>,
+        #[serde(alias = "fan")]
         han: Option<u32>,
+        /// Total ron value emitted by modern Tenhou-to-MJAI converters.
+        /// Tsumo logs need the split payer values and therefore leave the
+        /// corresponding HuleData fields at zero when only this total exists.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hora_points: Option<u32>,
+        /// Optional split payments retained by enriched external fixtures.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        point_zimo_qin: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        point_zimo_xian: Option<u32>,
         #[serde(default)]
         scores: Option<Vec<i32>>, // Scores AFTER hor
         #[serde(alias = "deltas")]
@@ -289,7 +300,6 @@ struct KyokuBuilder {
     liqi_flags: Vec<bool>, // Who has declared reach (to set `is_liqi` on discard)
     wliqi_flags: Vec<bool>, // Who has effectively achieved Double Riichi
     reach_accepted: Vec<bool>,
-    reached: Vec<bool>, // Tracks if player declared reach (for riichi cost in end_scores)
     first_discard: Vec<bool>,
     has_calls: bool,
     pending_hule: Vec<HuleData>, // Buffer for batching consecutive hora events (double/triple ron)
@@ -325,11 +335,24 @@ impl KyokuBuilder {
             });
         }
         let chang = match bakaze.as_str() {
+            "E" => 0,
             "S" => 1,
             "W" => 2,
             "N" => 3,
-            _ => 0, // "E" or default
+            _ => {
+                return Err(RiichiError::InvalidState {
+                    message: format!("start_kyoku bakaze must be E, S, W, or N; got {bakaze:?}"),
+                });
+            }
         };
+        if usize::from(kyoku) > scores.len() {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "start_kyoku kyoku {kyoku} is out of range for {} players",
+                    scores.len()
+                ),
+            });
+        }
         let ju = kyoku
             .checked_sub(1)
             .ok_or_else(|| RiichiError::InvalidState {
@@ -370,7 +393,6 @@ impl KyokuBuilder {
             liqi_flags: vec![false; np],
             wliqi_flags: vec![false; np],
             reach_accepted: vec![false; np],
-            reached: vec![false; np],
             first_discard: vec![true; np],
             has_calls: false,
             pending_hule: Vec::new(),
@@ -634,9 +656,6 @@ impl KyokuBuilder {
                     doras: None,
                     left_tile_count: None,
                 });
-                if self.left_tile_count > 0 {
-                    self.left_tile_count -= 1;
-                }
             }
             MjaiEvent::Dahai {
                 actor,
@@ -668,7 +687,6 @@ impl KyokuBuilder {
             MjaiEvent::Reach { actor } => {
                 self.validate_player(actor, "reach actor")?;
                 self.liqi_flags[actor] = true;
-                self.reached[actor] = true;
             }
             MjaiEvent::ReachAccepted { actor } => {
                 self.validate_player(actor, "reach_accepted actor")?;
@@ -747,11 +765,26 @@ impl KyokuBuilder {
                     .iter()
                     .map(|s| parse_mjai_tile(s))
                     .collect::<RiichiResult<Vec<_>>>()?;
+                if tiles.len() != 4 {
+                    return Err(RiichiError::InvalidState {
+                        message: format!(
+                            "ankan must consume exactly four tiles, got {}",
+                            tiles.len()
+                        ),
+                    });
+                }
+                let tile_raw_id = tiles[0] / 4;
+                if tiles.iter().any(|tile| *tile / 4 != tile_raw_id) {
+                    return Err(RiichiError::InvalidState {
+                        message: "ankan consumed tiles must all have the same tile type"
+                            .to_string(),
+                    });
+                }
                 self.actions.push(Action::AnGangAddGang {
                     seat: actor,
                     meld_type: MeldType::Ankan,
                     tiles,
-                    tile_raw_id: 0,
+                    tile_raw_id,
                     doras: None,
                 });
             }
@@ -779,9 +812,12 @@ impl KyokuBuilder {
                 target,
                 pai,
                 uradora_markers,
-                yaku: _,
+                yaku,
                 fu,
                 han,
+                hora_points,
+                point_zimo_qin,
+                point_zimo_xian,
                 scores,
                 delta,
             } => {
@@ -801,6 +837,7 @@ impl KyokuBuilder {
                             Action::AnGangAddGang { tiles, .. } => {
                                 tiles.first().copied().unwrap_or(0)
                             }
+                            Action::BaBei { .. } => 30 * 4,
                             _ => 0,
                         }
                     } else {
@@ -808,18 +845,47 @@ impl KyokuBuilder {
                     }
                 };
 
+                let fan_values = yaku
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(name, value)| {
+                        crate::yaku::get_yaku_id_by_name(&name)
+                            .map(|id| (id, value))
+                            .ok_or_else(|| RiichiError::InvalidState {
+                                message: format!("unknown MJAI yaku label: {name}"),
+                            })
+                    })
+                    .collect::<RiichiResult<Vec<_>>>()?;
+                let fans = fan_values
+                    .iter()
+                    .filter_map(|(id, value)| (*value > 0).then_some(*id))
+                    .collect();
+
                 let mut hule_data = HuleData {
                     seat: actor,
                     hu_tile: hu_tile_id,
                     zimo: actor == target, // If actor is target, it's Tsumo
                     count: han.unwrap_or(0),
                     fu: fu.unwrap_or(0),
-                    fans: Vec::new(),
+                    fans,
+                    fan_values,
                     li_doras: None,
                     yiman: false,
-                    point_rong: 0,
-                    point_zimo_qin: 0,
-                    point_zimo_xian: 0,
+                    point_rong: if actor == target {
+                        0
+                    } else {
+                        hora_points.unwrap_or(0)
+                    },
+                    point_zimo_qin: point_zimo_qin.unwrap_or(0),
+                    point_zimo_xian: point_zimo_xian.unwrap_or(0),
+                    riichi_sticks: Some(
+                        self.liqibang as u32
+                            + self
+                                .reach_accepted
+                                .iter()
+                                .filter(|accepted| **accepted)
+                                .count() as u32,
+                    ),
                 };
 
                 if let Some(uras) = uradora_markers {
@@ -871,7 +937,7 @@ impl KyokuBuilder {
                 } else if let Some(d) = delta {
                     self.validate_scores(&d, "ryukyoku delta")?;
                     for (i, val) in d.iter().enumerate() {
-                        let cost = if self.reached[i] { 1000 } else { 0 };
+                        let cost = if self.reach_accepted[i] { 1000 } else { 0 };
                         self.end_scores[i] = checked_score_delta(self.scores[i], *val, cost)?;
                     }
                 }

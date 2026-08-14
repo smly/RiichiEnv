@@ -112,11 +112,22 @@ pub enum RawAction {
         tiles: String,
     },
     #[serde(rename = "Hule")]
-    Hule { hules: Vec<HuleDataRaw> },
+    Hule {
+        hules: Vec<HuleDataRaw>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        old_scores: Option<Vec<i32>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delta_scores: Option<Vec<i32>>,
+    },
     #[serde(rename = "dora")]
     Dora { dora_marker: String },
     #[serde(rename = "NoTile")]
-    NoTile {},
+    NoTile {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        old_scores: Option<Vec<i32>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delta_scores: Option<Vec<i32>>,
+    },
     #[serde(rename = "BaBei")]
     BaBei {
         seat: usize,
@@ -168,6 +179,30 @@ pub struct GameLog {
 }
 
 #[cfg(feature = "python")]
+fn validate_mjsoul_tile(tile: &str, field: &str) -> Result<(), String> {
+    let bytes = tile.as_bytes();
+    let valid = bytes.len() == 2
+        && match bytes[1] {
+            b'm' | b'p' | b's' => bytes[0].is_ascii_digit(),
+            b'z' => matches!(bytes[0], b'1'..=b'7'),
+            _ => false,
+        };
+    if valid {
+        Ok(())
+    } else {
+        Err(format!("{field} contains invalid tile {tile:?}"))
+    }
+}
+
+#[cfg(feature = "python")]
+fn validate_mjsoul_tiles(tiles: &[String], field: &str) -> Result<(), String> {
+    for tile in tiles {
+        validate_mjsoul_tile(tile, field)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "python")]
 #[pymethods]
 impl MjSoulReplay {
     #[staticmethod]
@@ -185,9 +220,20 @@ impl MjSoulReplay {
         let log: GameLog = serde_json::from_slice(&buffer)
             .map_err(|e| PyValueError::new_err(format!("Failed to parse JSON: {}", e)))?;
 
-        let mut rounds = Vec::with_capacity(log.rounds.len());
+        let mut rounds: Vec<LogKyoku> = Vec::with_capacity(log.rounds.len());
         for r_raw in log.rounds {
-            rounds.push(Self::kyoku_from_raw_actions(r_raw));
+            let kyoku = Self::kyoku_from_raw_actions(r_raw)
+                .map_err(|error| PyValueError::new_err(format!("Invalid round: {error}")))?;
+            if let Some(first) = rounds.first()
+                && first.scores.len() != kyoku.scores.len()
+            {
+                return Err(PyValueError::new_err(format!(
+                    "Invalid replay: player count changed from {} to {}",
+                    first.scores.len(),
+                    kyoku.scores.len()
+                )));
+            }
+            rounds.push(kyoku);
         }
 
         // Populate end_scores based on next round's start scores
@@ -230,8 +276,9 @@ impl MjSoulReplay {
         // Detect 3P from the first round's scores length
         let is_3p = rounds_raw
             .first()
-            .and_then(|r| {
-                if let RawAction::NewRound { scores, .. } = &r[0] {
+            .and_then(|round| round.first())
+            .and_then(|action| {
+                if let RawAction::NewRound { scores, .. } = action {
                     Some(scores.len() == 3)
                 } else {
                     None
@@ -244,9 +291,19 @@ impl MjSoulReplay {
             _rule
         };
 
-        let mut rounds = Vec::with_capacity(rounds_raw.len());
+        let mut rounds: Vec<LogKyoku> = Vec::with_capacity(rounds_raw.len());
         for r_raw in rounds_raw {
-            let mut kyoku = Self::kyoku_from_raw_actions(r_raw);
+            let mut kyoku = Self::kyoku_from_raw_actions(r_raw)
+                .map_err(|error| PyValueError::new_err(format!("Invalid round: {error}")))?;
+            if let Some(first) = rounds.first()
+                && first.scores.len() != kyoku.scores.len()
+            {
+                return Err(PyValueError::new_err(format!(
+                    "Invalid replay: player count changed from {} to {}",
+                    first.scores.len(),
+                    kyoku.scores.len()
+                )));
+            }
             kyoku.rule = rule;
             rounds.push(kyoku);
         }
@@ -260,7 +317,10 @@ impl MjSoulReplay {
         let is_3p = rounds.first().map(|r| r.scores.len() == 3).unwrap_or(false);
 
         let game_end_scores = if let Some(last) = rounds.last_mut() {
-            if is_3p {
+            if last.end_scores != last.scores {
+                // ActionHule/NoTile supplied old_scores + delta_scores.
+                Some(last.end_scores.clone())
+            } else if is_3p {
                 // For 3P, simulate using GameState3P
                 let mut state = crate::state_3p::GameState3P::new(0, false, None, 0, last.rule);
                 let initial_scores: [i32; 3] = last.scores.clone().try_into().unwrap_or([35000; 3]);
@@ -438,7 +498,26 @@ impl MjSoulReplay {
 
 #[cfg(feature = "python")]
 impl MjSoulReplay {
-    fn kyoku_from_raw_actions(raw_actions: Vec<RawAction>) -> LogKyoku {
+    fn kyoku_from_raw_actions(raw_actions: Vec<RawAction>) -> Result<LogKyoku, String> {
+        if raw_actions.is_empty() {
+            return Err("round contains no actions".to_string());
+        }
+        let num_players = match &raw_actions[0] {
+            RawAction::NewRound { scores, .. } if matches!(scores.len(), 3 | 4) => scores.len(),
+            RawAction::NewRound { scores, .. } => {
+                return Err(format!(
+                    "NewRound scores must contain 3 or 4 players, got {}",
+                    scores.len()
+                ));
+            }
+            _ => return Err("round must start with NewRound".to_string()),
+        };
+        for (index, action) in raw_actions.iter().enumerate() {
+            if index > 0 && matches!(action, RawAction::NewRound { .. }) {
+                return Err("round contains more than one NewRound action".to_string());
+            }
+            Self::validate_raw_action(action, num_players)?;
+        }
         let mut scores = Vec::new();
         let mut doras = Vec::new();
         let mut hands = vec![Vec::new(); 4];
@@ -446,9 +525,10 @@ impl MjSoulReplay {
         let mut ju = 0;
         let mut ben = 0;
         let mut liqibang = 0;
-        let mut left_tile_count = 70;
+        let mut left_tile_count = if num_players == 3 { 55 } else { 70 };
         let mut ura_doras = Vec::new();
         let mut paishan = None;
+        let mut recorded_end_scores = None;
 
         if let RawAction::NewRound {
             scores: s,
@@ -495,11 +575,12 @@ impl MjSoulReplay {
                     .map(|v| TileConverter::parse_tile_136(v))
                     .collect(),
             ];
+            hands.truncate(scores.len());
             chang = *c;
             ju = *j;
             ben = b.or(*honba).unwrap_or(0);
             liqibang = *l;
-            left_tile_count = lc.unwrap_or(70);
+            left_tile_count = lc.unwrap_or(if num_players == 3 { 55 } else { 70 });
             if let Some(uda) = ud {
                 ura_doras = uda
                     .iter()
@@ -509,14 +590,52 @@ impl MjSoulReplay {
             paishan = p.clone();
         }
 
+        // Result records contain the only authoritative terminal score for
+        // the final round (there is no following NewRound to copy it from).
+        for action in &raw_actions {
+            let score_fields = match action {
+                RawAction::Hule {
+                    old_scores,
+                    delta_scores,
+                    ..
+                }
+                | RawAction::NoTile {
+                    old_scores,
+                    delta_scores,
+                } => Some((old_scores, delta_scores)),
+                _ => None,
+            };
+            if let Some((old_scores, Some(delta_scores))) = score_fields {
+                let base = old_scores.as_ref().unwrap_or(&scores);
+                if base.len() != scores.len() || delta_scores.len() != scores.len() {
+                    return Err(format!(
+                        "result score vectors must contain {} players (old={}, delta={})",
+                        scores.len(),
+                        base.len(),
+                        delta_scores.len()
+                    ));
+                }
+                recorded_end_scores = Some(
+                    base.iter()
+                        .zip(delta_scores)
+                        .map(|(score, delta)| {
+                            score
+                                .checked_add(*delta)
+                                .ok_or_else(|| "result score overflows i32".to_string())
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+            }
+        }
+
         let mut actions = Vec::with_capacity(raw_actions.len());
         for ma in raw_actions {
             actions.push(Self::parse_raw_action(ma));
         }
 
-        let end_scores = scores.clone();
+        let end_scores = recorded_end_scores.unwrap_or_else(|| scores.clone());
 
-        let mut wliqi = vec![false; 4];
+        let mut wliqi = vec![false; scores.len()];
         for action in &actions {
             if let Action::DiscardTile { seat, is_wliqi, .. } = action
                 && *is_wliqi
@@ -525,7 +644,7 @@ impl MjSoulReplay {
             }
         }
 
-        LogKyoku {
+        Ok(LogKyoku {
             scores,
             end_scores,
             doras,
@@ -541,7 +660,157 @@ impl MjSoulReplay {
             actions: Arc::from(actions),
             rule: crate::rule::GameRule::default_mjsoul(),
             game_end_scores: None,
+        })
+    }
+
+    fn validate_raw_action(action: &RawAction, num_players: usize) -> Result<(), String> {
+        let validate_seat = |seat: usize, field: &str| {
+            if seat < num_players {
+                Ok(())
+            } else {
+                Err(format!(
+                    "{field} seat {seat} is out of range for {num_players} players"
+                ))
+            }
+        };
+
+        match action {
+            RawAction::NewRound {
+                scores,
+                doras,
+                dora_indicators,
+                dora_marker,
+                tiles0,
+                tiles1,
+                tiles2,
+                tiles3,
+                ura_doras,
+                chang,
+                ju,
+                ..
+            } => {
+                if scores.len() != num_players {
+                    return Err(format!(
+                        "NewRound scores must contain {num_players} players, got {}",
+                        scores.len()
+                    ));
+                }
+                if usize::from(*ju) >= num_players {
+                    return Err(format!(
+                        "NewRound ju {ju} is out of range for {num_players} players"
+                    ));
+                }
+                if *chang > 3 {
+                    return Err(format!(
+                        "NewRound chang must be between 0 and 3, got {chang}"
+                    ));
+                }
+                for (field, tiles) in [
+                    ("NewRound tiles0", tiles0),
+                    ("NewRound tiles1", tiles1),
+                    ("NewRound tiles2", tiles2),
+                    ("NewRound tiles3", tiles3),
+                ] {
+                    validate_mjsoul_tiles(tiles, field)?;
+                }
+                if let Some(tiles) = doras {
+                    validate_mjsoul_tiles(tiles, "NewRound doras")?;
+                }
+                if let Some(tiles) = dora_indicators {
+                    validate_mjsoul_tiles(tiles, "NewRound dora_indicators")?;
+                }
+                if let Some(tile) = dora_marker {
+                    validate_mjsoul_tile(tile, "NewRound dora_marker")?;
+                }
+                if let Some(tiles) = ura_doras {
+                    validate_mjsoul_tiles(tiles, "NewRound ura_doras")?;
+                }
+            }
+            RawAction::DiscardTile {
+                seat, tile, doras, ..
+            } => {
+                validate_seat(*seat, "DiscardTile")?;
+                validate_mjsoul_tile(tile, "DiscardTile tile")?;
+                validate_mjsoul_tiles(doras, "DiscardTile doras")?;
+            }
+            RawAction::DealTile {
+                seat,
+                tile,
+                doras,
+                dora_marker,
+                ..
+            } => {
+                validate_seat(*seat, "DealTile")?;
+                validate_mjsoul_tile(tile, "DealTile tile")?;
+                validate_mjsoul_tiles(doras, "DealTile doras")?;
+                if let Some(marker) = dora_marker {
+                    validate_mjsoul_tile(marker, "DealTile dora_marker")?;
+                }
+            }
+            RawAction::AnGangAddGang {
+                seat,
+                meld_type,
+                tiles,
+            } => {
+                validate_seat(*seat, "AnGangAddGang")?;
+                if !matches!(*meld_type, 2 | 3) {
+                    return Err(format!("unsupported AnGangAddGang type {meld_type}"));
+                }
+                validate_mjsoul_tile(tiles, "AnGangAddGang tiles")?;
+            }
+            RawAction::ChiPengGang {
+                seat,
+                meld_type,
+                tiles,
+                froms,
+            } => {
+                validate_seat(*seat, "ChiPengGang")?;
+                if !matches!(*meld_type, 0..=3) {
+                    return Err(format!("unsupported ChiPengGang type {meld_type}"));
+                }
+                let expected_tiles = if *meld_type < 2 { 3 } else { 4 };
+                if tiles.len() != expected_tiles || froms.len() != expected_tiles {
+                    return Err(format!(
+                        "ChiPengGang type {meld_type} requires {expected_tiles} tiles/froms, got {}/{}",
+                        tiles.len(),
+                        froms.len()
+                    ));
+                }
+                for &from in froms {
+                    validate_seat(from, "ChiPengGang from")?;
+                }
+                validate_mjsoul_tiles(tiles, "ChiPengGang tiles")?;
+            }
+            RawAction::Hule { hules, .. } => {
+                if hules.is_empty() {
+                    return Err("Hule must contain at least one winner".to_string());
+                }
+                for hule in hules {
+                    validate_seat(hule.seat, "Hule")?;
+                    validate_mjsoul_tile(&hule.hu_tile, "Hule hu_tile")?;
+                    validate_mjsoul_tiles(&hule.hand, "Hule hand")?;
+                    if let Some(tiles) = &hule.ura_dora_indicators {
+                        validate_mjsoul_tiles(tiles, "Hule ura_dora_indicators")?;
+                    }
+                    if let Some(tiles) = &hule.li_doras {
+                        validate_mjsoul_tiles(tiles, "Hule li_doras")?;
+                    }
+                }
+            }
+            RawAction::Dora { dora_marker } => {
+                validate_mjsoul_tile(dora_marker, "Dora dora_marker")?;
+            }
+            RawAction::BaBei { seat, doras, .. } => {
+                validate_seat(*seat, "BaBei")?;
+                validate_mjsoul_tiles(doras, "BaBei doras")?;
+            }
+            RawAction::LiuJu { seat, tiles, .. } => {
+                validate_seat(*seat, "LiuJu")?;
+                validate_mjsoul_tiles(tiles, "LiuJu tiles")?;
+            }
+            RawAction::NoTile { .. } | RawAction::Other => {}
         }
+        Ok(())
     }
 
     fn parse_raw_action(ma: RawAction) -> Action {
@@ -639,7 +908,7 @@ impl MjSoulReplay {
                     doras: None, // Will be updated by Dora action or DealTile
                 }
             }
-            RawAction::Hule { hules } => {
+            RawAction::Hule { hules, .. } => {
                 let hules_typed = hules
                     .into_iter()
                     .map(|h| HuleData {
@@ -649,6 +918,7 @@ impl MjSoulReplay {
                         count: h.count,
                         fu: h.fu,
                         fans: h.fans.iter().filter(|f| f.val > 0).map(|f| f.id).collect(),
+                        fan_values: h.fans.iter().map(|f| (f.id, f.val)).collect(),
                         li_doras: h
                             .ura_dora_indicators
                             .or(h.li_doras)
@@ -657,6 +927,7 @@ impl MjSoulReplay {
                         point_rong: h.point_rong,
                         point_zimo_qin: h.point_zimo_qin,
                         point_zimo_xian: h.point_zimo_xian,
+                        riichi_sticks: None,
                     })
                     .collect();
                 Action::Hule { hules: hules_typed }
@@ -664,7 +935,7 @@ impl MjSoulReplay {
             RawAction::Dora { dora_marker } => Action::Dora {
                 dora_marker: TileConverter::parse_tile_136(&dora_marker),
             },
-            RawAction::NoTile {} => Action::NoTile,
+            RawAction::NoTile { .. } => Action::NoTile,
             RawAction::BaBei {
                 seat,
                 moqie,
@@ -684,5 +955,29 @@ impl MjSoulReplay {
             },
             _ => Action::Other("Other".to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RawAction;
+    use serde_json::json;
+
+    #[test]
+    fn absent_result_score_fields_do_not_add_nulls_to_the_wire_format() {
+        let hule = serde_json::to_value(RawAction::Hule {
+            hules: Vec::new(),
+            old_scores: None,
+            delta_scores: None,
+        })
+        .unwrap();
+        let no_tile = serde_json::to_value(RawAction::NoTile {
+            old_scores: None,
+            delta_scores: None,
+        })
+        .unwrap();
+
+        assert_eq!(hule, json!({"name": "Hule", "data": {"hules": []}}));
+        assert_eq!(no_tile, json!({"name": "NoTile", "data": {}}));
     }
 }
