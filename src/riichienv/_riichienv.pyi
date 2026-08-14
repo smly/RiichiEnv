@@ -1173,6 +1173,20 @@ class Score:
 def calculate_score(han: int, fu: int, is_oya: bool, is_tsumo: bool, honba: int, num_players: int = 4) -> Score: ...
 def calculate_shanten(hand_tiles: list[int]) -> int: ...
 def calculate_shanten_3p(hand_tiles: list[int]) -> int: ...
+def validate_drev_replay_jsonl(
+    jsonl: str,
+    rule: GameRule | None = None,
+    allow_trailing_start_kyoku: bool = False,
+) -> str:
+    """Validate DREV v2 against authoritative hidden state in an MJAI replay.
+
+    Returns a JSON report. Exact semantic violations are represented by
+    non-zero failure counters and the ``violations`` list. By default the
+    replay must end outside a kyoku; attributed excerpts may explicitly allow
+    one empty trailing ``start_kyoku`` header.
+    """
+    ...
+
 def check_riichi_candidates(tiles: list[int]) -> list[int]: ...
 def parse_hand(hand_str: str) -> tuple[list[int], list[Meld]]: ...
 def parse_tile(tile_str: str) -> int: ...
@@ -1225,6 +1239,7 @@ __all__ = [
     "calculate_score",
     "calculate_shanten",
     "calculate_shanten_3p",
+    "validate_drev_replay_jsonl",
     "check_riichi_candidates",
     "encode_base_batch",
     "encode_base_batch_3p",

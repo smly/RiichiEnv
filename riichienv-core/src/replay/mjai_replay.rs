@@ -42,15 +42,47 @@ impl ReplayLog {
         Self::from_jsonl_reader(std::io::Cursor::new(jsonl.as_bytes()), rule)
     }
 
+    /// Parse a complete MJAI event stream, rejecting any kyoku that is still
+    /// open when another kyoku starts, the game ends, or the input reaches EOF.
+    ///
+    /// [`ReplayLog::from_jsonl`] deliberately omits an unfinished trailing
+    /// kyoku so callers can consume live prefixes. Validators should use this
+    /// strict constructor instead.
+    pub fn from_jsonl_strict(jsonl: &str, rule: GameRule) -> RiichiResult<Self> {
+        Self::from_jsonl_reader_with_eof_policy(
+            std::io::Cursor::new(jsonl.as_bytes()),
+            rule,
+            IncompleteKyokuPolicy::Reject {
+                allow_trailing_start_kyoku: false,
+            },
+        )
+    }
+
+    /// Strict parsing variant for attributed excerpts that intentionally keep
+    /// the following round's `start_kyoku` header. Only that empty header may
+    /// remain open at EOF; any event within the trailing kyoku is rejected.
+    pub fn from_jsonl_strict_allowing_trailing_start_kyoku(
+        jsonl: &str,
+        rule: GameRule,
+    ) -> RiichiResult<Self> {
+        Self::from_jsonl_reader_with_eof_policy(
+            std::io::Cursor::new(jsonl.as_bytes()),
+            rule,
+            IncompleteKyokuPolicy::Reject {
+                allow_trailing_start_kyoku: true,
+            },
+        )
+    }
+
     pub fn from_jsonl_reader(reader: impl BufRead, rule: GameRule) -> RiichiResult<Self> {
-        Self::from_jsonl_reader_with_eof_policy(reader, rule, false)
+        Self::from_jsonl_reader_with_eof_policy(reader, rule, IncompleteKyokuPolicy::Omit)
     }
 
     pub fn from_events(
         events: impl IntoIterator<Item = MjaiEvent>,
         rule: GameRule,
     ) -> RiichiResult<Self> {
-        Self::from_typed_events(events, rule, false)
+        Self::from_typed_events(events, rule, IncompleteKyokuPolicy::Omit)
     }
 
     pub fn rounds(&self) -> &[LogKyoku] {
@@ -74,6 +106,20 @@ impl ReplayLog {
 
     pub fn into_rounds(self) -> Vec<LogKyoku> {
         self.rounds
+    }
+}
+
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "python"), allow(dead_code))]
+enum IncompleteKyokuPolicy {
+    Omit,
+    Include,
+    Reject { allow_trailing_start_kyoku: bool },
+}
+
+impl IncompleteKyokuPolicy {
+    fn is_strict(self) -> bool {
+        matches!(self, Self::Reject { .. })
     }
 }
 
@@ -304,6 +350,7 @@ struct KyokuBuilder {
     first_discard: Vec<bool>,
     has_calls: bool,
     pending_hule: Vec<HuleData>, // Buffer for batching consecutive hora events (double/triple ron)
+    event_count: usize,
 }
 
 impl KyokuBuilder {
@@ -398,6 +445,7 @@ impl KyokuBuilder {
             first_discard: vec![true; np],
             has_calls: false,
             pending_hule: Vec::new(),
+            event_count: 0,
         })
     }
 
@@ -455,7 +503,7 @@ impl ReplayLog {
     fn from_jsonl_reader_with_eof_policy(
         reader: impl BufRead,
         rule: GameRule,
-        include_incomplete_kyoku: bool,
+        incomplete_kyoku_policy: IncompleteKyokuPolicy,
     ) -> RiichiResult<Self> {
         let mut events = Vec::new();
         for (line_index, line) in reader.lines().enumerate() {
@@ -471,13 +519,13 @@ impl ReplayLog {
             })?;
             events.push(event);
         }
-        Self::from_typed_events(events, rule, include_incomplete_kyoku)
+        Self::from_typed_events(events, rule, incomplete_kyoku_policy)
     }
 
     fn from_typed_events(
         events: impl IntoIterator<Item = MjaiEvent>,
         rule: GameRule,
-        include_incomplete_kyoku: bool,
+        incomplete_kyoku_policy: IncompleteKyokuPolicy,
     ) -> RiichiResult<Self> {
         let mut rounds = Vec::new();
         let mut builder: Option<KyokuBuilder> = None;
@@ -494,10 +542,14 @@ impl ReplayLog {
                     dora_marker,
                     tehais,
                 } => {
-                    if let Some(previous) = builder.take()
-                        && include_incomplete_kyoku
-                    {
-                        rounds.push(previous.build());
+                    if let Some(previous) = builder.take() {
+                        match incomplete_kyoku_policy {
+                            IncompleteKyokuPolicy::Omit => {}
+                            IncompleteKyokuPolicy::Include => rounds.push(previous.build()),
+                            IncompleteKyokuPolicy::Reject { .. } => {
+                                return Err(incomplete_kyoku_error("the next start_kyoku"));
+                            }
+                        }
                     }
                     if oya as usize >= scores.len() {
                         return Err(RiichiError::InvalidState {
@@ -521,27 +573,69 @@ impl ReplayLog {
                 MjaiEvent::EndKyoku => {
                     if let Some(completed) = builder.take() {
                         rounds.push(completed.build());
+                    } else if incomplete_kyoku_policy.is_strict() {
+                        return Err(unexpected_replay_event_error("end_kyoku outside a kyoku"));
                     }
                 }
                 MjaiEvent::EndGame => {
-                    if let Some(incomplete) = builder.take()
-                        && include_incomplete_kyoku
-                    {
-                        rounds.push(incomplete.build());
+                    if let Some(incomplete) = builder.take() {
+                        match incomplete_kyoku_policy {
+                            IncompleteKyokuPolicy::Omit => {}
+                            IncompleteKyokuPolicy::Include => rounds.push(incomplete.build()),
+                            IncompleteKyokuPolicy::Reject { .. } => {
+                                return Err(incomplete_kyoku_error("end_game"));
+                            }
+                        }
                     }
                 }
                 event => {
                     if let Some(builder) = &mut builder {
+                        if incomplete_kyoku_policy.is_strict() {
+                            match &event {
+                                MjaiEvent::StartGame { .. } => {
+                                    return Err(unexpected_replay_event_error(
+                                        "start_game inside a kyoku",
+                                    ));
+                                }
+                                MjaiEvent::Other => {
+                                    return Err(unexpected_replay_event_error(
+                                        "unknown event inside a kyoku",
+                                    ));
+                                }
+                                _ => {}
+                            }
+                        }
                         builder.process_event(event)?;
+                    } else if incomplete_kyoku_policy.is_strict()
+                        && !matches!(&event, MjaiEvent::StartGame { .. })
+                    {
+                        return Err(unexpected_replay_event_error(
+                            if matches!(&event, MjaiEvent::Other) {
+                                "unknown event outside a kyoku"
+                            } else {
+                                "gameplay event outside a kyoku"
+                            },
+                        ));
                     }
                 }
             }
         }
 
-        if let Some(incomplete) = builder
-            && include_incomplete_kyoku
-        {
-            rounds.push(incomplete.build());
+        if let Some(incomplete) = builder {
+            match incomplete_kyoku_policy {
+                IncompleteKyokuPolicy::Omit => {}
+                IncompleteKyokuPolicy::Include => rounds.push(incomplete.build()),
+                IncompleteKyokuPolicy::Reject {
+                    allow_trailing_start_kyoku,
+                } => {
+                    let is_allowed_trailing_header = allow_trailing_start_kyoku
+                        && incomplete.event_count == 0
+                        && !rounds.is_empty();
+                    if !is_allowed_trailing_header {
+                        return Err(incomplete_kyoku_error("end of input"));
+                    }
+                }
+            }
         }
 
         // The following round's start scores are the authoritative post-round
@@ -551,6 +645,18 @@ impl ReplayLog {
         }
 
         Ok(Self { rounds })
+    }
+}
+
+fn incomplete_kyoku_error(boundary: &str) -> RiichiError {
+    RiichiError::InvalidState {
+        message: format!("MJAI replay contains an incomplete kyoku before {boundary}"),
+    }
+}
+
+fn unexpected_replay_event_error(message: &str) -> RiichiError {
+    RiichiError::InvalidState {
+        message: format!("invalid complete MJAI replay: {message}"),
     }
 }
 
@@ -582,7 +688,11 @@ impl MjaiReplay {
             } else {
                 Box::new(buf_reader)
             };
-            ReplayLog::from_jsonl_reader_with_eof_policy(reader, game_rule, true)
+            ReplayLog::from_jsonl_reader_with_eof_policy(
+                reader,
+                game_rule,
+                IncompleteKyokuPolicy::Include,
+            )
         })?;
         Ok(MjaiReplay {
             rounds: replay.into_rounds(),
@@ -597,7 +707,7 @@ impl MjaiReplay {
             ReplayLog::from_jsonl_reader_with_eof_policy(
                 std::io::Cursor::new(jsonl.into_bytes()),
                 game_rule,
-                true,
+                IncompleteKyokuPolicy::Include,
             )
         })?;
         Ok(Self {
@@ -617,7 +727,7 @@ impl MjaiReplay {
             ReplayLog::from_jsonl_reader_with_eof_policy(
                 std::io::Cursor::new(events.join("\n").into_bytes()),
                 game_rule,
-                true,
+                IncompleteKyokuPolicy::Include,
             )
         })?;
         Ok(Self {
@@ -652,6 +762,7 @@ fn python_game_rule(rule: Option<&str>) -> PyResult<GameRule> {
 
 impl KyokuBuilder {
     fn process_event(&mut self, event: MjaiEvent) -> RiichiResult<()> {
+        self.event_count += 1;
         // Flush pending hora batch before any non-Hora event
         if !matches!(event, MjaiEvent::Hora { .. }) {
             self.flush_pending_hule();
@@ -1041,6 +1152,93 @@ mod replay_log_tests {
         let truncated = COMPLETE_LOG.lines().take(4).collect::<Vec<_>>().join("\n");
         let replay = ReplayLog::from_jsonl(&truncated, GameRule::default_tenhou()).unwrap();
         assert!(replay.is_empty());
+    }
+
+    #[test]
+    fn strict_replay_allows_only_an_opted_in_empty_trailing_kyoku_header() {
+        let complete_prefix = COMPLETE_LOG
+            .lines()
+            .filter(|line| !line.contains(r#""type":"end_game""#))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let trailing_header = r#"{"type":"start_kyoku","bakaze":"E","kyoku":2,"honba":0,"kyoutaku":0,"oya":1,"scores":[25000,25000,25000,25000],"dora_marker":"1p","tehais":[["1m"],["2m"],["3m"],["4m"]]}"#;
+        let header_only = format!("{complete_prefix}\n{trailing_header}");
+
+        // Preserve the general replay API's live-prefix behavior.
+        assert_eq!(
+            ReplayLog::from_jsonl(&header_only, GameRule::default_tenhou())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(ReplayLog::from_jsonl_strict(&header_only, GameRule::default_tenhou()).is_err());
+        assert_eq!(
+            ReplayLog::from_jsonl_strict_allowing_trailing_start_kyoku(
+                &header_only,
+                GameRule::default_tenhou(),
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+
+        let truncated_after_action =
+            format!("{header_only}\n{{\"type\":\"tsumo\",\"actor\":1,\"pai\":\"5m\"}}");
+        let error = ReplayLog::from_jsonl_strict_allowing_trailing_start_kyoku(
+            &truncated_after_action,
+            GameRule::default_tenhou(),
+        )
+        .err()
+        .expect("strict parsing must reject an event after the trailing header")
+        .to_string();
+        assert!(
+            error.contains("incomplete kyoku before end of input"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn strict_replay_rejects_gameplay_and_end_kyoku_outside_a_kyoku() {
+        let gameplay_after_game =
+            format!("{COMPLETE_LOG}\n{{\"type\":\"tsumo\",\"actor\":0,\"pai\":\"1m\"}}");
+        let gameplay_error =
+            ReplayLog::from_jsonl_strict(&gameplay_after_game, GameRule::default_tenhou())
+                .err()
+                .expect("strict parsing must reject gameplay outside a kyoku")
+                .to_string();
+        assert!(
+            gameplay_error.contains("gameplay event outside a kyoku"),
+            "{gameplay_error}"
+        );
+
+        let end_error = ReplayLog::from_jsonl_strict(
+            &format!("{COMPLETE_LOG}\n{{\"type\":\"end_kyoku\"}}"),
+            GameRule::default_tenhou(),
+        )
+        .err()
+        .expect("strict parsing must reject end_kyoku outside a kyoku")
+        .to_string();
+        assert!(end_error.contains("end_kyoku outside a kyoku"));
+
+        let unknown_inside = COMPLETE_LOG.replace(
+            r#"{"type":"ryukyoku","reason":"test"}"#,
+            r#"{"type":"future_gameplay"}
+{"type":"ryukyoku","reason":"test"}"#,
+        );
+        let unknown_inside_error =
+            ReplayLog::from_jsonl_strict(&unknown_inside, GameRule::default_tenhou())
+                .err()
+                .expect("strict parsing must reject unknown events inside a kyoku")
+                .to_string();
+        assert!(unknown_inside_error.contains("unknown event inside a kyoku"));
+
+        let unknown_outside = format!("{COMPLETE_LOG}\n{{\"type\":\"future_gameplay\"}}");
+        let unknown_outside_error =
+            ReplayLog::from_jsonl_strict(&unknown_outside, GameRule::default_tenhou())
+                .err()
+                .expect("strict parsing must reject unknown events outside a kyoku")
+                .to_string();
+        assert!(unknown_outside_error.contains("unknown event outside a kyoku"));
     }
 
     #[test]

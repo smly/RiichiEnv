@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "tracked-4p-history-stress",
+      "fixture": "../126_204_0_mjai.jsonl",
+      "fixture_sha256": "027cb4a2de6a07c96d7adb09eba8b63d70c185fa43a85784130b6211c17c62f4",
+      "rule": "tenhou",
+      "scope": "repository-tracked DREV history and invariant fixture; not an external score oracle",
+      "drev_validation": {
+        "expected": {
+          "variant": "4p",
+          "rounds": 12,
+          "decisions": 659,
+          "candidate_tile_types": 6514,
+          "physical_discard_candidates": 6578,
+          "opponent_candidate_cells": 19734,
+          "shape_wait_cells": 226,
+          "yaku_valid_win_cells": 211,
+          "legal_ron_cells": 210,
+          "hard_safe_cells": 2556,
+          "semantic_sha256": "4c43da255d76bcaa9d2606a5cb317b37b646c8ae404822d8b8a0a80e188d633f",
+          "yaku_support": {
+            "chiitoitsu": 4,
+            "chinitsu": 2,
+            "honitsu": 32,
+            "riichi": 48,
+            "sequence": 33,
+            "tanyao": 38,
+            "yakuhai": 120
+          }
+        }
+      }
+    }
+  ]
+}

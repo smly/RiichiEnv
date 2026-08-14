@@ -27,3 +27,29 @@ repository and opt in explicitly:
 ```bash
 uv run python scripts/validate_external_replays.py --no-committed /path/to/corpus-manifest.json
 ```
+
+The same fixtures also carry a `drev_validation.expected` block. It freezes
+the number of replayed discard decisions, tile-type and physical discard
+candidates, candidate/opponent labels, exact wait and legal-Ron support,
+hard-safe proofs, public-yaku support, and a digest over predictions plus
+hidden-state labels. Run the DREV validator with:
+
+```bash
+uv run python scripts/validate_drev_replays.py
+uv run python scripts/validate_drev_replays.py --report /tmp/drev-report.json
+uv run python scripts/validate_drev_replays.py --no-committed /path/to/corpus-manifest.json
+uv run python scripts/validate_drev_replays.py --no-committed --allow-unfrozen /path/to/exploratory.json
+```
+
+Only the native label oracle may inspect concealed hands. The encoded DREV
+input remains the original masked public observation. Exact semantic failures
+make the command exit non-zero; calibration metrics are reported rather than
+treated as correctness assertions on this small CI corpus. Frozen manifests
+must include the complete expected-key set and semantic digest. The three
+excerpts which intentionally retain the following round's empty
+`start_kyoku` header opt in explicitly; a non-empty trailing round is always
+rejected.
+
+The default command also loads `../drev_replay/manifest.json`, whose larger
+tracked replay stresses riichi and discard-history reconstruction. It is kept
+separate because it is not used as an attributed external score oracle.

@@ -350,15 +350,58 @@ Current deterministic regressions cover both variants where applicable:
   for both 4P and 3P, enumerates every legal physical discard against every
   opponent, and currently checks 17,920 candidate/opponent cells including
   3,871 hard-safe cells with zero false positives.
+- the attributed replay oracle replays the four committed Tenhou/Mahjong Soul
+  excerpts with the same state reducers used by training replay, calculates
+  DREV from the masked Observation first, and only then labels every distinct
+  legal discard tile against each concealed opponent hand. Its current golden
+  covers 195 decisions, 1,834 tile-type candidate occurrences, 1,856 physical
+  discard candidates, 5,187 opponent/candidate cells, 59 structural waits, 58
+  yaku-valid/legal Ron cells, and 664 hard-safe cells with zero exact-contract
+  failures. Every model-facing value in all 81 channels is compared with the
+  typed result for every representable tile, including non-candidate columns,
+  the minimum-loss marker, and the inactive 3P slot. The manifest freezes the
+  complete encoded tensor and hidden-label rows after quantizing floating
+  values to `1e-6`, avoiding target-specific float-bit noise.
+- the separate repository-tracked history fixture adds 12 complete rounds,
+  659 discard decisions, ten riichi declarations, both tedashi and tsumogiri,
+  calls, an ankan, wins, and draws. It checks another 19,734 cells including
+  2,556 hard-safe proofs with zero false positives. It is an invariant/history
+  stress corpus, not an externally attributed score oracle.
+- the 816-case 4P agari differential corpus checks that every represented
+  major normal-yaku and yakuman family is never labelled publicly impossible;
+  Suukantsu, which is absent from that corpus, remains covered by the explicit
+  four-kan semantic fixture.
 
-The seeded integration oracle validates the exact-zero rule claim, not
-statistical quality or rare-event coverage. The corpus-quality oracle must
-extend the same hidden-state boundary to record exact waits, legal Ron,
-canonical yaku and yakuman IDs/units, han/fu, bonus components, points, and
-player deltas. Only the labels may inspect concealed hands, wall state, ura
-indicators, or legal responses; the encoded input must be generated from the
-original public Observation. Train/calibration/test splits are by game, not by
-observation, to avoid adjacent-position leakage.
+Run the committed DREV corpus or an opt-in manifest with:
+
+```bash
+uv run python scripts/validate_drev_replays.py
+uv run python scripts/validate_drev_replays.py --report /tmp/drev-report.json
+uv run python scripts/validate_drev_replays.py --no-committed /path/to/manifest.json
+uv run python scripts/validate_drev_replays.py --no-committed --allow-unfrozen /path/to/exploratory.json
+```
+
+The validator hard-fails on a hard-safe false positive, a legal Ron assigned
+zero probability, an impossible/confirmed yaku contradiction, a public loss
+floor above the evaluated Ron value, aggregate or range errors, an incomplete
+public-history sidecar, an unfinished replay kyoku, replay desynchronization,
+or a fixture/hash/golden mismatch. Frozen manifests must provide the complete
+expected key set and semantic digest; an exploratory manifest may omit them
+only with `--allow-unfrozen`. Attributed excerpts may explicitly retain one
+empty next-round `start_kyoku` header, but any event after that header is still
+rejected. The report includes wait/Ron Brier score, log loss, average
+precision, ten-bin ECE, conditional-loss MAE/bias, and per-family yaku support
+without using those small-corpus values as acceptance thresholds.
+
+The seeded and replay integration oracles validate exact rules and semantic
+consistency, not broad statistical quality or rare-event recall. The replay
+report records structural waits, legal Ron, canonical yaku/yakuman families,
+han/fu, and visible-information Ron points. A production calibration corpus
+must additionally label hidden bonus components, rule-adjusted yakuman units,
+pao/multi-Ron settlement, and player deltas. Only labels may inspect concealed
+hands, wall state, ura indicators, or legal responses; the encoded input must
+be generated from the original public Observation. Train/calibration/test
+splits are by game, not by observation, to avoid adjacent-position leakage.
 
 Promotion from experimental use requires that labelled corpus and the following
 reported metrics:

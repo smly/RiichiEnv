@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 
+mod drev_validation;
 mod engine;
 mod env;
 mod event_journal;
@@ -85,6 +86,10 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_riichi_candidates_py, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_shanten_py, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_shanten_3p_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        drev_validation::validate_drev_replay_jsonl_py,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(features::encode_base_batch_py, m)?)?;
     m.add_function(wrap_pyfunction!(features::encode_extended_batch_py, m)?)?;
     m.add_function(wrap_pyfunction!(features::encode_sp_batch_py, m)?)?;

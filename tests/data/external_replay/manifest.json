@@ -7,6 +7,23 @@
       "fixture_sha256": "8bdc0a17b9dcb14b982320ae42d21b352829716d6b662207b2c46c11f66f5788",
       "provider": "tenhou",
       "rule": "tenhou",
+      "drev_validation": {
+        "allow_trailing_start_kyoku": true,
+        "expected": {
+          "variant": "4p",
+          "rounds": 1,
+          "decisions": 58,
+          "candidate_tile_types": 577,
+          "physical_discard_candidates": 584,
+          "opponent_candidate_cells": 1752,
+          "shape_wait_cells": 23,
+          "yaku_valid_win_cells": 23,
+          "legal_ron_cells": 23,
+          "hard_safe_cells": 288,
+          "semantic_sha256": "c9a0482a62e07fa4637552fd366ba5352b3f3cf5cb6d69db2aab9b68772facc1",
+          "yaku_support": {"honitsu": 3, "yakuhai": 23}
+        }
+      },
       "source": {
         "url": "https://github.com/NikkeTryHard/tenhou-to-mjai/blob/69fb75a51c7efef3212be603227b2a58a9717237/crates/convlog/tests/testdata/ranked_game.json",
         "commit": "69fb75a51c7efef3212be603227b2a58a9717237",
@@ -58,6 +75,23 @@
       "fixture_sha256": "f2f7ccd71d6f34292375b6c909ba2b94cabe13a634127c8ff3e9ec2fa44dd1f6",
       "provider": "mahjong_soul",
       "rule": "mjsoul",
+      "drev_validation": {
+        "allow_trailing_start_kyoku": true,
+        "expected": {
+          "variant": "3p",
+          "rounds": 1,
+          "decisions": 55,
+          "candidate_tile_types": 381,
+          "physical_discard_candidates": 381,
+          "opponent_candidate_cells": 762,
+          "shape_wait_cells": 11,
+          "yaku_valid_win_cells": 11,
+          "legal_ron_cells": 11,
+          "hard_safe_cells": 141,
+          "semantic_sha256": "35814eadaafc8e207c901138388e4e5c778543b71b92b19ce4ea6da2ea663fd8",
+          "yaku_support": {"toitoi": 10, "yakuhai": 1}
+        }
+      },
       "source": {
         "url": "https://github.com/hidacow/mjai-reviewer3p/blob/a6c0a25332e972ad30ebb9fa62c30e7a5ee3f1d5/convlog/tests/testdata/nukidora_doubleron.json",
         "commit": "a6c0a25332e972ad30ebb9fa62c30e7a5ee3f1d5",
@@ -118,6 +152,23 @@
       "fixture_sha256": "a302df3487baf1c024ef19267a3faa1a36715c0f5adbfd187436ca70c0a14bb2",
       "provider": "tenhou",
       "rule": "tenhou",
+      "drev_validation": {
+        "allow_trailing_start_kyoku": true,
+        "expected": {
+          "variant": "4p",
+          "rounds": 1,
+          "decisions": 36,
+          "candidate_tile_types": 403,
+          "physical_discard_candidates": 406,
+          "opponent_candidate_cells": 1218,
+          "shape_wait_cells": 0,
+          "yaku_valid_win_cells": 0,
+          "legal_ron_cells": 0,
+          "hard_safe_cells": 92,
+          "semantic_sha256": "9ea9d4a9894befa4c75d5445032d6072bc2cc87d701b5b95be0c6fdf92ad0564",
+          "yaku_support": {}
+        }
+      },
       "source": {
         "url": "https://github.com/NikkeTryHard/tenhou-to-mjai/blob/69fb75a51c7efef3212be603227b2a58a9717237/crates/convlog/tests/testdata/ranked_game.json",
         "commit": "69fb75a51c7efef3212be603227b2a58a9717237",
@@ -169,6 +220,22 @@
       "fixture_sha256": "0ffb953fcd99992bbda25dac0055487d885591a8052128bb45874a68b0f7c842",
       "provider": "tenhou",
       "rule": "tenhou",
+      "drev_validation": {
+        "expected": {
+          "variant": "4p",
+          "rounds": 1,
+          "decisions": 46,
+          "candidate_tile_types": 473,
+          "physical_discard_candidates": 485,
+          "opponent_candidate_cells": 1455,
+          "shape_wait_cells": 25,
+          "yaku_valid_win_cells": 24,
+          "legal_ron_cells": 24,
+          "hard_safe_cells": 143,
+          "semantic_sha256": "5d3f0aa303eb8677e4fabbe3368115a4725e261282522f706ab15e1f8c313644",
+          "yaku_support": {"tanyao": 10, "yakuhai": 14}
+        }
+      },
       "source": {
         "url": "https://github.com/NikkeTryHard/tenhou-to-mjai/blob/69fb75a51c7efef3212be603227b2a58a9717237/crates/convlog/tests/testdata/confusing_nakis_4.json",
         "commit": "69fb75a51c7efef3212be603227b2a58a9717237",

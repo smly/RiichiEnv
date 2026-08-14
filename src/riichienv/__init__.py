@@ -57,6 +57,7 @@ from ._riichienv import (
     get_yaku_by_id,
     parse_hand,
     parse_tile,
+    validate_drev_replay_jsonl,
 )
 from .action import Action, Action3P, ActionType
 from .game_mode import GameType
@@ -131,6 +132,7 @@ __all__ = [
     "encode_sp_batch_3p",
     "parse_hand",
     "parse_tile",
+    "validate_drev_replay_jsonl",
     "Action",
     "Action3P",
     "ActionType",

@@ -1692,6 +1692,88 @@ mod tests {
     }
 
     #[test]
+    fn tedashi_history_changes_only_soft_wait_shape_and_uncertainty() {
+        let mut tedashi = empty_observation();
+        tedashi.discards[1] = vec![12, 108]; // 4m tedashi, then East tsumogiri.
+        tedashi.discard_is_riichi[1] = vec![false, false];
+        tedashi.public_tsumogiri_history[1] = vec![false, true];
+        tedashi.discard_actor_history = vec![1, 1];
+        tedashi.resolved_discard_count = 2;
+
+        let mut all_tsumogiri = tedashi.clone();
+        all_tsumogiri.public_tsumogiri_history[1] = vec![true, true];
+
+        let with_tedashi = calculate_drev_v2(&tedashi).unwrap();
+        let without_tedashi = calculate_drev_v2(&all_tsumogiri).unwrap();
+        let with_tedashi = &with_tedashi.opponents()[0];
+        let without_tedashi = &without_tedashi.opponents()[0];
+
+        // 5m is adjacent to the historical 4m tedashi, so its soft shape
+        // prior reacts. The trailing run also changes uncertainty, while the
+        // hard rules and value evidence below remain invariant.
+        assert_eq!(with_tedashi.hard_safe_zero[4], 0.0);
+        assert!(with_tedashi.wait_prob[4] > without_tedashi.wait_prob[4]);
+        assert!(with_tedashi.uncertainty[4] > without_tedashi.uncertainty[4]);
+        assert_eq!(with_tedashi.hard_safe_zero, without_tedashi.hard_safe_zero);
+        assert_eq!(with_tedashi.yaku, without_tedashi.yaku);
+        assert_eq!(
+            with_tedashi.mean_loss_points,
+            without_tedashi.mean_loss_points
+        );
+    }
+
+    #[test]
+    fn aggregate_heads_are_exact_reductions_and_ties_choose_lowest_candidate() {
+        let mut input = input_4p(&empty_observation()).unwrap();
+        input.opponents[0].as_mut().unwrap().riichi = true;
+        input.opponents[1].as_mut().unwrap().melds.push(Meld::new(
+            MeldType::Chi,
+            vec![36, 40, 44],
+            true,
+            0,
+            Some(36),
+        ));
+        input.opponents[2].as_mut().unwrap().tsumogiri = vec![true, true];
+        for opponent in input.opponents.iter_mut().flatten() {
+            opponent.temporary_safe_mask |= 1u64 << 31;
+        }
+        input.opponents[0].as_mut().unwrap().temporary_safe_mask |= 1u64 << 30;
+
+        let result = calculate(&input);
+        for tile in 0..TILE_MAX {
+            let mut expected_max_ron = 0.0f32;
+            let mut expected_loss = 0.0f32;
+            let mut expected_max_uncertainty = 0.0f32;
+            for opponent in result.opponents.iter().take(3) {
+                expected_max_ron = expected_max_ron.max(opponent.ron_prob[tile]);
+                expected_loss += opponent.ron_prob[tile] * opponent.mean_loss_points[tile];
+                expected_max_uncertainty = expected_max_uncertainty.max(opponent.uncertainty[tile]);
+            }
+            let expected_all_safe = result
+                .opponents
+                .iter()
+                .take(3)
+                .all(|opponent| opponent.hard_safe_zero[tile] == 1.0)
+                as u8 as f32;
+
+            assert_eq!(result.all_safe_zero[tile], expected_all_safe);
+            assert_eq!(result.max_ron_prob[tile], expected_max_ron);
+            assert_eq!(result.sum_expected_loss_points[tile], expected_loss);
+            assert_eq!(result.max_uncertainty[tile], expected_max_uncertainty);
+        }
+        assert_eq!(result.all_safe_zero[31], 1.0);
+        assert_eq!(result.all_safe_zero[30], 0.0);
+
+        let mut tied = input_4p(&empty_observation()).unwrap();
+        tied.opponents = [None, None, None];
+        tied.discard_candidates = vec![12, 4, 8];
+        let tied = calculate(&tied);
+        assert_eq!(tied.sum_expected_loss_points, [0.0; TILE_MAX]);
+        assert_eq!(tied.min_loss_discard_marker[4], 1.0);
+        assert_eq!(tied.min_loss_discard_marker.iter().sum::<f32>(), 1.0);
+    }
+
+    #[test]
     fn own_river_is_hard_safe_while_suji_and_kabe_remain_soft() {
         let mut observation = empty_observation();
         observation.discards[1] = vec![12]; // 4m: own river and suji blocker.
@@ -2378,6 +2460,60 @@ mod tests {
         assert_eq!(evidence.value("chinitsu"), Some(EVIDENCE_STRONG));
         // STRONG is ordinal evidence, not a probability or a han estimate.
         assert_eq!(estimated_han(&flush_input, flush_opponent, &evidence), 1.0);
+    }
+
+    #[test]
+    fn visible_bonus_and_candidate_dora_set_exact_dealer_honba_loss_floor() {
+        let mut observation = empty_observation();
+        observation.oya = 1;
+        observation.honba = 2;
+        observation.dora_indicators = vec![45]; // 3p -> 4p.
+        observation.discards[0] = vec![57];
+        observation.discard_is_riichi[0] = vec![false];
+        observation.public_tsumogiri_history[0] = vec![false];
+        observation.discard_actor_history = vec![0];
+        observation.resolved_discard_count = 1;
+        observation.melds[1].push(Meld::new(
+            MeldType::Chi,
+            vec![49, 52, 57], // 4p dora, red 5p, 6p.
+            true,
+            0,
+            Some(57),
+        ));
+        observation._legal_actions = vec![
+            Action::new(ActionType::Discard, Some(48), vec![], Some(0)),
+            Action::new(ActionType::Discard, Some(0), vec![], Some(0)),
+        ];
+
+        let result = calculate_drev_v2(&observation).unwrap();
+        let opponent_result = &result.opponents()[0];
+        let input = input_4p(&observation).unwrap();
+        let opponent = input.opponents[0].as_ref().unwrap();
+
+        // The public meld contributes one visible dora and one aka dora.
+        assert_eq!(opponent.absolute_seat, input.oya);
+        assert_eq!(input.honba, 2);
+        assert_eq!(public_bonus_count(&input, opponent), 2);
+        assert_eq!(public_bonus_value(&input, opponent), 2.0 / 6.0);
+        assert_eq!(opponent_result.yaku.value("public_bonus"), Some(2.0 / 6.0));
+        assert_eq!(dora_multiplicity(0, &input.dora_indicators, false), 0);
+        assert_eq!(dora_multiplicity(12, &input.dora_indicators, false), 1);
+
+        // A legal ron has a one-han floor. Public bonuses lift it to three;
+        // discarding the 4p dora lifts it once more. Dealer and honba are exact.
+        let expected_without_candidate_dora = calculate_score(3, 30, true, false, 2, 4).pay_ron;
+        let expected_with_candidate_dora = calculate_score(4, 30, true, false, 2, 4).pay_ron;
+        assert_eq!(expected_without_candidate_dora, 6_400);
+        assert_eq!(expected_with_candidate_dora, 12_200);
+        assert_eq!(
+            opponent_result.mean_loss_points[0],
+            expected_without_candidate_dora as f32
+        );
+        assert_eq!(
+            opponent_result.mean_loss_points[12],
+            expected_with_candidate_dora as f32
+        );
+        assert!(expected_with_candidate_dora > expected_without_candidate_dora);
     }
 
     #[test]
