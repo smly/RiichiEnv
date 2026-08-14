@@ -61,6 +61,18 @@ pub fn encode_drev_batch_py<'py>(
 }
 
 #[pyfunction]
+#[pyo3(name = "encode_drev_v2_batch")]
+pub fn encode_drev_v2_batch_py<'py>(
+    py: Python<'py>,
+    observations: Vec<Observation>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let values = py
+        .detach(move || features::encode_drev_v2_4p_batch(&observations))
+        .map_err(PyErr::from)?;
+    Ok(floats_as_bytes(py, &values))
+}
+
+#[pyfunction]
 #[pyo3(name = "encode_extended_with_sp_batch")]
 pub fn encode_extended_with_sp_batch_py<'py>(
     py: Python<'py>,
@@ -68,6 +80,18 @@ pub fn encode_extended_with_sp_batch_py<'py>(
 ) -> PyResult<Bound<'py, PyBytes>> {
     let values = py
         .detach(move || features::encode_extended_sp_drev_4p_batch(&observations))
+        .map_err(PyErr::from)?;
+    Ok(floats_as_bytes(py, &values))
+}
+
+#[pyfunction]
+#[pyo3(name = "encode_extended_with_sp_drev_v2_batch")]
+pub fn encode_extended_with_sp_drev_v2_batch_py<'py>(
+    py: Python<'py>,
+    observations: Vec<Observation>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let values = py
+        .detach(move || features::encode_extended_sp_drev_v2_4p_batch(&observations))
         .map_err(PyErr::from)?;
     Ok(floats_as_bytes(py, &values))
 }
@@ -121,6 +145,18 @@ pub fn encode_drev_batch_3p_py<'py>(
 }
 
 #[pyfunction]
+#[pyo3(name = "encode_drev_v2_batch_3p")]
+pub fn encode_drev_v2_batch_3p_py<'py>(
+    py: Python<'py>,
+    observations: Vec<Observation3P>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let values = py
+        .detach(move || features::encode_drev_v2_3p_batch(&observations))
+        .map_err(PyErr::from)?;
+    Ok(floats_as_bytes(py, &values))
+}
+
+#[pyfunction]
 #[pyo3(name = "encode_extended_with_sp_batch_3p")]
 pub fn encode_extended_with_sp_batch_3p_py<'py>(
     py: Python<'py>,
@@ -128,6 +164,18 @@ pub fn encode_extended_with_sp_batch_3p_py<'py>(
 ) -> PyResult<Bound<'py, PyBytes>> {
     let values = py
         .detach(move || features::encode_extended_sp_drev_3p_batch(&observations))
+        .map_err(PyErr::from)?;
+    Ok(floats_as_bytes(py, &values))
+}
+
+#[pyfunction]
+#[pyo3(name = "encode_extended_with_sp_drev_v2_batch_3p")]
+pub fn encode_extended_with_sp_drev_v2_batch_3p_py<'py>(
+    py: Python<'py>,
+    observations: Vec<Observation3P>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let values = py
+        .detach(move || features::encode_extended_sp_drev_v2_3p_batch(&observations))
         .map_err(PyErr::from)?;
     Ok(floats_as_bytes(py, &values))
 }

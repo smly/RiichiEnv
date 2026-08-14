@@ -47,6 +47,31 @@ pub struct Observation {
     pub waits: Vec<u8>,
     pub is_tenpai: bool,
     pub tsumogiri_flags: [Vec<bool>; 4],
+    /// Complete per-discard tsumogiri history for DREV v2. The historical
+    /// `tsumogiri_flags` field remains untouched to preserve the frozen
+    /// Observation wire and legacy feature values.
+    #[serde(skip)]
+    pub(crate) public_tsumogiri_history: [Vec<bool>; 4],
+    /// Per-discard riichi declaration flags, aligned with [`Self::discards`].
+    /// Older observation payloads do not carry this history.
+    // Runtime-only v2 sidecar. Keeping it out of the frozen Observation JSON
+    // preserves byte-for-byte v0.4.x base64 payloads.
+    #[serde(skip)]
+    pub(crate) discard_is_riichi: [Vec<bool>; 4],
+    /// Actor seat for every discard in public chronological order.
+    #[serde(skip)]
+    pub(crate) discard_actor_history: Vec<u8>,
+    /// Number of chronological discards whose normal response window is over.
+    #[serde(skip)]
+    pub(crate) resolved_discard_count: usize,
+    /// Per-seat tiles proven temporarily unable to deal in until that seat's
+    /// next draw or call. This is a runtime-only consequence of the same-turn
+    /// furiten rule and is never serialized in the frozen Observation wire.
+    #[serde(skip)]
+    pub(crate) public_temporary_safe_masks: [u64; 4],
+    /// Whether the additive public-history fields cover the whole current hand.
+    #[serde(skip)]
+    pub(crate) public_history_complete: bool,
     pub riichi_sutehais: [Option<u8>; 4],
     pub last_tedashis: [Option<u8>; 4],
     pub last_discard: Option<u32>,
@@ -56,6 +81,36 @@ pub struct Observation {
 
 /// Pure Rust methods (no PyO3 dependency).
 impl Observation {
+    /// Complete public tedashi/tsumogiri history supplied by the live engine.
+    pub fn public_tsumogiri_history(&self) -> &[Vec<bool>; 4] {
+        &self.public_tsumogiri_history
+    }
+
+    /// Riichi-declaration markers aligned with [`Self::discards`].
+    pub fn public_riichi_discard_history(&self) -> &[Vec<bool>; 4] {
+        &self.discard_is_riichi
+    }
+
+    /// Absolute actors in chronological discard order.
+    pub fn public_discard_actors(&self) -> &[u8] {
+        &self.discard_actor_history
+    }
+
+    /// Number of chronological normal-discard response windows that resolved.
+    pub fn resolved_public_discard_count(&self) -> usize {
+        self.resolved_discard_count
+    }
+
+    /// Same-turn-furiten safety masks in absolute seat order.
+    pub fn public_temporary_safe_masks(&self) -> &[u64; 4] {
+        &self.public_temporary_safe_masks
+    }
+
+    /// Whether the runtime-only history sidecar is complete and trustworthy.
+    pub fn has_complete_public_history(&self) -> bool {
+        self.public_history_complete
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         player_id: u8,
@@ -102,6 +157,12 @@ impl Observation {
             waits,
             is_tenpai,
             tsumogiri_flags: Default::default(),
+            public_tsumogiri_history: Default::default(),
+            discard_is_riichi: Default::default(),
+            discard_actor_history: Vec::new(),
+            resolved_discard_count: 0,
+            public_temporary_safe_masks: [0; 4],
+            public_history_complete: false,
             riichi_sutehais,
             last_tedashis,
             last_discard,
@@ -273,6 +334,87 @@ impl Observation {
         Ok(())
     }
 
+    pub(crate) fn validate_public_discard_history(&self) -> RiichiResult<()> {
+        for seat in 0..4 {
+            let discard_count = self.discards[seat].len();
+            let tsumogiri_count = self.public_tsumogiri_history[seat].len();
+            if tsumogiri_count != 0 && tsumogiri_count != discard_count {
+                return Err(invalid_observation(format!(
+                    "public_tsumogiri_history[{seat}] contains {tsumogiri_count} entries for {discard_count} discards"
+                )));
+            }
+            let riichi_count = self.discard_is_riichi[seat].len();
+            if riichi_count != 0 && riichi_count != discard_count {
+                return Err(invalid_observation(format!(
+                    "discard_is_riichi[{seat}] contains {riichi_count} entries for {discard_count} discards"
+                )));
+            }
+            if self.public_history_complete
+                && (tsumogiri_count != discard_count || riichi_count != discard_count)
+            {
+                return Err(invalid_observation(format!(
+                    "complete public history for seat {seat} must align with all {discard_count} discards"
+                )));
+            }
+            let declaration_count = self.discard_is_riichi[seat]
+                .iter()
+                .filter(|&&declared| declared)
+                .count();
+            if declaration_count > 1 {
+                return Err(invalid_observation(format!(
+                    "discard_is_riichi[{seat}] contains more than one declaration"
+                )));
+            }
+            if self.public_history_complete
+                && self.riichi_declared[seat] != (declaration_count == 1)
+            {
+                return Err(invalid_observation(format!(
+                    "riichi state for seat {seat} is inconsistent with its public declaration history"
+                )));
+            }
+        }
+
+        if self.discard_actor_history.iter().any(|&actor| actor >= 4) {
+            return Err(invalid_observation(
+                "discard_actor_history contains an actor outside 0..=3".to_string(),
+            ));
+        }
+        if !self.discard_actor_history.is_empty() || self.public_history_complete {
+            let mut actor_counts = [0usize; 4];
+            for &actor in &self.discard_actor_history {
+                actor_counts[actor as usize] += 1;
+            }
+            for (seat, (&actual, discards)) in
+                actor_counts.iter().zip(self.discards.iter()).enumerate()
+            {
+                if actual != discards.len() {
+                    return Err(invalid_observation(format!(
+                        "discard_actor_history contains {actual} entries for seat {seat}, expected {}",
+                        discards.len()
+                    )));
+                }
+            }
+        }
+        if self.resolved_discard_count > self.discard_actor_history.len() {
+            return Err(invalid_observation(format!(
+                "resolved_discard_count {} exceeds discard history length {}",
+                self.resolved_discard_count,
+                self.discard_actor_history.len()
+            )));
+        }
+        let valid_tile_mask = (1u64 << OBS_TILE_TYPES) - 1;
+        if self
+            .public_temporary_safe_masks
+            .iter()
+            .any(|mask| mask & !valid_tile_mask != 0)
+        {
+            return Err(invalid_observation(
+                "public_temporary_safe_masks contains an invalid tile type".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn find_action(&self, action_id: usize) -> Option<Action> {
         let encoder = ActionEncoder::FourPlayer;
         // Prefer non-red-five candidates so that 5m/5p/5s discards do not
@@ -373,6 +515,30 @@ fn validate_meld_shape(meld: &Meld) -> RiichiResult<()> {
     {
         return Err(invalid_observation(format!(
             "called meld tile {called_tile} is not present in the meld"
+        )));
+    }
+
+    let mut tile_types = meld
+        .tiles
+        .iter()
+        .map(|tile| usize::from(*tile) / 4)
+        .collect::<Vec<_>>();
+    tile_types.sort_unstable();
+    let valid_types = match meld.meld_type {
+        MeldType::Chi => {
+            tile_types[0] < 27
+                && tile_types[0] / 9 == tile_types[2] / 9
+                && tile_types[1] == tile_types[0] + 1
+                && tile_types[2] == tile_types[1] + 1
+        }
+        MeldType::Pon | MeldType::Daiminkan | MeldType::Ankan | MeldType::Kakan => {
+            tile_types.iter().all(|&tile| tile == tile_types[0])
+        }
+    };
+    if !valid_types {
+        return Err(invalid_observation(format!(
+            "{:?} meld has an invalid tile-type composition",
+            meld.meld_type
         )));
     }
     Ok(())
@@ -497,5 +663,59 @@ mod tests {
         let obs = obs_with_actions(vec![discard(12), discard(13)]);
         let chosen = obs.find_action(3).expect("discard 4m should resolve");
         assert_eq!(chosen.tile, Some(12), "first match wins for non-red ties");
+    }
+
+    #[test]
+    fn legacy_public_history_fields_default_without_changing_wire() {
+        let obs = obs_with_actions(vec![discard(0)]);
+        let value = serde_json::to_value(&obs).expect("observation should serialize");
+        let object = value.as_object().expect("observation should be an object");
+        assert!(!object.contains_key("discard_is_riichi"));
+        assert!(!object.contains_key("public_tsumogiri_history"));
+        assert!(!object.contains_key("discard_actor_history"));
+        assert!(!object.contains_key("resolved_discard_count"));
+        assert!(!object.contains_key("public_temporary_safe_masks"));
+        assert!(!object.contains_key("public_history_complete"));
+
+        let restored: Observation =
+            serde_json::from_value(value).expect("legacy observation should deserialize");
+        assert_eq!(restored.discard_is_riichi, <[Vec<bool>; 4]>::default());
+        assert_eq!(
+            restored.public_tsumogiri_history,
+            <[Vec<bool>; 4]>::default()
+        );
+        assert!(restored.discard_actor_history.is_empty());
+        assert_eq!(restored.resolved_discard_count, 0);
+        assert_eq!(restored.public_temporary_safe_masks, [0; 4]);
+        assert!(!restored.public_history_complete);
+    }
+
+    #[test]
+    fn complete_public_history_must_align_with_discards() {
+        let mut obs = obs_with_actions(vec![discard(0)]);
+        obs.discards[1] = vec![4, 8];
+        obs.public_tsumogiri_history[1] = vec![false, true];
+        obs.discard_is_riichi[1] = vec![true, false];
+        obs.riichi_declared[1] = true;
+        obs.discard_actor_history = vec![1, 1];
+        obs.resolved_discard_count = 1;
+        obs.public_history_complete = true;
+        obs.validate_public_discard_history()
+            .expect("aligned complete history should validate");
+
+        obs.discard_actor_history.pop();
+        assert!(obs.validate_public_discard_history().is_err());
+    }
+
+    #[test]
+    fn meld_validation_rejects_non_sequence_chi_and_mixed_triplet() {
+        let invalid_chi = Meld::new(MeldType::Chi, vec![0, 8, 12], true, 1, Some(0));
+        assert!(validate_meld_shape(&invalid_chi).is_err());
+
+        let invalid_pon = Meld::new(MeldType::Pon, vec![0, 1, 4], true, 1, Some(0));
+        assert!(validate_meld_shape(&invalid_pon).is_err());
+
+        let valid_chi = Meld::new(MeldType::Chi, vec![10, 2, 5], true, 1, Some(2));
+        validate_meld_shape(&valid_chi).expect("physical copy order must not matter");
     }
 }

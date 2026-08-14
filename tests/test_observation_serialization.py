@@ -24,6 +24,7 @@ def _assert_obs_fields_equal(original, restored):
     assert restored.dora_indicators == original.dora_indicators
     assert restored.scores == original.scores
     assert restored.riichi_declared == original.riichi_declared
+    assert restored.tsumogiri_flags == original.tsumogiri_flags
     assert restored.events == original.events
     assert restored.honba == original.honba
     assert restored.riichi_sticks == original.riichi_sticks
@@ -58,7 +59,21 @@ class TestObservationSerialization:
         assert restored.serialize_to_base64() == fixture
 
         current = RiichiEnv(game_mode=game_mode, seed=42).reset()[0]
+        assert current.public_history_complete is True
+        assert current.discard_actor_history == b""
+        assert all(not flags for flags in current.tsumogiri_flags)
+        assert all(not flags for flags in current.public_tsumogiri_history)
+        assert current.public_temporary_safe_masks == [0] * len(current.hands)
         assert current.serialize_to_base64() == fixture
+
+        # DREV-v2 history is a runtime sidecar and intentionally stays out of
+        # the frozen Observation base64 wire.
+        current_restored = observation_type.deserialize_from_base64(fixture)
+        assert current_restored.public_history_complete is False
+        assert current_restored.discard_actor_history == b""
+        assert current_restored.public_temporary_safe_masks == [0] * len(current_restored.hands)
+        with pytest.raises(ValueError, match="complete runtime public-history sidecar"):
+            current_restored.encode_drev_v2()
 
     def test_round_trip_initial(self):
         """Serialize then deserialize an initial observation; fields must match."""
@@ -96,6 +111,14 @@ class TestObservationSerialization:
         if not env.is_done:
             pid = env.current_player
             obs = env.get_observations([pid])[pid]
+            assert obs.public_history_complete is True
+            assert len(obs.discard_actor_history) == sum(map(len, obs.discards))
+            assert obs.resolved_discard_count == len(obs.discard_actor_history)
+            for seat in range(4):
+                assert len(obs.public_tsumogiri_history[seat]) == len(obs.discards[seat])
+                assert obs.tsumogiri_flags[seat] == []
+                assert len(obs.discard_is_riichi[seat]) == len(obs.discards[seat])
+                assert obs.discard_actor_history.count(seat) == len(obs.discards[seat])
             encoded = obs.serialize_to_base64()
             restored = Observation.deserialize_from_base64(encoded)
             _assert_obs_fields_equal(obs, restored)

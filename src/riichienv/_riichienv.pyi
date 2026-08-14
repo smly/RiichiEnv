@@ -11,6 +11,11 @@ ACTION_SPACE_4P_V1: int
 ACTION_SPACE_3P_V1: int
 SP_CHANNELS: int
 DREV_CHANNELS: int
+DREV_V2_CHANNELS: int
+DREV_V2_CHANNEL_NAMES: list[str]
+DREV_V2_OPPONENT_SLOT_ORDER: list[str]
+DREV_V2_SCHEMA_ID: str
+DREV_V2_YAKU_EVIDENCE_NAMES: list[str]
 OBS_EXTENDED_CHANNELS: int
 OBS_TOTAL_CHANNELS: int
 TILE_TYPES: int
@@ -267,6 +272,12 @@ class Observation:
     waits: list[int]
     is_tenpai: bool
     tsumogiri_flags: list[list[bool]]
+    public_tsumogiri_history: list[list[bool]]
+    discard_is_riichi: list[list[bool]]
+    discard_actor_history: bytes
+    resolved_discard_count: int
+    public_temporary_safe_masks: list[int]
+    public_history_complete: bool
     riichi_sutehais: list[int | None]
     last_tedashis: list[int | None]
     last_discard: int | None
@@ -501,11 +512,20 @@ class Observation:
         Shape: ``(9, 34)`` / dtype: ``float32``.
         """
         ...
+    def encode_drev_v2(self) -> bytes:
+        """Encode DREV v2 with shape ``(81, 34)`` and dtype ``float32``.
+
+        Requires an engine-produced runtime public-history sidecar.
+        """
+        ...
     def encode_extended_with_sp(self) -> bytes:
         """Encode extended features followed by SP and DREV features.
 
         Shape: ``(402, 34)`` / dtype: ``float32``.
         """
+        ...
+    def encode_extended_with_sp_drev_v2(self) -> bytes:
+        """Encode extended + SP + DREV-v2 with shape ``(474, 34)``."""
         ...
     def encode_seq_sparse(self, game_style: int = 1) -> bytes:
         """Encode sequence features as sparse token ids.
@@ -561,6 +581,13 @@ class Observation3P:
         waits: Winning tile ids if the player is tenpai.
         is_tenpai: Whether the player is currently tenpai.
         tsumogiri_flags: Per-player flags indicating tsumogiri for each discard.
+        public_tsumogiri_history: Complete runtime-only public tsumogiri history
+            used by DREV v2. It is not included in legacy base64 payloads.
+        discard_is_riichi: Per-player riichi-declaration flags aligned with discards.
+        discard_actor_history: Seat-index bytes in chronological discard order.
+        resolved_discard_count: Number of discards whose response window is complete.
+        public_temporary_safe_masks: Same-turn-furiten safety bitsets in absolute seat order.
+        public_history_complete: Whether the public discard histories cover the full hand.
         riichi_sutehais: The tile discarded for riichi declaration per player,
             or ``None`` if not yet declared.
         last_tedashis: The last tedashi (hand-picked discard) per player,
@@ -584,6 +611,12 @@ class Observation3P:
     waits: list[int]
     is_tenpai: bool
     tsumogiri_flags: list[list[bool]]
+    public_tsumogiri_history: list[list[bool]]
+    discard_is_riichi: list[list[bool]]
+    discard_actor_history: bytes
+    resolved_discard_count: int
+    public_temporary_safe_masks: list[int]
+    public_history_complete: bool
     riichi_sutehais: list[int | None]
     last_tedashis: list[int | None]
     last_discard: int | None
@@ -824,8 +857,14 @@ class Observation3P:
     def encode_drev(self) -> bytes:
         """Encode DREV features with shape ``(9, 27)`` and dtype ``float32``."""
         ...
+    def encode_drev_v2(self) -> bytes:
+        """Encode DREV v2 with shape ``(81, 27)`` and dtype ``float32``."""
+        ...
     def encode_extended_with_sp(self) -> bytes:
         """Encode extended + SP + DREV features with shape ``(402, 27)``."""
+        ...
+    def encode_extended_with_sp_drev_v2(self) -> bytes:
+        """Encode extended + SP + DREV-v2 with shape ``(474, 27)``."""
         ...
     def __init__(self, *args: Any, **kwargs: Any): ...
 
@@ -983,8 +1022,16 @@ def encode_drev_batch(observations: Sequence[Observation]) -> bytes:
     """Encode `[batch, 9, 34]` float32 DREV features."""
     ...
 
+def encode_drev_v2_batch(observations: Sequence[Observation]) -> bytes:
+    """Encode `[batch, 81, 34]` float32 public-history DREV-v2 features."""
+    ...
+
 def encode_extended_with_sp_batch(observations: Sequence[Observation]) -> bytes:
     """Encode `[batch, 402, 34]` extended + SP + DREV features."""
+    ...
+
+def encode_extended_with_sp_drev_v2_batch(observations: Sequence[Observation]) -> bytes:
+    """Encode `[batch, 474, 34]` extended + SP + DREV-v2 features."""
     ...
 
 def encode_base_batch_3p(observations: Sequence[Observation3P]) -> bytes:
@@ -1003,8 +1050,16 @@ def encode_drev_batch_3p(observations: Sequence[Observation3P]) -> bytes:
     """Encode `[batch, 9, 27]` float32 sanma DREV features."""
     ...
 
+def encode_drev_v2_batch_3p(observations: Sequence[Observation3P]) -> bytes:
+    """Encode `[batch, 81, 27]` float32 sanma DREV-v2 features."""
+    ...
+
 def encode_extended_with_sp_batch_3p(observations: Sequence[Observation3P]) -> bytes:
     """Encode `[batch, 402, 27]` sanma extended + SP + DREV features."""
+    ...
+
+def encode_extended_with_sp_drev_v2_batch_3p(observations: Sequence[Observation3P]) -> bytes:
+    """Encode `[batch, 474, 27]` sanma extended + SP + DREV-v2 features."""
     ...
 
 class RiichiEnv:
@@ -1130,6 +1185,11 @@ __all__ = [
     "ACTION_SPACE_4P_V0",
     "ACTION_SPACE_4P_V1",
     "DREV_CHANNELS",
+    "DREV_V2_CHANNELS",
+    "DREV_V2_CHANNEL_NAMES",
+    "DREV_V2_OPPONENT_SLOT_ORDER",
+    "DREV_V2_SCHEMA_ID",
+    "DREV_V2_YAKU_EVIDENCE_NAMES",
     "OBS_EXTENDED_CHANNELS",
     "OBS_EXTENDED_CHANNELS_3P",
     "OBS_TOTAL_CHANNELS",
@@ -1170,10 +1230,14 @@ __all__ = [
     "encode_base_batch_3p",
     "encode_drev_batch",
     "encode_drev_batch_3p",
+    "encode_drev_v2_batch",
+    "encode_drev_v2_batch_3p",
     "encode_extended_batch",
     "encode_extended_batch_3p",
     "encode_extended_with_sp_batch",
     "encode_extended_with_sp_batch_3p",
+    "encode_extended_with_sp_drev_v2_batch",
+    "encode_extended_with_sp_drev_v2_batch_3p",
     "encode_sp_batch",
     "encode_sp_batch_3p",
     "parse_hand",

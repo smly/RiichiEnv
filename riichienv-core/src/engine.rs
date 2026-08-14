@@ -16,6 +16,7 @@ use crate::action::{
     ActionEncoder, ActionEncoderV1, Phase,
 };
 use crate::drev::DREV_CHANNELS;
+use crate::drev_v2::DREV_V2_CHANNELS;
 use crate::errors::{RiichiError, RiichiResult};
 use crate::game_variant::GameStateVariant;
 use crate::observation::{OBS_BASE_CHANNELS, OBS_EXTENDED_CHANNELS, OBS_TILE_TYPES, Observation};
@@ -357,10 +358,24 @@ impl ObservationVariant {
         }
     }
 
+    pub fn encode_drev_v2_features(&self) -> RiichiResult<Vec<f32>> {
+        match self {
+            Self::FourPlayer(obs) => obs.encode_drev_v2_features(),
+            Self::ThreePlayer(obs) => obs.encode_drev_v2_features(),
+        }
+    }
+
     pub fn encode_extended_with_sp_features(&self) -> RiichiResult<Vec<f32>> {
         match self {
             Self::FourPlayer(obs) => obs.encode_extended_with_sp_features(),
             Self::ThreePlayer(obs) => obs.encode_extended_with_sp_features(),
+        }
+    }
+
+    pub fn encode_extended_with_sp_drev_v2_features(&self) -> RiichiResult<Vec<f32>> {
+        match self {
+            Self::FourPlayer(obs) => obs.encode_extended_with_sp_drev_v2_features(),
+            Self::ThreePlayer(obs) => obs.encode_extended_with_sp_drev_v2_features(),
         }
     }
 
@@ -386,6 +401,10 @@ impl ObservationVariant {
         (DREV_CHANNELS, self.tile_types())
     }
 
+    pub fn drev_v2_feature_shape(&self) -> (usize, usize) {
+        (DREV_V2_CHANNELS, self.tile_types())
+    }
+
     pub fn extended_with_sp_feature_shape(&self) -> (usize, usize) {
         let extended_channels = match self {
             Self::FourPlayer(_) => OBS_EXTENDED_CHANNELS,
@@ -393,6 +412,17 @@ impl ObservationVariant {
         };
         (
             extended_channels + SP_CHANNELS + DREV_CHANNELS,
+            self.tile_types(),
+        )
+    }
+
+    pub fn extended_with_sp_drev_v2_feature_shape(&self) -> (usize, usize) {
+        let extended_channels = match self {
+            Self::FourPlayer(_) => OBS_EXTENDED_CHANNELS,
+            Self::ThreePlayer(_) => OBS_3P_EXTENDED_CHANNELS,
+        };
+        (
+            extended_channels + SP_CHANNELS + DREV_V2_CHANNELS,
             self.tile_types(),
         )
     }

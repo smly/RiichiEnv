@@ -1,5 +1,6 @@
 use crate::action::ActionType;
 use crate::drev::{self, DrevInput};
+use crate::drev_v2::{self, DREV_V2_CHANNELS};
 use crate::errors::{RiichiError, RiichiResult};
 use crate::feature_context::FeatureContext;
 use crate::shanten;
@@ -728,6 +729,27 @@ impl Observation {
         Ok(buf)
     }
 
+    /// Encode the opt-in DREV-v2 public-history, yaku, and yakuman evidence.
+    ///
+    /// Unlike frozen DREV v1, this requires an engine-produced runtime
+    /// history sidecar. Deserialized legacy observations fail closed.
+    pub fn encode_drev_v2_features(&self) -> RiichiResult<Vec<f32>> {
+        Ok(drev_v2::calculate_drev_v2(self)?.encode())
+    }
+
+    pub fn encode_drev_v2_features_into(&self, output: &mut [f32]) -> RiichiResult<()> {
+        let expected = DREV_V2_CHANNELS * OBS_TILE_TYPES;
+        if output.len() != expected {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "drev-4p v2 output has length {}; expected {expected}",
+                    output.len()
+                ),
+            });
+        }
+        drev_v2::calculate_drev_v2(self)?.encode_into(output)
+    }
+
     /// Encode extended, SP, and DREV features into one contiguous block.
     pub fn encode_extended_with_sp_features(&self) -> RiichiResult<Vec<f32>> {
         self.validate()?;
@@ -760,6 +782,10 @@ impl Observation {
             (OBS_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + crate::drev::DREV_CHANNELS)
                 * OBS_TILE_TYPES
         );
+        // SP and DREV writers skip zero-valued cells. Clear the complete
+        // caller-owned row before writing so a reused buffer cannot retain a
+        // positive value from the preceding observation.
+        buf.fill(0.0);
         let context = FeatureContext::new_unchecked(self);
         self.encode_extended_features_into_with_context(
             &mut buf[..OBS_EXTENDED_CHANNELS * OBS_TILE_TYPES],
@@ -771,6 +797,51 @@ impl Observation {
             OBS_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS,
             &context,
         );
+    }
+
+    /// Encode extended-v0, SP-v0 and DREV-v2 as one versioned 474-channel row.
+    pub fn encode_extended_with_sp_drev_v2_features(&self) -> RiichiResult<Vec<f32>> {
+        let channels = OBS_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + DREV_V2_CHANNELS;
+        let mut output = vec![0.0; channels * OBS_TILE_TYPES];
+        self.encode_extended_with_sp_drev_v2_features_into(&mut output)?;
+        Ok(output)
+    }
+
+    pub fn encode_extended_with_sp_drev_v2_features_into(
+        &self,
+        output: &mut [f32],
+    ) -> RiichiResult<()> {
+        let channels = OBS_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + DREV_V2_CHANNELS;
+        let expected = channels * OBS_TILE_TYPES;
+        if output.len() != expected {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "extended-sp-drev-4p v2 output has length {}; expected {expected}",
+                    output.len()
+                ),
+            });
+        }
+        drev_v2::validate_drev_v2_observation(self)?;
+        self.encode_extended_with_sp_drev_v2_features_into_prevalidated(output)
+    }
+
+    pub(crate) fn encode_extended_with_sp_drev_v2_features_into_prevalidated(
+        &self,
+        output: &mut [f32],
+    ) -> RiichiResult<()> {
+        debug_assert_eq!(
+            output.len(),
+            (OBS_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + DREV_V2_CHANNELS) * OBS_TILE_TYPES
+        );
+        output.fill(0.0);
+        let context = FeatureContext::new_unchecked(self);
+        self.encode_extended_features_into_with_context(
+            &mut output[..OBS_EXTENDED_CHANNELS * OBS_TILE_TYPES],
+            &context,
+        );
+        self.encode_sp_into_with_context(output, OBS_EXTENDED_CHANNELS, &context);
+        let offset = (OBS_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS) * OBS_TILE_TYPES;
+        drev_v2::calculate_drev_v2_prevalidated(self)?.encode_into(&mut output[offset..])
     }
 }
 
@@ -886,6 +957,39 @@ mod tests {
         let sp_start = OBS_EXTENDED_CHANNELS * 34;
         let sp_end = (OBS_EXTENDED_CHANNELS + SP_CHANNELS) * 34;
         assert_eq!(sp_only, extended[sp_start..sp_end]);
+    }
+
+    #[test]
+    fn combined_caller_buffer_clears_prefill_and_sequential_reuse() {
+        let mut second = sp_obs();
+        second.round_wind = 0;
+        let mut first = second.clone();
+        first.discards[1].push(1);
+        first.riichi_declared[1] = true;
+
+        let expected_first = first.encode_extended_with_sp_features().unwrap();
+        let expected_second = second.encode_extended_with_sp_features().unwrap();
+        let mut output = vec![1.0; expected_second.len()];
+
+        // A zero-valued DREV tail must replace a positive caller prefill.
+        second
+            .encode_extended_with_sp_features_into(&mut output)
+            .unwrap();
+        assert_eq!(output, expected_second);
+
+        // Reuse the same row after an observation with a reached opponent.
+        first
+            .encode_extended_with_sp_features_into(&mut output)
+            .unwrap();
+        assert_eq!(output, expected_first);
+        let drev_reach_start = (OBS_EXTENDED_CHANNELS + SP_CHANNELS + 4) * OBS_TILE_TYPES;
+        assert!(output[drev_reach_start] > 0.0);
+        assert_eq!(expected_second[drev_reach_start], 0.0);
+
+        second
+            .encode_extended_with_sp_features_into(&mut output)
+            .unwrap();
+        assert_eq!(output, expected_second);
     }
 
     #[test]

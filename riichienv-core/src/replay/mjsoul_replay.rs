@@ -6,6 +6,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "python")]
+use serde_json::Value;
+#[cfg(feature = "python")]
 use std::fs::File;
 #[cfg(feature = "python")]
 use std::io::{BufReader, Read};
@@ -179,6 +181,84 @@ pub struct GameLog {
 }
 
 #[cfg(feature = "python")]
+type ParsedRawRounds = (
+    Vec<Vec<RawAction>>,
+    Vec<Vec<Option<bool>>>,
+    Vec<Vec<Option<Vec<String>>>>,
+);
+
+/// Parses the legacy public `RawAction` shape while retaining optional source
+/// metadata (`data.moqie` and dora snapshots on variants that lack a public
+/// field) in crate-private parallel vectors. Unknown JSON fields remain
+/// accepted by serde exactly as they were in v0.4.8.
+#[cfg(feature = "python")]
+fn parse_raw_rounds_with_metadata(rounds_value: Value) -> Result<ParsedRawRounds, String> {
+    let round_values = rounds_value
+        .as_array()
+        .ok_or_else(|| "rounds must be an array".to_string())?;
+    let mut action_tsumogiri = Vec::with_capacity(round_values.len());
+    let mut action_dora_snapshots = Vec::with_capacity(round_values.len());
+    for (round_index, round) in round_values.iter().enumerate() {
+        let actions = round
+            .as_array()
+            .ok_or_else(|| format!("round {round_index} must be an array"))?;
+        let mut round_tsumogiri = Vec::with_capacity(actions.len());
+        let mut round_dora_snapshots = Vec::with_capacity(actions.len());
+        for (action_index, action) in actions.iter().enumerate() {
+            let name = action.get("name").and_then(Value::as_str);
+            let source = if action.get("name").and_then(Value::as_str) == Some("DiscardTile") {
+                match action.get("data").and_then(|data| data.get("moqie")) {
+                    None | Some(Value::Null) => None,
+                    Some(Value::Bool(value)) => Some(*value),
+                    Some(_) => {
+                        return Err(format!(
+                            "round {round_index} action {action_index} DiscardTile moqie must be boolean or null"
+                        ));
+                    }
+                }
+            } else {
+                None
+            };
+            let private_dora_snapshot = if matches!(name, Some("AnGangAddGang" | "BaBei")) {
+                match action.get("data").and_then(|data| data.get("doras")) {
+                    None | Some(Value::Null) => None,
+                    Some(Value::Array(values)) if values.is_empty() => None,
+                    Some(Value::Array(values)) => {
+                        let mut tiles = Vec::with_capacity(values.len());
+                        for value in values {
+                            let tile = value.as_str().ok_or_else(|| {
+                                format!(
+                                    "round {round_index} action {action_index} doras must contain strings"
+                                )
+                            })?;
+                            validate_mjsoul_tile(tile, "private action doras")?;
+                            tiles.push(tile.to_string());
+                        }
+                        validate_dora_snapshot_len(tiles.len(), "private action doras")?;
+                        Some(tiles)
+                    }
+                    Some(_) => {
+                        return Err(format!(
+                            "round {round_index} action {action_index} doras must be an array or null"
+                        ));
+                    }
+                }
+            } else {
+                None
+            };
+            round_tsumogiri.push(source);
+            round_dora_snapshots.push(private_dora_snapshot);
+        }
+        action_tsumogiri.push(round_tsumogiri);
+        action_dora_snapshots.push(round_dora_snapshots);
+    }
+
+    let rounds = serde_json::from_value(rounds_value)
+        .map_err(|error| format!("Failed to parse rounds: {error}"))?;
+    Ok((rounds, action_tsumogiri, action_dora_snapshots))
+}
+
+#[cfg(feature = "python")]
 fn validate_mjsoul_tile(tile: &str, field: &str) -> Result<(), String> {
     let bytes = tile.as_bytes();
     let valid = bytes.len() == 2
@@ -203,6 +283,32 @@ fn validate_mjsoul_tiles(tiles: &[String], field: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "python")]
+fn validate_dora_snapshot_len(len: usize, field: &str) -> Result<(), String> {
+    if len <= 5 {
+        Ok(())
+    } else {
+        Err(format!(
+            "{field} contains {len} indicators; at most five are valid"
+        ))
+    }
+}
+
+#[cfg(feature = "python")]
+fn validate_cumulative_dora_snapshot(
+    current: &[u8],
+    next: &[u8],
+    field: &str,
+) -> Result<(), String> {
+    if next.len() < current.len() || !next.starts_with(current) {
+        Err(format!(
+            "{field} must preserve the complete prefix of the previous cumulative snapshot"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "python")]
 #[pymethods]
 impl MjSoulReplay {
     #[staticmethod]
@@ -217,12 +323,22 @@ impl MjSoulReplay {
             .read_to_end(&mut buffer)
             .map_err(|e| PyValueError::new_err(format!("Failed to decompress: {}", e)))?;
 
-        let log: GameLog = serde_json::from_slice(&buffer)
+        let value: Value = serde_json::from_slice(&buffer)
             .map_err(|e| PyValueError::new_err(format!("Failed to parse JSON: {}", e)))?;
+        let rounds_value = value
+            .get("rounds")
+            .cloned()
+            .ok_or_else(|| PyValueError::new_err("Invalid replay: missing rounds"))?;
+        let (rounds_raw, action_tsumogiri, action_dora_snapshots) =
+            parse_raw_rounds_with_metadata(rounds_value).map_err(PyValueError::new_err)?;
 
-        let mut rounds: Vec<LogKyoku> = Vec::with_capacity(log.rounds.len());
-        for r_raw in log.rounds {
-            let kyoku = Self::kyoku_from_raw_actions(r_raw)
+        let mut rounds: Vec<LogKyoku> = Vec::with_capacity(rounds_raw.len());
+        for ((r_raw, round_tsumogiri), round_dora_snapshots) in rounds_raw
+            .into_iter()
+            .zip(action_tsumogiri)
+            .zip(action_dora_snapshots)
+        {
+            let kyoku = Self::kyoku_from_raw_actions(r_raw, round_tsumogiri, round_dora_snapshots)
                 .map_err(|error| PyValueError::new_err(format!("Invalid round: {error}")))?;
             if let Some(first) = rounds.first()
                 && first.scores.len() != kyoku.scores.len()
@@ -251,27 +367,24 @@ impl MjSoulReplay {
         let v: serde_json::Value = serde_json::from_str(&s)
             .map_err(|e| PyValueError::new_err(format!("Failed to parse JSON: {}", e)))?;
 
-        let (rounds_raw, _rule) = if let Some(obj) = v.as_object() {
+        let (rounds_value, _rule) = if let Some(obj) = v.as_object() {
             if let Some(data) = obj.get("data") {
                 // assume Paifu struct { header, data }
-                let rounds: Vec<Vec<RawAction>> = serde_json::from_value(data.clone())
-                    .map_err(|e| PyValueError::new_err(format!("Failed to parse rounds: {}", e)))?;
                 // TODO: Parse header for rule if converting from Paifu
-                (rounds, crate::rule::GameRule::default_mjsoul())
+                (data.clone(), crate::rule::GameRule::default_mjsoul())
             } else {
                 // maybe just dict of rounds? Unlikely given usage.
                 return Err(PyValueError::new_err("Invalid dict format: missing 'data'"));
             }
         } else if v.is_array() {
-            let rounds: Vec<Vec<RawAction>> = serde_json::from_value(v).map_err(|e| {
-                PyValueError::new_err(format!("Failed to parse rounds list: {}", e))
-            })?;
-            (rounds, crate::rule::GameRule::default_mjsoul())
+            (v, crate::rule::GameRule::default_mjsoul())
         } else {
             return Err(PyValueError::new_err(
                 "Invalid input format: expected dict or list",
             ));
         };
+        let (rounds_raw, action_tsumogiri, action_dora_snapshots) =
+            parse_raw_rounds_with_metadata(rounds_value).map_err(PyValueError::new_err)?;
 
         // Detect 3P from the first round's scores length
         let is_3p = rounds_raw
@@ -292,9 +405,14 @@ impl MjSoulReplay {
         };
 
         let mut rounds: Vec<LogKyoku> = Vec::with_capacity(rounds_raw.len());
-        for r_raw in rounds_raw {
-            let mut kyoku = Self::kyoku_from_raw_actions(r_raw)
-                .map_err(|error| PyValueError::new_err(format!("Invalid round: {error}")))?;
+        for ((r_raw, round_tsumogiri), round_dora_snapshots) in rounds_raw
+            .into_iter()
+            .zip(action_tsumogiri)
+            .zip(action_dora_snapshots)
+        {
+            let mut kyoku =
+                Self::kyoku_from_raw_actions(r_raw, round_tsumogiri, round_dora_snapshots)
+                    .map_err(|error| PyValueError::new_err(format!("Invalid round: {error}")))?;
             if let Some(first) = rounds.first()
                 && first.scores.len() != kyoku.scores.len()
             {
@@ -348,8 +466,14 @@ impl MjSoulReplay {
                         state.players[i].hand.sort();
                     }
                 }
-                for action in last.actions.iter() {
-                    state.apply_log_action(action);
+                for (action_index, action) in last.actions.iter().enumerate() {
+                    let source_tsumogiri =
+                        last.action_tsumogiri.get(action_index).copied().flatten();
+                    let dora_snapshot = last
+                        .action_dora_snapshots
+                        .get(action_index)
+                        .and_then(Option::as_deref);
+                    state.apply_log_action_with_metadata(action, source_tsumogiri, dora_snapshot);
                 }
                 last.end_scores = state.players.iter().map(|p| p.score).collect();
                 Some(last.end_scores.clone())
@@ -381,8 +505,14 @@ impl MjSoulReplay {
                         state.players[i].hand.sort();
                     }
                 }
-                for action in last.actions.iter() {
-                    state.apply_log_action(action);
+                for (action_index, action) in last.actions.iter().enumerate() {
+                    let source_tsumogiri =
+                        last.action_tsumogiri.get(action_index).copied().flatten();
+                    let dora_snapshot = last
+                        .action_dora_snapshots
+                        .get(action_index)
+                        .and_then(Option::as_deref);
+                    state.apply_log_action_with_metadata(action, source_tsumogiri, dora_snapshot);
                 }
                 last.end_scores = state.players.iter().map(|p| p.score).collect();
                 Some(last.end_scores.clone())
@@ -498,9 +628,27 @@ impl MjSoulReplay {
 
 #[cfg(feature = "python")]
 impl MjSoulReplay {
-    fn kyoku_from_raw_actions(raw_actions: Vec<RawAction>) -> Result<LogKyoku, String> {
+    fn kyoku_from_raw_actions(
+        raw_actions: Vec<RawAction>,
+        action_tsumogiri: Vec<Option<bool>>,
+        action_dora_snapshots: Vec<Option<Vec<String>>>,
+    ) -> Result<LogKyoku, String> {
         if raw_actions.is_empty() {
             return Err("round contains no actions".to_string());
+        }
+        if raw_actions.len() != action_tsumogiri.len() {
+            return Err(format!(
+                "action metadata length {} does not match action length {}",
+                action_tsumogiri.len(),
+                raw_actions.len()
+            ));
+        }
+        if raw_actions.len() != action_dora_snapshots.len() {
+            return Err(format!(
+                "dora metadata length {} does not match action length {}",
+                action_dora_snapshots.len(),
+                raw_actions.len()
+            ));
         }
         let num_players = match &raw_actions[0] {
             RawAction::NewRound { scores, .. } if matches!(scores.len(), 3 | 4) => scores.len(),
@@ -512,11 +660,17 @@ impl MjSoulReplay {
             }
             _ => return Err("round must start with NewRound".to_string()),
         };
-        for (index, action) in raw_actions.iter().enumerate() {
+        for (index, (action, private_doras)) in
+            raw_actions.iter().zip(&action_dora_snapshots).enumerate()
+        {
             if index > 0 && matches!(action, RawAction::NewRound { .. }) {
                 return Err("round contains more than one NewRound action".to_string());
             }
             Self::validate_raw_action(action, num_players)?;
+            if let Some(snapshot) = private_doras {
+                validate_mjsoul_tiles(snapshot, "private action doras")?;
+                validate_dora_snapshot_len(snapshot.len(), "private action doras")?;
+            }
         }
         let mut scores = Vec::new();
         let mut doras = Vec::new();
@@ -629,8 +783,109 @@ impl MjSoulReplay {
         }
 
         let mut actions = Vec::with_capacity(raw_actions.len());
-        for ma in raw_actions {
-            actions.push(Self::parse_raw_action(ma));
+        let mut parsed_action_dora_snapshots = Vec::with_capacity(raw_actions.len());
+        let has_sequential_dora_updates =
+            raw_actions
+                .iter()
+                .zip(&action_dora_snapshots)
+                .any(|(action, private_snapshot)| {
+                    private_snapshot.is_some()
+                        || match action {
+                            RawAction::DealTile {
+                                doras, dora_marker, ..
+                            } => !doras.is_empty() || dora_marker.is_some(),
+                            RawAction::DiscardTile { doras, .. } => !doras.is_empty(),
+                            RawAction::Dora { .. } => true,
+                            _ => false,
+                        }
+                });
+        // Some legacy inputs store the complete round-level indicator list in
+        // NewRound while also carrying chronological action snapshots.  The
+        // replay contract starts such streams from the initial marker, so the
+        // cumulative-prefix validator must use that same baseline.
+        let mut current_doras = if has_sequential_dora_updates {
+            doras.first().copied().into_iter().collect()
+        } else {
+            doras.clone()
+        };
+        for (ma, private_doras) in raw_actions.into_iter().zip(action_dora_snapshots) {
+            // Mahjong Soul's repeated `doras` field is a cumulative snapshot.
+            // The legacy singular `dora_marker` compatibility field is not
+            // present in the current public schema, so preserve its historical
+            // incremental meaning by canonicalizing it to a cumulative
+            // snapshot before the action reaches the state reducer.
+            let deal_dora_update = match &ma {
+                RawAction::DealTile {
+                    doras, dora_marker, ..
+                } => Some((doras.clone(), dora_marker.clone())),
+                _ => None,
+            };
+            let discard_dora_snapshot = match &ma {
+                RawAction::DiscardTile { doras, .. } if !doras.is_empty() => Some(doras.clone()),
+                _ => None,
+            };
+            let explicit_dora = match &ma {
+                RawAction::Dora { dora_marker } => Some(TileConverter::parse_tile_136(dora_marker)),
+                _ => None,
+            };
+
+            let mut action = Self::parse_raw_action(ma);
+            if let Some((snapshot, marker)) = deal_dora_update {
+                let canonical = if !snapshot.is_empty() {
+                    let parsed = snapshot
+                        .iter()
+                        .map(|tile| TileConverter::parse_tile_136(tile))
+                        .collect::<Vec<_>>();
+                    validate_cumulative_dora_snapshot(&current_doras, &parsed, "DealTile doras")?;
+                    current_doras = parsed;
+                    Some(current_doras.clone())
+                } else if let Some(marker) = marker {
+                    if current_doras.len() >= 5 {
+                        return Err(
+                            "legacy DealTile dora_marker would exceed five indicators".to_string()
+                        );
+                    }
+                    current_doras.push(TileConverter::parse_tile_136(&marker));
+                    Some(current_doras.clone())
+                } else {
+                    None
+                };
+                if let Action::DealTile { doras, .. } = &mut action {
+                    *doras = canonical;
+                }
+            } else if let Some(snapshot) = discard_dora_snapshot {
+                let parsed = snapshot
+                    .iter()
+                    .map(|tile| TileConverter::parse_tile_136(tile))
+                    .collect::<Vec<_>>();
+                validate_cumulative_dora_snapshot(&current_doras, &parsed, "DiscardTile doras")?;
+                current_doras = parsed;
+            } else if let Some(marker) = explicit_dora {
+                if current_doras.len() >= 5 {
+                    return Err("Dora action would exceed five indicators".to_string());
+                }
+                current_doras.push(marker);
+            }
+            let private_doras = match private_doras {
+                Some(snapshot) => {
+                    let parsed = snapshot
+                        .iter()
+                        .map(|tile| TileConverter::parse_tile_136(tile))
+                        .collect::<Vec<_>>();
+                    validate_cumulative_dora_snapshot(
+                        &current_doras,
+                        &parsed,
+                        "private action doras",
+                    )?;
+                    Some(parsed)
+                }
+                None => None,
+            };
+            if let Some(snapshot) = &private_doras {
+                current_doras.clone_from(snapshot);
+            }
+            actions.push(action);
+            parsed_action_dora_snapshots.push(private_doras);
         }
 
         let end_scores = recorded_end_scores.unwrap_or_else(|| scores.clone());
@@ -658,6 +913,8 @@ impl MjSoulReplay {
             wliqi,
             paishan,
             actions: Arc::from(actions),
+            action_tsumogiri: Arc::from(action_tsumogiri),
+            action_dora_snapshots: Arc::from(parsed_action_dora_snapshots),
             rule: crate::rule::GameRule::default_mjsoul(),
             game_end_scores: None,
         })
@@ -715,9 +972,11 @@ impl MjSoulReplay {
                 }
                 if let Some(tiles) = doras {
                     validate_mjsoul_tiles(tiles, "NewRound doras")?;
+                    validate_dora_snapshot_len(tiles.len(), "NewRound doras")?;
                 }
                 if let Some(tiles) = dora_indicators {
                     validate_mjsoul_tiles(tiles, "NewRound dora_indicators")?;
+                    validate_dora_snapshot_len(tiles.len(), "NewRound dora_indicators")?;
                 }
                 if let Some(tile) = dora_marker {
                     validate_mjsoul_tile(tile, "NewRound dora_marker")?;
@@ -732,6 +991,7 @@ impl MjSoulReplay {
                 validate_seat(*seat, "DiscardTile")?;
                 validate_mjsoul_tile(tile, "DiscardTile tile")?;
                 validate_mjsoul_tiles(doras, "DiscardTile doras")?;
+                validate_dora_snapshot_len(doras.len(), "DiscardTile doras")?;
             }
             RawAction::DealTile {
                 seat,
@@ -743,6 +1003,7 @@ impl MjSoulReplay {
                 validate_seat(*seat, "DealTile")?;
                 validate_mjsoul_tile(tile, "DealTile tile")?;
                 validate_mjsoul_tiles(doras, "DealTile doras")?;
+                validate_dora_snapshot_len(doras.len(), "DealTile doras")?;
                 if let Some(marker) = dora_marker {
                     validate_mjsoul_tile(marker, "DealTile dora_marker")?;
                 }
@@ -801,8 +1062,12 @@ impl MjSoulReplay {
                 validate_mjsoul_tile(dora_marker, "Dora dora_marker")?;
             }
             RawAction::BaBei { seat, doras, .. } => {
+                if num_players != 3 {
+                    return Err("BaBei is only valid in a three-player round".to_string());
+                }
                 validate_seat(*seat, "BaBei")?;
                 validate_mjsoul_tiles(doras, "BaBei doras")?;
+                validate_dora_snapshot_len(doras.len(), "BaBei doras")?;
             }
             RawAction::LiuJu { seat, tiles, .. } => {
                 validate_seat(*seat, "LiuJu")?;
@@ -961,6 +1226,12 @@ impl MjSoulReplay {
 #[cfg(test)]
 mod tests {
     use super::RawAction;
+    #[cfg(feature = "python")]
+    use super::{MjSoulReplay, parse_raw_rounds_with_metadata};
+    #[cfg(feature = "python")]
+    use crate::replay::{Action, TileConverter};
+    #[cfg(feature = "python")]
+    use crate::{rule::GameRule, state_3p::GameState3P};
     use serde_json::json;
 
     #[test]
@@ -979,5 +1250,247 @@ mod tests {
 
         assert_eq!(hule, json!({"name": "Hule", "data": {"hules": []}}));
         assert_eq!(no_tile, json!({"name": "NoTile", "data": {}}));
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn discard_moqie_is_retained_in_the_private_action_sidecar() {
+        let rounds = json!([[{
+            "name": "NewRound",
+            "data": {
+                "scores": [25000, 25000, 25000, 25000],
+                "doras": ["1m"],
+                "tiles0": [], "tiles1": [], "tiles2": [], "tiles3": [],
+                "chang": 0, "ju": 0, "ben": 0, "liqibang": 0,
+                "left_tile_count": 70
+            }
+        }, {
+            "name": "DiscardTile",
+            "data": {
+                "seat": 0, "tile": "5p", "is_liqi": false,
+                "is_wliqi": false, "moqie": true, "doras": []
+            }
+        }]]);
+
+        let (raw_rounds, metadata, dora_metadata) = parse_raw_rounds_with_metadata(rounds).unwrap();
+        assert!(matches!(
+            raw_rounds[0][1],
+            RawAction::DiscardTile { seat: 0, .. }
+        ));
+        assert_eq!(metadata[0], vec![None, Some(true)]);
+
+        let kyoku = MjSoulReplay::kyoku_from_raw_actions(
+            raw_rounds.into_iter().next().unwrap(),
+            metadata.into_iter().next().unwrap(),
+            dora_metadata.into_iter().next().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(&*kyoku.action_tsumogiri, &[None, Some(true)]);
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn legacy_singular_dora_marker_is_canonicalized_as_incremental() {
+        let rounds = json!([[{
+            "name": "NewRound",
+            "data": {
+                "scores": [25000, 25000, 25000, 25000],
+                "doras": ["1p", "2p", "3p"],
+                "tiles0": [], "tiles1": [], "tiles2": [], "tiles3": [],
+                "chang": 0, "ju": 0, "ben": 0, "liqibang": 0,
+                "left_tile_count": 70
+            }
+        }, {
+            "name": "DealTile",
+            "data": {
+                "seat": 0, "tile": "1m", "doras": [],
+                "dora_marker": "2p", "left_tile_count": 69
+            }
+        }, {
+            "name": "DealTile",
+            "data": {
+                "seat": 1, "tile": "2m", "doras": ["1p", "2p", "3p"],
+                "left_tile_count": 68
+            }
+        }]]);
+
+        let (raw_rounds, metadata, dora_metadata) = parse_raw_rounds_with_metadata(rounds).unwrap();
+        let kyoku = MjSoulReplay::kyoku_from_raw_actions(
+            raw_rounds.into_iter().next().unwrap(),
+            metadata.into_iter().next().unwrap(),
+            dora_metadata.into_iter().next().unwrap(),
+        )
+        .unwrap();
+        let expected_incremental = vec![
+            TileConverter::parse_tile_136("1p"),
+            TileConverter::parse_tile_136("2p"),
+        ];
+        let expected_snapshot = vec![
+            TileConverter::parse_tile_136("1p"),
+            TileConverter::parse_tile_136("2p"),
+            TileConverter::parse_tile_136("3p"),
+        ];
+        assert!(matches!(
+            &kyoku.actions[1],
+            Action::DealTile {
+                doras: Some(doras),
+                ..
+            } if *doras == expected_incremental
+        ));
+        assert!(matches!(
+            &kyoku.actions[2],
+            Action::DealTile {
+                doras: Some(doras),
+                ..
+            } if *doras == expected_snapshot
+        ));
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn round_level_complete_doras_accept_chronological_initial_snapshot() {
+        let rounds = json!([[{
+            "name": "NewRound",
+            "data": {
+                "scores": [25000, 25000, 25000, 25000],
+                "doras": ["1p", "2p"],
+                "tiles0": [], "tiles1": [], "tiles2": [], "tiles3": [],
+                "chang": 0, "ju": 0, "ben": 0, "liqibang": 0,
+                "left_tile_count": 70
+            }
+        }, {
+            "name": "DealTile",
+            "data": {
+                "seat": 0, "tile": "1m", "doras": ["1p"],
+                "left_tile_count": 69
+            }
+        }, {
+            "name": "DealTile",
+            "data": {
+                "seat": 1, "tile": "2m", "doras": ["1p", "2p"],
+                "left_tile_count": 68
+            }
+        }]]);
+
+        let (raw_rounds, metadata, dora_metadata) = parse_raw_rounds_with_metadata(rounds).unwrap();
+        let kyoku = MjSoulReplay::kyoku_from_raw_actions(
+            raw_rounds.into_iter().next().unwrap(),
+            metadata.into_iter().next().unwrap(),
+            dora_metadata.into_iter().next().unwrap(),
+        )
+        .unwrap();
+        let first = vec![TileConverter::parse_tile_136("1p")];
+        let second = vec![
+            TileConverter::parse_tile_136("1p"),
+            TileConverter::parse_tile_136("2p"),
+        ];
+        assert!(matches!(
+            &kyoku.actions[1],
+            Action::DealTile {
+                doras: Some(doras),
+                ..
+            } if *doras == first
+        ));
+        assert!(matches!(
+            &kyoku.actions[2],
+            Action::DealTile {
+                doras: Some(doras),
+                ..
+            } if *doras == second
+        ));
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn cumulative_dora_snapshots_reject_shrink_and_prefix_rewrite() {
+        for snapshot in [json!(["1p"]), json!(["3p", "2p"])] {
+            let rounds = json!([[{
+                "name": "NewRound",
+                "data": {
+                    "scores": [25000, 25000, 25000, 25000],
+                    "doras": ["1p"],
+                    "tiles0": [], "tiles1": [], "tiles2": [], "tiles3": [],
+                    "chang": 0, "ju": 0, "ben": 0, "liqibang": 0,
+                    "left_tile_count": 70
+                }
+            }, {
+                "name": "DealTile",
+                "data": {
+                    "seat": 0, "tile": "1m", "doras": ["1p", "2p"],
+                    "left_tile_count": 69
+                }
+            }, {
+                "name": "DealTile",
+                "data": {
+                    "seat": 1, "tile": "2m", "doras": snapshot,
+                    "left_tile_count": 68
+                }
+            }]]);
+
+            let (raw_rounds, metadata, dora_metadata) =
+                parse_raw_rounds_with_metadata(rounds).unwrap();
+            let result = MjSoulReplay::kyoku_from_raw_actions(
+                raw_rounds.into_iter().next().unwrap(),
+                metadata.into_iter().next().unwrap(),
+                dora_metadata.into_iter().next().unwrap(),
+            );
+            let error = match result {
+                Ok(_) => panic!("malformed cumulative dora snapshot was accepted"),
+                Err(error) => error,
+            };
+            assert!(error.contains("complete prefix"), "{error}");
+        }
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn private_kan_and_kita_dora_snapshots_reach_the_state_reducer() {
+        let rounds = json!([[{
+            "name": "NewRound",
+            "data": {
+                "scores": [35000, 35000, 35000],
+                "doras": ["1p"],
+                "tiles0": ["1s", "1s", "1s", "1s", "4z"],
+                "tiles1": [], "tiles2": [], "tiles3": [],
+                "chang": 0, "ju": 0, "ben": 0, "liqibang": 0,
+                "left_tile_count": 55
+            }
+        }, {
+            "name": "AnGangAddGang",
+            "data": {
+                "seat": 0, "type": 3, "tiles": "1s",
+                "doras": ["1p", "2p"]
+            }
+        }, {
+            "name": "BaBei",
+            "data": {
+                "seat": 0, "moqie": false,
+                "doras": ["1p", "2p", "3p"]
+            }
+        }]]);
+
+        let (raw_rounds, tsumogiri, dora_metadata) =
+            parse_raw_rounds_with_metadata(rounds).unwrap();
+        let kyoku = MjSoulReplay::kyoku_from_raw_actions(
+            raw_rounds.into_iter().next().unwrap(),
+            tsumogiri.into_iter().next().unwrap(),
+            dora_metadata.into_iter().next().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(kyoku.action_dora_snapshots[0], None);
+        assert_eq!(kyoku.action_dora_snapshots[1].as_deref().unwrap().len(), 2);
+        assert_eq!(kyoku.action_dora_snapshots[2].as_deref().unwrap().len(), 3);
+        assert_eq!(kyoku.initial_doras_for_action_replay().len(), 1);
+
+        let mut state = GameState3P::new(0, false, None, 0, GameRule::default_mjsoul());
+        state.wall.dora_indicators = kyoku.initial_doras_for_action_replay();
+        for (index, action) in kyoku.actions.iter().enumerate().skip(1) {
+            state.apply_log_action_with_metadata(
+                action,
+                kyoku.action_tsumogiri[index],
+                kyoku.action_dora_snapshots[index].as_deref(),
+            );
+            assert_eq!(state.wall.dora_indicators.len(), index + 1);
+        }
     }
 }

@@ -89,16 +89,26 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(features::encode_extended_batch_py, m)?)?;
     m.add_function(wrap_pyfunction!(features::encode_sp_batch_py, m)?)?;
     m.add_function(wrap_pyfunction!(features::encode_drev_batch_py, m)?)?;
+    m.add_function(wrap_pyfunction!(features::encode_drev_v2_batch_py, m)?)?;
     m.add_function(wrap_pyfunction!(
         features::encode_extended_with_sp_batch_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        features::encode_extended_with_sp_drev_v2_batch_py,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(features::encode_base_batch_3p_py, m)?)?;
     m.add_function(wrap_pyfunction!(features::encode_extended_batch_3p_py, m)?)?;
     m.add_function(wrap_pyfunction!(features::encode_sp_batch_3p_py, m)?)?;
     m.add_function(wrap_pyfunction!(features::encode_drev_batch_3p_py, m)?)?;
+    m.add_function(wrap_pyfunction!(features::encode_drev_v2_batch_3p_py, m)?)?;
     m.add_function(wrap_pyfunction!(
         features::encode_extended_with_sp_batch_3p_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        features::encode_extended_with_sp_drev_v2_batch_3p_py,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
@@ -112,6 +122,32 @@ fn _riichienv(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // silently drift when the feature space changes.
     m.add("SP_CHANNELS", riichienv_core::sp::SP_CHANNELS)?;
     m.add("DREV_CHANNELS", riichienv_core::drev::DREV_CHANNELS)?;
+    m.add(
+        "DREV_V2_CHANNELS",
+        riichienv_core::drev_v2::DREV_V2_CHANNELS,
+    )?;
+    m.add(
+        "DREV_V2_YAKU_EVIDENCE_NAMES",
+        riichienv_core::drev_v2::YAKU_EVIDENCE_NAMES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect::<Vec<_>>(),
+    )?;
+    m.add(
+        "DREV_V2_SCHEMA_ID",
+        riichienv_core::drev_v2::DREV_V2_SCHEMA_ID,
+    )?;
+    m.add(
+        "DREV_V2_OPPONENT_SLOT_ORDER",
+        riichienv_core::drev_v2::OPPONENT_SLOT_ORDER
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect::<Vec<_>>(),
+    )?;
+    m.add(
+        "DREV_V2_CHANNEL_NAMES",
+        riichienv_core::drev_v2::channel_names(),
+    )?;
     m.add(
         "OBS_EXTENDED_CHANNELS",
         riichienv_core::observation::OBS_EXTENDED_CHANNELS,

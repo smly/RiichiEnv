@@ -89,13 +89,24 @@ Observation feature calculation is pure Rust and available without the Python fe
 | 4P SP | `178 × 34` | 82 |
 | 4P DREV v1 | `9 × 34` | 82 or red-aware v1 164 |
 | 4P extended + SP + DREV v1 | `402 × 34` | 82 or red-aware v1 164 |
+| 4P DREV v2 | `81 × 34` | 82 or red-aware v1 164 |
+| 4P extended + SP + DREV v2 | `474 × 34` | 82 or red-aware v1 164 |
 | 3P base | `74 × 27` | 60 |
 | 3P extended | `215 × 27` | 60 |
 | 3P SP v1 | `178 × 27` | 60 or red-aware v1 120 |
 | 3P DREV v1 | `9 × 27` | 60 or red-aware v1 120 |
 | 3P extended + SP + DREV v1 | `402 × 27` | 60 or red-aware v1 120 |
+| 3P DREV v2 | `81 × 27` | 60 or red-aware v1 120 |
+| 3P extended + SP + DREV v2 | `474 × 27` | 60 or red-aware v1 120 |
 
 Changing a channel's meaning, order, normalization, tile axis, or dtype requires a new feature version. Existing model ABI is not changed in place.
+
+Public-history DREV is therefore introduced as a separate v2 (`81 x 34` in
+4P, `81 x 27` in 3P), not as a change to DREV v1 or the frozen 402-channel
+combined layouts. New 474-channel combined encoders opt in explicitly. The
+stable `riichienv.drev_v2.81ch.v1` schema, hard-safe proofs, runtime-only
+history sidecar, public yaku/yakuman evidence, and calibration requirements are
+specified in ADR 0002.
 
 SP's frozen 4P v0 and Kita-aware 3P v1 encoders retain the historical
 tail-indexed intermediate probability planes. Their terminal cell remains the

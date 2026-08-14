@@ -284,6 +284,7 @@ where
 
 struct KyokuBuilder {
     actions: Vec<Action>,
+    action_tsumogiri: Vec<Option<bool>>,
     scores: Vec<i32>,
     end_scores: Vec<i32>,
     hands: Vec<Vec<u8>>,
@@ -379,6 +380,7 @@ impl KyokuBuilder {
 
         Ok(KyokuBuilder {
             actions: Vec::new(),
+            action_tsumogiri: Vec::new(),
             scores,
             end_scores,
             hands,
@@ -402,12 +404,19 @@ impl KyokuBuilder {
     fn flush_pending_hule(&mut self) {
         if !self.pending_hule.is_empty() {
             let hules = std::mem::take(&mut self.pending_hule);
-            self.actions.push(Action::Hule { hules });
+            self.push_action(Action::Hule { hules }, None);
         }
+    }
+
+    fn push_action(&mut self, action: Action, tsumogiri: Option<bool>) {
+        self.actions.push(action);
+        self.action_tsumogiri.push(tsumogiri);
     }
 
     fn build(mut self) -> LogKyoku {
         self.flush_pending_hule();
+        debug_assert_eq!(self.actions.len(), self.action_tsumogiri.len());
+        let action_dora_snapshots = vec![None; self.actions.len()];
         LogKyoku {
             scores: self.scores,
             end_scores: self.end_scores,
@@ -422,6 +431,8 @@ impl KyokuBuilder {
             wliqi: self.wliqi_flags,
             paishan: None, // MJAI usually doesn't have full paishan
             actions: Arc::from(self.actions),
+            action_tsumogiri: Arc::from(self.action_tsumogiri),
+            action_dora_snapshots: Arc::from(action_dora_snapshots),
             rule: self.rule,
             game_end_scores: None,
         }
@@ -650,17 +661,20 @@ impl KyokuBuilder {
             MjaiEvent::Tsumo { actor, pai } => {
                 self.validate_player(actor, "tsumo actor")?;
                 let tile = parse_mjai_tile(&pai)?;
-                self.actions.push(Action::DealTile {
-                    seat: actor,
-                    tile,
-                    doras: None,
-                    left_tile_count: None,
-                });
+                self.push_action(
+                    Action::DealTile {
+                        seat: actor,
+                        tile,
+                        doras: None,
+                        left_tile_count: None,
+                    },
+                    None,
+                );
             }
             MjaiEvent::Dahai {
                 actor,
                 pai,
-                tsumogiri: _,
+                tsumogiri,
             } => {
                 self.validate_player(actor, "dahai actor")?;
                 let tile = parse_mjai_tile(&pai)?;
@@ -671,13 +685,16 @@ impl KyokuBuilder {
                     self.wliqi_flags[actor] = true;
                 }
 
-                self.actions.push(Action::DiscardTile {
-                    seat: actor,
-                    tile,
-                    is_liqi,
-                    is_wliqi,
-                    doras: None,
-                });
+                self.push_action(
+                    Action::DiscardTile {
+                        seat: actor,
+                        tile,
+                        is_liqi,
+                        is_wliqi,
+                        doras: None,
+                    },
+                    Some(tsumogiri),
+                );
 
                 self.first_discard[actor] = false;
                 if is_liqi {
@@ -707,12 +724,15 @@ impl KyokuBuilder {
                     tiles.push(parse_mjai_tile(c)?);
                     froms.push(actor);
                 }
-                self.actions.push(Action::ChiPengGang {
-                    seat: actor,
-                    meld_type: MeldType::Chi,
-                    tiles,
-                    froms,
-                });
+                self.push_action(
+                    Action::ChiPengGang {
+                        seat: actor,
+                        meld_type: MeldType::Chi,
+                        tiles,
+                        froms,
+                    },
+                    None,
+                );
             }
             MjaiEvent::Pon {
                 actor,
@@ -729,12 +749,15 @@ impl KyokuBuilder {
                     tiles.push(parse_mjai_tile(c)?);
                     froms.push(actor);
                 }
-                self.actions.push(Action::ChiPengGang {
-                    seat: actor,
-                    meld_type: MeldType::Pon,
-                    tiles,
-                    froms,
-                });
+                self.push_action(
+                    Action::ChiPengGang {
+                        seat: actor,
+                        meld_type: MeldType::Pon,
+                        tiles,
+                        froms,
+                    },
+                    None,
+                );
             }
             MjaiEvent::Kan {
                 actor,
@@ -751,12 +774,15 @@ impl KyokuBuilder {
                     tiles.push(parse_mjai_tile(c)?);
                     froms.push(actor);
                 }
-                self.actions.push(Action::ChiPengGang {
-                    seat: actor,
-                    meld_type: MeldType::Daiminkan,
-                    tiles,
-                    froms,
-                });
+                self.push_action(
+                    Action::ChiPengGang {
+                        seat: actor,
+                        meld_type: MeldType::Daiminkan,
+                        tiles,
+                        froms,
+                    },
+                    None,
+                );
             }
             MjaiEvent::Ankan { actor, consumed } => {
                 self.validate_player(actor, "ankan actor")?;
@@ -780,32 +806,41 @@ impl KyokuBuilder {
                             .to_string(),
                     });
                 }
-                self.actions.push(Action::AnGangAddGang {
-                    seat: actor,
-                    meld_type: MeldType::Ankan,
-                    tiles,
-                    tile_raw_id,
-                    doras: None,
-                });
+                self.push_action(
+                    Action::AnGangAddGang {
+                        seat: actor,
+                        meld_type: MeldType::Ankan,
+                        tiles,
+                        tile_raw_id,
+                        doras: None,
+                    },
+                    None,
+                );
             }
             MjaiEvent::Kakan { actor, pai } => {
                 self.validate_player(actor, "kakan actor")?;
                 self.has_calls = true;
                 let tile = parse_mjai_tile(&pai)?;
-                self.actions.push(Action::AnGangAddGang {
-                    seat: actor,
-                    meld_type: MeldType::Kakan,
-                    tiles: vec![tile],
-                    tile_raw_id: 0,
-                    doras: None,
-                });
+                self.push_action(
+                    Action::AnGangAddGang {
+                        seat: actor,
+                        meld_type: MeldType::Kakan,
+                        tiles: vec![tile],
+                        tile_raw_id: 0,
+                        doras: None,
+                    },
+                    None,
+                );
             }
             MjaiEvent::Dora { dora_marker } => {
                 let marker = parse_mjai_tile(&dora_marker)?;
                 self.doras.push(marker);
-                self.actions.push(Action::Dora {
-                    dora_marker: marker,
-                });
+                self.push_action(
+                    Action::Dora {
+                        dora_marker: marker,
+                    },
+                    None,
+                );
             }
             MjaiEvent::Hora {
                 actor,
@@ -925,10 +960,12 @@ impl KyokuBuilder {
             }
             MjaiEvent::Kita { actor } => {
                 self.validate_player(actor, "kita actor")?;
-                self.actions.push(Action::BaBei {
-                    seat: actor,
-                    moqie: false,
-                });
+                let moqie = matches!(
+                    self.actions.last(),
+                    Some(Action::DealTile { seat, tile, .. })
+                        if *seat == actor && *tile / 4 == 30
+                );
+                self.push_action(Action::BaBei { seat: actor, moqie }, None);
             }
             MjaiEvent::Ryukyoku { delta, scores, .. } => {
                 if let Some(s) = scores {
@@ -941,7 +978,7 @@ impl KyokuBuilder {
                         self.end_scores[i] = checked_score_delta(self.scores[i], *val, cost)?;
                     }
                 }
-                self.actions.push(Action::NoTile);
+                self.push_action(Action::NoTile, None);
             }
             _ => {}
         }
@@ -992,6 +1029,11 @@ mod replay_log_tests {
             replay.rounds()[0].actions()[0],
             Action::DealTile { seat: 0, .. }
         ));
+        assert!(matches!(
+            replay.rounds()[0].actions()[1],
+            Action::DiscardTile { seat: 0, .. }
+        ));
+        assert_eq!(replay.rounds()[0].action_tsumogiri[1], Some(true));
     }
 
     #[test]
@@ -1020,6 +1062,35 @@ mod replay_log_tests {
             "{\"type\":\"tsumo\",\"actor\":4",
         );
         assert!(ReplayLog::from_jsonl(&invalid, GameRule::default_tenhou()).is_err());
+    }
+
+    #[test]
+    fn sanma_kita_preserves_whether_the_drawn_north_was_extracted() {
+        let log = r#"{"type":"start_game"}
+{"type":"start_kyoku","bakaze":"E","kyoku":1,"honba":0,"kyoutaku":0,"oya":0,"scores":[35000,35000,35000],"dora_marker":"1p","tehais":[["1p"],["2p"],["3p"]]}
+{"type":"tsumo","actor":0,"pai":"N"}
+{"type":"kita","actor":0}
+{"type":"tsumo","actor":0,"pai":"4p"}
+{"type":"kita","actor":0}
+{"type":"ryukyoku","reason":"test"}
+{"type":"end_kyoku"}
+{"type":"end_game"}"#;
+        let replay = ReplayLog::from_jsonl(log, GameRule::default_tenhou()).unwrap();
+        let actions = replay.rounds()[0].actions();
+        assert!(matches!(
+            actions[1],
+            Action::BaBei {
+                seat: 0,
+                moqie: true
+            }
+        ));
+        assert!(matches!(
+            actions[3],
+            Action::BaBei {
+                seat: 0,
+                moqie: false
+            }
+        ));
     }
 
     #[test]

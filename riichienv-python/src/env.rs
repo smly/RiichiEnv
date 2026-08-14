@@ -77,6 +77,15 @@ pub struct RiichiEnv {
     pub variant: GameStateVariant,
 }
 
+impl RiichiEnv {
+    /// Manual mutation of proof-sensitive state breaks the provenance needed
+    /// by DREV v2's hard-safety guarantees. Legacy state construction remains
+    /// available, but v2 encoding fails closed until the next round reset.
+    fn invalidate_public_history(&mut self) {
+        with_variant_mut!(self, |s| s.public_history_valid = false);
+    }
+}
+
 #[pymethods]
 impl RiichiEnv {
     #[new]
@@ -153,6 +162,7 @@ impl RiichiEnv {
     pub fn set_hands(&mut self, v: Vec<Vec<u32>>) {
         let np = self.variant.num_players() as usize;
         if v.len() == np {
+            self.invalidate_public_history();
             with_variant_mut!(self, |s| {
                 for (i, h) in v.into_iter().enumerate() {
                     s.players[i].hand = h.iter().map(|&x| x as u8).collect();
@@ -173,6 +183,7 @@ impl RiichiEnv {
     pub fn set_melds(&mut self, v: Vec<Vec<Meld>>) {
         let np = self.variant.num_players() as usize;
         if v.len() == np {
+            self.invalidate_public_history();
             with_variant_mut!(self, |s| {
                 for (i, m) in v.into_iter().enumerate() {
                     s.players[i].melds = m;
@@ -193,6 +204,7 @@ impl RiichiEnv {
     pub fn set_discards(&mut self, v: Vec<Vec<u32>>) {
         let np = self.variant.num_players() as usize;
         if v.len() == np {
+            self.invalidate_public_history();
             with_variant_mut!(self, |s| {
                 for (i, d) in v.into_iter().enumerate() {
                     s.players[i].discards = d.iter().map(|&x| x as u8).collect();
@@ -213,6 +225,7 @@ impl RiichiEnv {
     pub fn set_discard_from_hand(&mut self, v: Vec<Vec<bool>>) {
         let np = self.variant.num_players() as usize;
         if v.len() == np {
+            self.invalidate_public_history();
             with_variant_mut!(self, |s| {
                 for (i, d) in v.into_iter().enumerate() {
                     s.players[i].discard_from_hand = d;
@@ -233,6 +246,7 @@ impl RiichiEnv {
     pub fn set_discard_is_riichi(&mut self, v: Vec<Vec<bool>>) {
         let np = self.variant.num_players() as usize;
         if v.len() == np {
+            self.invalidate_public_history();
             with_variant_mut!(self, |s| {
                 for (i, d) in v.into_iter().enumerate() {
                     s.players[i].discard_is_riichi = d;
@@ -295,6 +309,7 @@ impl RiichiEnv {
     pub fn set_riichi_declaration_index(&mut self, v: Vec<Option<usize>>) {
         let np = self.variant.num_players() as usize;
         if v.len() == np {
+            self.invalidate_public_history();
             with_variant_mut!(self, |s| {
                 for (i, d) in v.into_iter().enumerate() {
                     s.players[i].riichi_declaration_index = d;
@@ -309,6 +324,7 @@ impl RiichiEnv {
     }
     #[setter]
     pub fn set_current_player(&mut self, v: u8) {
+        self.invalidate_public_history();
         with_variant_mut!(self, |s| s.current_player = v);
     }
 
@@ -450,6 +466,7 @@ impl RiichiEnv {
     pub fn set_riichi_declared(&mut self, v: Vec<bool>) {
         let np = self.variant.num_players() as usize;
         if v.len() == np {
+            self.invalidate_public_history();
             with_variant_mut!(self, |s| {
                 for (i, &val) in v.iter().enumerate() {
                     s.players[i].riichi_declared = val;
@@ -466,6 +483,7 @@ impl RiichiEnv {
     pub fn set_riichi_stage(&mut self, v: Vec<bool>) {
         let np = self.variant.num_players() as usize;
         if v.len() == np {
+            self.invalidate_public_history();
             with_variant_mut!(self, |s| {
                 for (i, &val) in v.iter().enumerate() {
                     s.players[i].riichi_stage = val;
@@ -493,6 +511,7 @@ impl RiichiEnv {
                 "Expected Phase or int",
             ));
         };
+        self.invalidate_public_history();
         with_variant_mut!(self, |s| s.phase = phase);
         Ok(())
     }
@@ -507,6 +526,7 @@ impl RiichiEnv {
     }
     #[setter]
     pub fn set_active_players(&mut self, v: Vec<u32>) {
+        self.invalidate_public_history();
         with_variant_mut!(self, |s| s.active_players =
             v.iter().map(|&x| x as u8).collect());
     }
@@ -544,6 +564,7 @@ impl RiichiEnv {
     }
     #[setter]
     pub fn set_drawn_tile(&mut self, v: Option<u8>) {
+        self.invalidate_public_history();
         with_variant_mut!(self, |s| s.drawn_tile = v);
     }
 
@@ -553,6 +574,7 @@ impl RiichiEnv {
     }
     #[setter]
     pub fn set_current_claims(&mut self, v: HashMap<u8, Vec<Action>>) {
+        self.invalidate_public_history();
         with_variant_mut!(self, |s| s.current_claims = v);
     }
 
@@ -563,6 +585,7 @@ impl RiichiEnv {
     #[setter]
     pub fn set_last_discard(&mut self, v: Option<(u32, u32)>) {
         let ld = v.map(|(pid, tile)| (pid as u8, tile as u8));
+        self.invalidate_public_history();
         with_variant_mut!(self, |s| s.last_discard = ld);
     }
 
@@ -594,6 +617,7 @@ impl RiichiEnv {
     pub fn set_missed_agari_doujun(&mut self, v: Vec<bool>) {
         let np = self.variant.num_players() as usize;
         if v.len() == np {
+            self.invalidate_public_history();
             with_variant_mut!(self, |s| {
                 for (i, &val) in v.iter().enumerate() {
                     s.players[i].missed_agari_doujun = val;

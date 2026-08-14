@@ -15,10 +15,14 @@ from riichienv import (
     encode_base_batch_3p,
     encode_drev_batch,
     encode_drev_batch_3p,
+    encode_drev_v2_batch,
+    encode_drev_v2_batch_3p,
     encode_extended_batch,
     encode_extended_batch_3p,
     encode_extended_with_sp_batch,
     encode_extended_with_sp_batch_3p,
+    encode_extended_with_sp_drev_v2_batch,
+    encode_extended_with_sp_drev_v2_batch_3p,
     encode_sp_batch,
     encode_sp_batch_3p,
 )
@@ -33,8 +37,12 @@ def test_four_player_batch_encoders_match_single_observation_bytes():
     )
     assert encode_sp_batch(observations) == b"".join(observation.encode_sp() for observation in observations)
     assert encode_drev_batch(observations) == b"".join(observation.encode_drev() for observation in observations)
+    assert encode_drev_v2_batch(observations) == b"".join(observation.encode_drev_v2() for observation in observations)
     assert encode_extended_with_sp_batch(observations) == b"".join(
         observation.encode_extended_with_sp() for observation in observations
+    )
+    assert encode_extended_with_sp_drev_v2_batch(observations) == b"".join(
+        observation.encode_extended_with_sp_drev_v2() for observation in observations
     )
 
     values = np.frombuffer(encode_extended_batch(observations), dtype=np.float32)
@@ -50,8 +58,14 @@ def test_three_player_batch_encoders_match_single_observation_bytes():
     )
     assert encode_sp_batch_3p(observations) == b"".join(observation.encode_sp() for observation in observations)
     assert encode_drev_batch_3p(observations) == b"".join(observation.encode_drev() for observation in observations)
+    assert encode_drev_v2_batch_3p(observations) == b"".join(
+        observation.encode_drev_v2() for observation in observations
+    )
     assert encode_extended_with_sp_batch_3p(observations) == b"".join(
         observation.encode_extended_with_sp() for observation in observations
+    )
+    assert encode_extended_with_sp_drev_v2_batch_3p(observations) == b"".join(
+        observation.encode_extended_with_sp_drev_v2() for observation in observations
     )
 
     values = np.frombuffer(encode_extended_with_sp_batch_3p(observations), dtype=np.float32)
@@ -63,7 +77,11 @@ def test_batch_encoders_accept_empty_batches():
     assert encode_extended_batch_3p([]) == b""
     assert encode_sp_batch_3p([]) == b""
     assert encode_drev_batch_3p([]) == b""
+    assert encode_drev_v2_batch([]) == b""
+    assert encode_drev_v2_batch_3p([]) == b""
     assert encode_extended_with_sp_batch_3p([]) == b""
+    assert encode_extended_with_sp_drev_v2_batch([]) == b""
+    assert encode_extended_with_sp_drev_v2_batch_3p([]) == b""
 
 
 def _observation_with_called_meld(filename: str, observation_type):

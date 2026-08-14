@@ -9,7 +9,7 @@ use crate::parser::tid_to_mjai;
 use crate::replay::Action as LogAction;
 use crate::replay::MjaiEvent;
 use crate::rule::GameRule;
-use crate::types::{Conditions, INITIAL_HAND_SIZE, Meld, MeldType, WinResult, Wind};
+use crate::types::{Conditions, INITIAL_HAND_SIZE, Meld, MeldType, TILE_MAX, WinResult, Wind};
 pub mod event_handler;
 pub mod game_mode;
 pub mod legal_actions;
@@ -72,11 +72,91 @@ pub struct GameState3P {
 
     pub riichi_sutehais: [Option<u8>; NP],
     pub last_tedashis: [Option<u8>; NP],
+    /// Public chronological order of every discard in the current hand.
+    pub discard_actor_history: Vec<u8>,
+    /// Explicit cursor advanced only when a normal-discard Ron window closes.
+    pub resolved_discard_count: usize,
+    /// Tiles made temporarily safe against each seat by a resolved Ron window.
+    #[doc(hidden)]
+    pub public_temporary_safe_masks: [u64; NP],
+    /// Whether runtime public history still satisfies fixed-wait invariants.
+    pub public_history_valid: bool,
 }
 
 impl GameState3P {
     pub fn np(&self) -> usize {
         NP
+    }
+
+    pub(crate) fn mark_latest_public_discard_resolved(&mut self) {
+        let history_len = self.discard_actor_history.len();
+        let unresolved = history_len.checked_sub(self.resolved_discard_count);
+        if !matches!(unresolved, Some(0 | 1)) {
+            self.public_history_valid = false;
+        }
+        if unresolved == Some(1) {
+            let discarder = self.discard_actor_history[history_len - 1];
+            if let Some((last_actor, tile)) = self.last_discard {
+                if last_actor == discarder && usize::from(tile / 4) < TILE_MAX {
+                    let bit = 1u64 << (tile / 4);
+                    for seat in 0..NP {
+                        if seat != usize::from(discarder) {
+                            self.public_temporary_safe_masks[seat] |= bit;
+                        }
+                    }
+                } else {
+                    self.public_history_valid = false;
+                }
+            } else {
+                self.public_history_valid = false;
+            }
+        }
+        self.mark_current_ron_offers_passed();
+        self.current_claims.clear();
+        self.resolved_discard_count = self.discard_actor_history.len();
+    }
+
+    /// Apply missed-Ron furiten for a resolved response window without
+    /// implying that a normal discard was resolved (Kakan/Ankan/Kita).
+    pub(crate) fn mark_current_ron_offers_passed(&mut self) {
+        for (&seat, actions) in &self.current_claims {
+            if actions
+                .iter()
+                .any(|action| action.action_type == ActionType::Ron)
+            {
+                self.players[seat as usize].missed_agari_doujun = true;
+                if self.players[seat as usize].riichi_declared {
+                    self.players[seat as usize].missed_agari_riichi = true;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn clear_public_temporary_safety(&mut self, seat: u8) {
+        if let Some(mask) = self.public_temporary_safe_masks.get_mut(usize::from(seat)) {
+            *mask = 0;
+        } else {
+            self.public_history_valid = false;
+        }
+    }
+
+    pub(crate) fn record_public_discard_offers(&mut self, discarder: u8, tile: u8) -> Vec<u8> {
+        self.current_claims.clear();
+        let mut active = Vec::new();
+        for seat in 0..NP as u8 {
+            if seat == discarder {
+                continue;
+            }
+            let (actions, missed_agari) = self._get_claim_actions_for_player(seat, discarder, tile);
+            if missed_agari {
+                self.players[seat as usize].missed_agari_doujun = true;
+            }
+            if !actions.is_empty() {
+                active.push(seat);
+                self.current_claims.insert(seat, actions);
+            }
+        }
+        active
     }
 
     pub fn new(
@@ -130,6 +210,10 @@ impl GameState3P {
             is_after_kan: false,
             riichi_sutehais: [None; NP],
             last_tedashis: [None; NP],
+            discard_actor_history: Vec::new(),
+            resolved_discard_count: 0,
+            public_temporary_safe_masks: [0; NP],
+            public_history_valid: true,
         };
 
         if !state.skip_mjai_logging {
@@ -148,6 +232,10 @@ impl GameState3P {
         self.mjai_log = Vec::new();
         self.mjai_log_per_player = Default::default();
         self.player_event_counts = [0; NP];
+        self.discard_actor_history.clear();
+        self.resolved_discard_count = 0;
+        self.public_temporary_safe_masks = [0; NP];
+        self.public_history_valid = true;
 
         if !self.skip_mjai_logging {
             let mut ev = serde_json::Map::new();
@@ -197,6 +285,16 @@ impl GameState3P {
         let discards: [Vec<u8>; 3] = std::array::from_fn(|i| self.players[i].discards.clone());
         let scores: [i32; 3] = std::array::from_fn(|i| self.players[i].score);
         let riichi_declared: [bool; 3] = std::array::from_fn(|i| self.players[i].riichi_declared);
+        let public_tsumogiri_history: [Vec<bool>; 3] = std::array::from_fn(|i| {
+            self.players[i]
+                .discard_from_hand
+                .iter()
+                .map(|&from_hand| !from_hand)
+                .collect()
+        });
+        let discard_is_riichi: [Vec<bool>; 3] =
+            std::array::from_fn(|i| self.players[i].discard_is_riichi.clone());
+        let resolved_discard_count = self.resolved_discard_count;
 
         let mut observation = Observation3P::new(
             player_id,
@@ -226,6 +324,13 @@ impl GameState3P {
         );
         observation.kita_counts =
             std::array::from_fn(|i| self.players[i].kita_tiles.len().min(u8::MAX as usize) as u8);
+        observation.public_tsumogiri_history = public_tsumogiri_history;
+        observation.discard_is_riichi = discard_is_riichi;
+        observation.discard_actor_history = self.discard_actor_history.clone();
+        observation.resolved_discard_count = resolved_discard_count;
+        observation.public_temporary_safe_masks = self.public_temporary_safe_masks;
+        observation.public_history_complete = self.public_history_valid
+            && self.resolved_discard_count <= self.discard_actor_history.len();
         observation
     }
 
@@ -238,8 +343,6 @@ impl GameState3P {
         let original_phase = self.phase;
         let original_active_players = self.active_players.clone();
         let original_claims = self.current_claims.clone();
-        let original_riichi = self.players[pid as usize].riichi_declared;
-
         match env_action.action_type {
             ActionType::Ron | ActionType::Chi | ActionType::Pon | ActionType::Daiminkan => {
                 self.phase = Phase::WaitResponse;
@@ -252,7 +355,7 @@ impl GameState3P {
             _ => {}
         }
 
-        let mut obs = self.get_observation(pid);
+        let obs = self.get_observation(pid);
 
         let mut exists = obs._legal_actions.iter().any(|a| {
             if env_action.action_type == ActionType::Kita {
@@ -263,23 +366,21 @@ impl GameState3P {
             }
         });
 
+        // See the four-player path: tolerate only a physical-copy mismatch,
+        // while preserving the riichi state and its fixed-wait invariant.
         if !exists
             && env_action.action_type == ActionType::Discard
             && self.players[pid as usize].riichi_declared
         {
-            self.players[pid as usize].riichi_declared = false;
-            let new_obs = self.get_observation(pid);
-            let is_legal_retry = new_obs
+            exists = obs
                 ._legal_actions
                 .iter()
-                .any(|a| a.action_type == ActionType::Discard && a.tile == env_action.tile);
-
-            if is_legal_retry {
-                obs = new_obs;
-                exists = true;
-            } else {
-                self.players[pid as usize].riichi_declared = original_riichi;
-            }
+                .filter(|a| a.action_type == ActionType::Discard)
+                .any(|a| {
+                    a.tile
+                        .zip(env_action.tile)
+                        .is_some_and(|(lhs, rhs)| lhs / 4 == rhs / 4)
+                });
         }
 
         self.phase = original_phase;
@@ -453,12 +554,20 @@ impl GameState3P {
                                 }
                                 let hand = &self.players[i as usize].hand;
                                 let melds = &self.players[i as usize].melds;
-                                let tile_class = tile / 4;
-                                let in_discards = self.players[i as usize]
-                                    .discards
-                                    .iter()
-                                    .any(|&d| d / 4 == tile_class);
-                                if in_discards {
+                                let calc = crate::hand_evaluator_3p::HandEvaluator3P::new(
+                                    hand.clone(),
+                                    melds.clone(),
+                                );
+                                let waits = calc.get_waits_u8();
+                                let in_discards = waits.iter().any(|&wait| {
+                                    self.players[i as usize]
+                                        .discards
+                                        .iter()
+                                        .any(|&discard| discard / 4 == wait)
+                                });
+                                let in_missed = self.players[i as usize].missed_agari_riichi
+                                    || self.players[i as usize].missed_agari_doujun;
+                                if in_discards || in_missed {
                                     continue;
                                 }
                                 let p_wind = (i + NP as u8 - self.oya) % NP as u8;
@@ -472,10 +581,6 @@ impl GameState3P {
                                     num_players: NP as u8,
                                     ..Default::default()
                                 };
-                                let calc = crate::hand_evaluator_3p::HandEvaluator3P::new(
-                                    hand.clone(),
-                                    melds.clone(),
-                                );
                                 let res = calc.calc(
                                     tile,
                                     self.wall.dora_indicators.clone(),
@@ -501,7 +606,7 @@ impl GameState3P {
                             self.active_players = chankan_ronners;
                             self.last_discard = Some((pid, tile));
                         } else {
-                            self._resolve_kan(pid, act.clone());
+                            self.resolve_kan_internal(pid, act.clone());
                         }
                     }
                     ActionType::Kakan => {
@@ -619,7 +724,7 @@ impl GameState3P {
                             self.active_players = chankan_ronners;
                             self.last_discard = Some((pid, tile));
                         } else {
-                            self._resolve_kan(pid, act.clone());
+                            self.resolve_kan_internal(pid, act.clone());
                         }
                     }
                     ActionType::Tsumo => {
@@ -1079,6 +1184,8 @@ impl GameState3P {
 
                 self._initialize_next_round(oya_won, false);
             } else if let Some((claimer, action)) = call_claim {
+                self.mark_latest_public_discard_resolved();
+                self.clear_public_temporary_safety(claimer);
                 self._accept_riichi();
                 self.is_rinshan_flag = false;
                 self.is_first_turn = false;
@@ -1097,7 +1204,7 @@ impl GameState3P {
                     self.current_player = claimer;
                     self.active_players = vec![claimer];
                     self.players[claimer as usize].forbidden_discards.clear();
-                    self._resolve_kan(claimer, action.clone());
+                    self.resolve_kan_internal(claimer, action.clone());
                     return;
                 }
 
@@ -1194,13 +1301,18 @@ impl GameState3P {
                 }
 
                 if action.action_type == ActionType::Daiminkan {
-                    self._resolve_kan(claimer, action.clone());
+                    self.resolve_kan_internal(claimer, action.clone());
                 } else {
                     self.needs_tsumo = false;
                     self.drawn_tile = None;
                 }
             } else {
                 // All Pass
+                if self.pending_kan.is_none() {
+                    self.mark_latest_public_discard_resolved();
+                } else {
+                    self.mark_current_ron_offers_passed();
+                }
                 self.current_claims.clear();
                 self.active_players.clear();
 
@@ -1212,7 +1324,7 @@ impl GameState3P {
                         }
                         self.resolve_kita_rinshan(pk_pid);
                     } else {
-                        self._resolve_kan(pk_pid, pk_act);
+                        self.resolve_kan_internal(pk_pid, pk_act);
                     }
                 } else {
                     self._accept_riichi();
@@ -1228,6 +1340,7 @@ impl GameState3P {
     }
 
     fn _resolve_discard(&mut self, pid: u8, tile: u8, tsumogiri: bool) {
+        self.clear_public_temporary_safety(pid);
         // A normal discard is never chankan, so clear any stale pending_kan
         // to prevent false chankan detection on subsequent ron claims.
         self.pending_kan = None;
@@ -1243,6 +1356,7 @@ impl GameState3P {
         // AFTER this and sets ippatsu_cycle = true.
         self.players[pid as usize].ippatsu_cycle = false;
         self.players[pid as usize].discards.push(tile);
+        self.discard_actor_history.push(pid);
         self.last_discard = Some((pid, tile));
         self.drawn_tile = None;
         self.players[pid as usize]
@@ -1312,6 +1426,7 @@ impl GameState3P {
             self.phase = Phase::WaitResponse;
             self.active_players = claim_active;
         } else {
+            self.mark_latest_public_discard_resolved();
             if let Some(_rp) = self.riichi_pending_acceptance {
                 self._accept_riichi();
             }
@@ -1326,7 +1441,19 @@ impl GameState3P {
         }
     }
 
+    /// Legacy direct kan-resolution entry point.
+    ///
+    /// Calling this method bypasses the normal response-window and fixed-wait
+    /// validation performed by [`Self::step`].  Keep the transition available
+    /// for source compatibility, but invalidate public-history DREV v2 so a
+    /// direct caller cannot retain a stale hard-safety proof.
     pub fn _resolve_kan(&mut self, pid: u8, action: Action) {
+        self.public_history_valid = false;
+        self.resolve_kan_internal(pid, action);
+    }
+
+    fn resolve_kan_internal(&mut self, pid: u8, action: Action) {
+        self.clear_public_temporary_safety(pid);
         let p_idx = pid as usize;
         if action.action_type == ActionType::Kakan {
             // Already updated in step()
@@ -1488,6 +1615,7 @@ impl GameState3P {
         if let Some(t) = self.wall.tiles.pop() {
             self.wall.drawable_count -= 1;
             let pid = self.current_player;
+            self.clear_public_temporary_safety(pid);
             self.players[pid as usize].hand.push(t);
             self.drawn_tile = Some(t);
             self.needs_tsumo = false;
@@ -1644,6 +1772,10 @@ impl GameState3P {
         self.round_end_scores = None;
         self.riichi_sutehais = [None; NP];
         self.last_tedashis = [None; NP];
+        self.discard_actor_history.clear();
+        self.resolved_discard_count = 0;
+        self.public_temporary_safe_masks = [0; NP];
+        self.public_history_valid = true;
 
         if let Some(s) = scores {
             for (i, &sc) in s.iter().enumerate() {
@@ -2018,5 +2150,171 @@ impl GameState3P {
                 self.mjai_log_per_player[pid].push(final_json);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod public_history_tests {
+    use super::*;
+
+    #[test]
+    fn observation_3p_exposes_complete_history_and_excludes_unresolved_discard() {
+        let mut state = GameState3P::new(5, true, Some(11), 0, GameRule::default());
+        state.players[1].discards = vec![72];
+        state.players[1].discard_from_hand = vec![false];
+        state.players[1].discard_is_riichi = vec![true];
+        state.players[2].discards = vec![76];
+        state.players[2].discard_from_hand = vec![true];
+        state.players[2].discard_is_riichi = vec![false];
+        state.discard_actor_history = vec![1, 2];
+        state.resolved_discard_count = 1;
+        state.last_discard = Some((2, 76));
+        state.phase = Phase::WaitResponse;
+        state.pending_kan = None;
+
+        let unresolved = state.get_observation(0);
+        assert_eq!(unresolved.public_tsumogiri_history[1], vec![true]);
+        assert_eq!(unresolved.public_tsumogiri_history[2], vec![false]);
+        assert!(unresolved.tsumogiri_flags.iter().all(Vec::is_empty));
+        assert_eq!(unresolved.discard_is_riichi[1], vec![true]);
+        assert_eq!(unresolved.discard_actor_history, vec![1, 2]);
+        assert_eq!(unresolved.resolved_discard_count, 1);
+        assert!(unresolved.public_history_complete);
+
+        state.phase = Phase::WaitAct;
+        state.mark_latest_public_discard_resolved();
+        let resolved = state.get_observation(0);
+        assert_eq!(resolved.resolved_discard_count, 2);
+        assert_eq!(resolved.public_temporary_safe_masks[0], 1 << 19);
+        assert_eq!(resolved.public_temporary_safe_masks[1], 1 << 19);
+        assert_eq!(resolved.public_temporary_safe_masks[2], 0);
+
+        state.clear_public_temporary_safety(1);
+        assert_eq!(state.public_temporary_safe_masks[1], 0);
+        assert_eq!(state.public_temporary_safe_masks[0], 1 << 19);
+
+        state.phase = Phase::WaitResponse;
+        state.pending_kan = Some((
+            1,
+            Action::new(ActionType::Kakan, Some(72), vec![72], Some(1)),
+        ));
+        let chankan_window = state.get_observation(0);
+        assert_eq!(chankan_window.resolved_discard_count, 2);
+    }
+
+    #[test]
+    fn passed_kita_ron_offer_sets_furiten_without_advancing_discard_history() {
+        let mut state = GameState3P::new(5, true, Some(31), 0, GameRule::default());
+        state.players[1].riichi_declared = true;
+        state.current_claims.insert(
+            1,
+            vec![Action::new(ActionType::Ron, Some(120), vec![], Some(1))],
+        );
+        state.pending_kan = Some((0, Action::new(ActionType::Kita, Some(120), vec![], Some(0))));
+        let cursor = state.resolved_discard_count;
+
+        state.mark_current_ron_offers_passed();
+
+        assert!(state.players[1].missed_agari_doujun);
+        assert!(state.players[1].missed_agari_riichi);
+        assert_eq!(state.resolved_discard_count, cursor);
+        assert_eq!(state.public_temporary_safe_masks, [0; NP]);
+    }
+
+    #[test]
+    fn ankan_kokushi_chankan_3p_respects_missed_ron_furiten() {
+        let make_state = |missed_ron: bool| {
+            let mut state = GameState3P::new(5, true, Some(41), 0, GameRule::default_mjsoul());
+            state.players[0].hand = vec![0, 1, 2, 3, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72];
+            state.players[1].hand =
+                vec![32, 33, 36, 68, 72, 104, 108, 112, 116, 120, 124, 128, 132];
+            state.players[1].missed_agari_doujun = missed_ron;
+            state.current_player = 0;
+            state.phase = Phase::WaitAct;
+            state.active_players = vec![0];
+            state.drawn_tile = Some(72);
+            state.needs_tsumo = false;
+            state
+        };
+        let ankan = Action::new(ActionType::Ankan, Some(0), vec![0, 1, 2, 3], Some(0));
+
+        let mut allowed = make_state(false);
+        allowed.step(&HashMap::from([(0, ankan.clone())]));
+        assert_eq!(allowed.phase, Phase::WaitResponse);
+        assert!(
+            allowed.current_claims[&1]
+                .iter()
+                .any(|action| action.action_type == ActionType::Ron)
+        );
+
+        let mut furiten = make_state(true);
+        furiten.step(&HashMap::from([(0, ankan)]));
+        assert_ne!(furiten.phase, Phase::WaitResponse);
+        assert!(
+            !furiten
+                .current_claims
+                .values()
+                .flatten()
+                .any(|action| { action.action_type == ActionType::Ron && action.actor == Some(1) })
+        );
+    }
+
+    #[test]
+    fn log_discard_3p_tracks_actor_and_round_reset_clears_history() {
+        let mut state = GameState3P::new(5, true, Some(17), 0, GameRule::default());
+        let tile = state.players[0].hand[0];
+        state.apply_log_action_with_tsumogiri(
+            &LogAction::DiscardTile {
+                seat: 0,
+                tile,
+                is_liqi: true,
+                is_wliqi: false,
+                doras: None,
+            },
+            Some(false),
+        );
+
+        assert_eq!(state.discard_actor_history, vec![0]);
+        assert_eq!(state.players[0].discard_from_hand, vec![true]);
+        assert_eq!(state.players[0].discard_is_riichi, vec![true]);
+
+        state._initialize_round(0, 0, 0, 0, None, None);
+        assert!(state.discard_actor_history.is_empty());
+        assert_eq!(state.public_temporary_safe_masks, [0; NP]);
+    }
+
+    #[test]
+    fn mjai_discard_3p_tracks_tsumogiri_and_riichi_history() {
+        let mut state = GameState3P::new(5, true, Some(23), 0, GameRule::default());
+        state.apply_mjai_event(MjaiEvent::Reach { actor: 2 });
+        state.apply_mjai_event(MjaiEvent::Dahai {
+            actor: 2,
+            pai: "1p".to_string(),
+            tsumogiri: true,
+        });
+
+        assert_eq!(state.discard_actor_history, vec![2]);
+        assert_eq!(state.players[2].discard_from_hand, vec![false]);
+        assert_eq!(state.players[2].discard_is_riichi, vec![true]);
+        assert_eq!(state.players[2].riichi_declaration_index, Some(0));
+        assert_eq!(state.riichi_sutehais[2], Some(36));
+        assert_eq!(state.last_tedashis[2], None);
+        assert_eq!(state.resolved_discard_count, 0);
+
+        state.apply_mjai_event(MjaiEvent::ReachAccepted { actor: 2 });
+        assert_eq!(state.resolved_discard_count, 1);
+    }
+
+    #[test]
+    fn direct_post_riichi_kita_that_can_change_wait_invalidates_v2_history() {
+        let mut state = GameState3P::new(5, true, Some(29), 0, GameRule::default());
+        state.players[0].riichi_declared = true;
+        state.players[0].hand.push(120);
+        state.drawn_tile = Some(36);
+
+        state.apply_mjai_event(MjaiEvent::Kita { actor: 0 });
+
+        assert!(!state.public_history_valid);
+        assert!(!state.get_observation(0).public_history_complete);
     }
 }

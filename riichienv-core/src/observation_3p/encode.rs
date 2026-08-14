@@ -1,5 +1,6 @@
 use crate::action::ActionType;
 use crate::drev::{self, DrevInput};
+use crate::drev_v2::{self, DREV_V2_CHANNELS};
 use crate::errors::{RiichiError, RiichiResult};
 use crate::feature_context::FeatureContext3P;
 use crate::shanten;
@@ -753,6 +754,26 @@ impl Observation3P {
         Ok(buf)
     }
 
+    /// Encode the opt-in DREV-v2 public-history, yaku, and yakuman evidence.
+    /// Engine-produced runtime history is required; legacy payloads fail
+    /// closed instead of guessing event order from per-seat rivers.
+    pub fn encode_drev_v2_features(&self) -> RiichiResult<Vec<f32>> {
+        Ok(drev_v2::calculate_drev_3p_v2(self)?.encode())
+    }
+
+    pub fn encode_drev_v2_features_into(&self, output: &mut [f32]) -> RiichiResult<()> {
+        let expected = DREV_V2_CHANNELS * OBS_3P_TILE_TYPES;
+        if output.len() != expected {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "drev-3p v2 output has length {}; expected {expected}",
+                    output.len()
+                ),
+            });
+        }
+        drev_v2::calculate_drev_3p_v2(self)?.encode_into(output)
+    }
+
     /// Encode extended, SP, and DREV features as `[402][27]`.
     pub fn encode_extended_with_sp_features(&self) -> RiichiResult<Vec<f32>> {
         self.validate()?;
@@ -786,6 +807,9 @@ impl Observation3P {
             (OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + crate::drev::DREV_CHANNELS)
                 * OBS_3P_TILE_TYPES
         );
+        // SP and DREV writers omit zero-valued cells, so clear the entire row
+        // before encoding into reusable caller memory.
+        buf.fill(0.0);
         let context = FeatureContext3P::new_unchecked(self);
         self.encode_extended_features_into_unchecked(
             &mut buf[..OBS_3P_EXTENDED_CHANNELS * OBS_3P_TILE_TYPES],
@@ -796,6 +820,51 @@ impl Observation3P {
             OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS,
             &context,
         );
+    }
+
+    /// Encode extended-v0, Kita-aware SP-v1 and DREV-v2 in one 474-channel row.
+    pub fn encode_extended_with_sp_drev_v2_features(&self) -> RiichiResult<Vec<f32>> {
+        let channels = OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + DREV_V2_CHANNELS;
+        let mut output = vec![0.0; channels * OBS_3P_TILE_TYPES];
+        self.encode_extended_with_sp_drev_v2_features_into(&mut output)?;
+        Ok(output)
+    }
+
+    pub fn encode_extended_with_sp_drev_v2_features_into(
+        &self,
+        output: &mut [f32],
+    ) -> RiichiResult<()> {
+        let channels = OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + DREV_V2_CHANNELS;
+        let expected = channels * OBS_3P_TILE_TYPES;
+        if output.len() != expected {
+            return Err(RiichiError::InvalidState {
+                message: format!(
+                    "extended-sp-drev-3p v2 output has length {}; expected {expected}",
+                    output.len()
+                ),
+            });
+        }
+        drev_v2::validate_drev_3p_v2_observation(self)?;
+        self.encode_extended_with_sp_drev_v2_features_into_prevalidated(output)
+    }
+
+    pub(crate) fn encode_extended_with_sp_drev_v2_features_into_prevalidated(
+        &self,
+        output: &mut [f32],
+    ) -> RiichiResult<()> {
+        debug_assert_eq!(
+            output.len(),
+            (OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + DREV_V2_CHANNELS)
+                * OBS_3P_TILE_TYPES
+        );
+        output.fill(0.0);
+        let context = FeatureContext3P::new_unchecked(self);
+        self.encode_extended_features_into_unchecked(
+            &mut output[..OBS_3P_EXTENDED_CHANNELS * OBS_3P_TILE_TYPES],
+        );
+        self.encode_sp_into_with_context(output, OBS_3P_EXTENDED_CHANNELS, &context);
+        let offset = (OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS) * OBS_3P_TILE_TYPES;
+        drev_v2::calculate_drev_3p_v2_prevalidated(self)?.encode_into(&mut output[offset..])
     }
 }
 
@@ -1000,5 +1069,36 @@ mod tests {
         assert_eq!(&combined[extended.len()..extended.len() + sp.len()], sp);
         assert_eq!(&combined[extended.len() + sp.len()..], drev);
         assert!(combined.iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn combined_caller_buffer_clears_prefill_and_sequential_reuse_3p() {
+        let second = make_obs(0, Default::default(), empty_melds());
+        let mut first = second.clone();
+        first.discards[1].push(37);
+        first.riichi_declared[1] = true;
+
+        let expected_first = first.encode_extended_with_sp_features().unwrap();
+        let expected_second = second.encode_extended_with_sp_features().unwrap();
+        let mut output = vec![1.0; expected_second.len()];
+
+        second
+            .encode_extended_with_sp_features_into(&mut output)
+            .unwrap();
+        assert_eq!(output, expected_second);
+
+        first
+            .encode_extended_with_sp_features_into(&mut output)
+            .unwrap();
+        assert_eq!(output, expected_first);
+        let drev_reach_start =
+            (OBS_3P_EXTENDED_CHANNELS + crate::sp::SP_CHANNELS + 4) * OBS_3P_TILE_TYPES;
+        assert!(output[drev_reach_start] > 0.0);
+        assert_eq!(expected_second[drev_reach_start], 0.0);
+
+        second
+            .encode_extended_with_sp_features_into(&mut output)
+            .unwrap();
+        assert_eq!(output, expected_second);
     }
 }

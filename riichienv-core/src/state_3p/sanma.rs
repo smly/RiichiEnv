@@ -9,28 +9,52 @@ impl GameState3P {
     pub fn handle_kita(&mut self, pid: u8, act: &Action) {
         let p_idx = pid as usize;
 
-        // Resolve the actual North tile to remove from hand.
-        // The action's tile field *should* contain the specific tile ID (120-123),
-        // but when tile is None (e.g. the agent sent a generic Kita action without
-        // specifying a tile), falling back to 0 would silently corrupt the hand by
-        // failing to remove any tile.  Instead, look up a North tile from the hand.
-        let tile = match act.tile {
-            Some(t) if t / 4 == 30 => t,
-            _ => self.players[p_idx]
-                .hand
-                .iter()
-                .find(|&&t| t / 4 == 30)
-                .copied()
-                .unwrap_or_else(|| {
-                    act.tile
-                        .unwrap_or_else(|| act.consume_tiles.first().copied().unwrap_or(0))
-                }),
+        if self.resolved_discard_count != self.discard_actor_history.len()
+            || !self.current_claims.is_empty()
+        {
+            self.public_history_valid = false;
+            return;
+        }
+
+        // Resolve the actual North tile before mutating anything. After riichi,
+        // only the just-drawn physical North is legal; accepting an older held
+        // North can change the fixed wait and make prior pass evidence unsound.
+        let requested_tile = act.tile.or_else(|| act.consume_tiles.first().copied());
+        let tile = if self.players[p_idx].riichi_declared {
+            let Some(drawn_north) = self.drawn_tile.filter(|tile| tile / 4 == 30) else {
+                self.public_history_valid = false;
+                return;
+            };
+            if requested_tile.is_some_and(|requested| requested != drawn_north) {
+                self.public_history_valid = false;
+                return;
+            }
+            drawn_north
+        } else if let Some(requested) = requested_tile.filter(|tile| tile / 4 == 30) {
+            requested
+        } else if let Some(held_north) = self.players[p_idx]
+            .hand
+            .iter()
+            .find(|&&tile| tile / 4 == 30)
+            .copied()
+        {
+            held_north
+        } else {
+            self.public_history_valid = false;
+            return;
         };
 
-        // Remove North tile from hand
-        if let Some(idx) = self.players[p_idx].hand.iter().position(|&t| t == tile) {
-            self.players[p_idx].hand.remove(idx);
-        }
+        let Some(index) = self.players[p_idx]
+            .hand
+            .iter()
+            .position(|&held| held == tile)
+        else {
+            self.public_history_valid = false;
+            return;
+        };
+        self.clear_public_temporary_safety(pid);
+        self.players[p_idx].missed_agari_doujun = false;
+        self.players[p_idx].hand.remove(index);
 
         // Add to kita_tiles
         self.players[p_idx].kita_tiles.push(tile);
@@ -155,11 +179,23 @@ impl GameState3P {
         }
 
         let p_idx = pid as usize;
+        if self.players[p_idx].riichi_stage {
+            // A separately signalled reach must be completed by its tenpai-
+            // preserving declaration discard; Kita is not an alternative.
+            return Vec::new();
+        }
         let mut actions = Vec::new();
 
         // Find North tiles (type 30, IDs 120-123) in hand
         for &tile in &self.players[p_idx].hand {
             if tile / 4 == 30 {
+                // After riichi, only a just-drawn North may be set aside. This
+                // returns the concealed hand to the exact fixed-wait state;
+                // extracting a North that was already held could change waits
+                // and invalidate permanent post-riichi safety evidence.
+                if self.players[p_idx].riichi_declared && self.drawn_tile != Some(tile) {
+                    continue;
+                }
                 // North wind
                 actions.push(Action::new(ActionType::Kita, Some(tile), vec![], Some(pid)));
             }
@@ -201,5 +237,80 @@ impl GameState3P {
             self.phase = crate::action::Phase::WaitAct;
             self.active_players = vec![pid];
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rule::GameRule;
+
+    #[test]
+    fn post_riichi_kita_only_allows_the_drawn_north() {
+        let mut state = GameState3P::new(5, true, Some(7), 0, GameRule::default());
+        state.players[0].hand = vec![120, 121];
+        state.drawn_tile = Some(121);
+        state.players[0].riichi_declared = true;
+        state.wall.drawable_count = 1;
+
+        let actions = state.get_kita_legal_actions(0);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].tile, Some(121));
+
+        state.players[0].riichi_stage = true;
+        assert!(state.get_kita_legal_actions(0).is_empty());
+    }
+
+    #[test]
+    fn direct_post_riichi_kita_rejects_a_held_north_without_mutation() {
+        let mut state = GameState3P::new(5, true, Some(11), 0, GameRule::default());
+        state.players[0].hand = vec![120, 121];
+        state.drawn_tile = Some(121);
+        state.players[0].riichi_declared = true;
+        state.public_temporary_safe_masks[0] = 1 << 19;
+        let hand_before = state.players[0].hand.clone();
+
+        state.handle_kita(
+            0,
+            &Action::new(ActionType::Kita, Some(120), vec![], Some(0)),
+        );
+
+        assert!(!state.public_history_valid);
+        assert_eq!(state.players[0].hand, hand_before);
+        assert!(state.players[0].kita_tiles.is_empty());
+        assert_eq!(state.public_temporary_safe_masks[0], 1 << 19);
+    }
+
+    #[test]
+    fn direct_kita_rejects_an_unresolved_discard_without_mutation() {
+        let mut state = GameState3P::new(5, true, Some(12), 0, GameRule::default());
+        state.players[0].hand = vec![120];
+        state.discard_actor_history.push(1);
+        let hand_before = state.players[0].hand.clone();
+
+        state.handle_kita(
+            0,
+            &Action::new(ActionType::Kita, Some(120), vec![], Some(0)),
+        );
+
+        assert!(!state.public_history_valid);
+        assert_eq!(state.players[0].hand, hand_before);
+        assert!(state.players[0].kita_tiles.is_empty());
+    }
+
+    #[test]
+    fn generic_post_riichi_kita_removes_drawn_north_and_clears_temporary_safety() {
+        let mut state = GameState3P::new(5, true, Some(13), 0, GameRule::default());
+        state.players[0].hand = vec![120, 121];
+        state.drawn_tile = Some(121);
+        state.players[0].riichi_declared = true;
+        state.public_temporary_safe_masks[0] = 1 << 19;
+
+        state.handle_kita(0, &Action::new(ActionType::Kita, None, vec![], Some(0)));
+
+        assert!(state.public_history_valid);
+        assert_eq!(state.players[0].kita_tiles, vec![121]);
+        assert!(state.players[0].hand.contains(&120));
+        assert_eq!(state.public_temporary_safe_masks[0], 0);
     }
 }

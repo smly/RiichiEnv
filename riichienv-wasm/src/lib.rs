@@ -21,6 +21,30 @@ use riichienv_core::{score, yaku};
 
 const SPECTATOR_DELAY_KYOKUS: usize = 1;
 
+/// Canonical order of the per-opponent DREV-v2 evidence heads.
+#[wasm_bindgen(js_name = drevV2YakuEvidenceNames, unchecked_return_type = "readonly string[]")]
+pub fn drev_v2_yaku_evidence_names() -> Result<JsValue, JsValue> {
+    to_js_value(&riichienv_core::drev_v2::YAKU_EVIDENCE_NAMES)
+}
+
+/// Stable identifier for the complete DREV-v2 channel contract.
+#[wasm_bindgen(js_name = drevV2SchemaId)]
+pub fn drev_v2_schema_id() -> String {
+    riichienv_core::drev_v2::DREV_V2_SCHEMA_ID.to_string()
+}
+
+/// Relative opponent order shared by the risk and yaku channel blocks.
+#[wasm_bindgen(js_name = drevV2OpponentSlotOrder, unchecked_return_type = "readonly string[]")]
+pub fn drev_v2_opponent_slot_order() -> Result<JsValue, JsValue> {
+    to_js_value(&riichienv_core::drev_v2::OPPONENT_SLOT_ORDER)
+}
+
+/// Canonical ordered names of all 81 DREV-v2 channels.
+#[wasm_bindgen(js_name = drevV2ChannelNames, unchecked_return_type = "readonly string[]")]
+pub fn drev_v2_channel_names() -> Result<JsValue, JsValue> {
+    to_js_value(&riichienv_core::drev_v2::channel_names())
+}
+
 #[wasm_bindgen(typescript_custom_section)]
 const ENGINE_TYPES: &str = r#"
 export interface JournalDeltaWire {
@@ -52,7 +76,9 @@ export interface EngineDecision {
     readonly extendedShape: readonly [number, number];
     readonly spShape: readonly [number, number];
     readonly drevShape: readonly [number, number];
+    readonly drevV2Shape?: readonly [number, number];
     readonly extendedWithSpShape: readonly [number, number];
+    readonly extendedWithSpDrevV2Shape?: readonly [number, number];
 }
 
 export interface GameSnapshotWire {
@@ -273,7 +299,9 @@ struct DecisionJs {
     extended_shape: [usize; 2],
     sp_shape: [usize; 2],
     drev_shape: [usize; 2],
+    drev_v2_shape: [usize; 2],
     extended_with_sp_shape: [usize; 2],
+    extended_with_sp_drev_v2_shape: [usize; 2],
 }
 
 impl DecisionJs {
@@ -283,7 +311,9 @@ impl DecisionJs {
         let extended_shape = observation.extended_feature_shape();
         let sp_shape = observation.sp_feature_shape();
         let drev_shape = observation.drev_feature_shape();
+        let drev_v2_shape = observation.drev_v2_feature_shape();
         let extended_with_sp_shape = observation.extended_with_sp_feature_shape();
+        let extended_with_sp_drev_v2_shape = observation.extended_with_sp_drev_v2_feature_shape();
         Ok(Self {
             player_id: decision.player_id,
             legal_action_ids: observation
@@ -305,7 +335,12 @@ impl DecisionJs {
             extended_shape: [extended_shape.0, extended_shape.1],
             sp_shape: [sp_shape.0, sp_shape.1],
             drev_shape: [drev_shape.0, drev_shape.1],
+            drev_v2_shape: [drev_v2_shape.0, drev_v2_shape.1],
             extended_with_sp_shape: [extended_with_sp_shape.0, extended_with_sp_shape.1],
+            extended_with_sp_drev_v2_shape: [
+                extended_with_sp_drev_v2_shape.0,
+                extended_with_sp_drev_v2_shape.1,
+            ],
         })
     }
 }
@@ -497,6 +532,23 @@ impl WasmGameEngine {
             .map_err(journal_error)
     }
 
+    /// Versioned DREV-v2 public-history and yaku/yakuman evidence.
+    #[wasm_bindgen(js_name = drevV2Features)]
+    pub fn drev_v2_features(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "number")] player_id: JsValue,
+    ) -> Result<Vec<f32>, JsValue> {
+        let player_id = parse_js_u8(&player_id, "playerId").map_err(journal_error)?;
+        self.pending_decision(player_id)
+            .and_then(|decision| {
+                decision
+                    .observation
+                    .encode_drev_v2_features()
+                    .map_err(|error| error.to_string())
+            })
+            .map_err(journal_error)
+    }
+
     /// Extended + SP + DREV features for one pending player.
     #[wasm_bindgen(js_name = extendedWithSpFeatures)]
     pub fn extended_with_sp_features(
@@ -509,6 +561,23 @@ impl WasmGameEngine {
                 decision
                     .observation
                     .encode_extended_with_sp_features()
+                    .map_err(|error| error.to_string())
+            })
+            .map_err(journal_error)
+    }
+
+    /// Versioned extended + SP + DREV-v2 bundle for one pending player.
+    #[wasm_bindgen(js_name = extendedWithSpDrevV2Features)]
+    pub fn extended_with_sp_drev_v2_features(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "number")] player_id: JsValue,
+    ) -> Result<Vec<f32>, JsValue> {
+        let player_id = parse_js_u8(&player_id, "playerId").map_err(journal_error)?;
+        self.pending_decision(player_id)
+            .and_then(|decision| {
+                decision
+                    .observation
+                    .encode_extended_with_sp_drev_v2_features()
                     .map_err(|error| error.to_string())
             })
             .map_err(journal_error)
@@ -1234,6 +1303,8 @@ mod tests {
         assert_eq!(decisions.len(), 1);
         assert_eq!(decisions[0].base_shape, [74, 34]);
         assert_eq!(decisions[0].extended_shape, [215, 34]);
+        assert_eq!(decisions[0].drev_v2_shape, [81, 34]);
+        assert_eq!(decisions[0].extended_with_sp_drev_v2_shape, [474, 34]);
         assert_eq!(decisions[0].action_mask.len(), 82);
         assert_eq!(decisions[0].action_mask_v1.len(), 164);
         assert!(!decisions[0].observation_base64.is_empty());
@@ -1258,6 +1329,26 @@ mod tests {
                 .unwrap()
                 .len(),
             215 * 34
+        );
+        assert_eq!(
+            engine
+                .pending_decision(player_id)
+                .unwrap()
+                .observation
+                .encode_drev_v2_features()
+                .unwrap()
+                .len(),
+            81 * 34
+        );
+        assert_eq!(
+            engine
+                .pending_decision(player_id)
+                .unwrap()
+                .observation
+                .encode_extended_with_sp_drev_v2_features()
+                .unwrap()
+                .len(),
+            474 * 34
         );
 
         let outcome = engine
@@ -1286,7 +1377,9 @@ mod tests {
         assert_eq!(decisions[0].extended_shape, [215, 27]);
         assert_eq!(decisions[0].sp_shape, [178, 27]);
         assert_eq!(decisions[0].drev_shape, [9, 27]);
+        assert_eq!(decisions[0].drev_v2_shape, [81, 27]);
         assert_eq!(decisions[0].extended_with_sp_shape, [402, 27]);
+        assert_eq!(decisions[0].extended_with_sp_drev_v2_shape, [474, 27]);
         assert_eq!(decisions[0].action_mask.len(), 60);
         assert_eq!(decisions[0].action_mask_v1.len(), 120);
 
@@ -1330,6 +1423,26 @@ mod tests {
                 .unwrap()
                 .len(),
             9 * 27
+        );
+        assert_eq!(
+            engine
+                .pending_decision(player_id)
+                .unwrap()
+                .observation
+                .encode_drev_v2_features()
+                .unwrap()
+                .len(),
+            81 * 27
+        );
+        assert_eq!(
+            engine
+                .pending_decision(player_id)
+                .unwrap()
+                .observation
+                .encode_extended_with_sp_drev_v2_features()
+                .unwrap()
+                .len(),
+            474 * 27
         );
     }
 

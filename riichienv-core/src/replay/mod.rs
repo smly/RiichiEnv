@@ -110,6 +110,8 @@ pub struct HuleData {
 pub struct KyokuStepIterator {
     state: crate::state::GameState,
     actions: Arc<[Action]>,
+    action_tsumogiri: Arc<[Option<bool>]>,
+    action_dora_snapshots: Arc<[Option<Vec<u8>>]>,
     idx: usize,
     pending_action: Option<(u8, EnvAction)>,
     filter_seat: Option<u8>,
@@ -126,6 +128,8 @@ pub struct KyokuStepIterator {
 pub struct KyokuStepIterator3P {
     state: crate::state_3p::GameState3P,
     actions: Arc<[Action]>,
+    action_tsumogiri: Arc<[Option<bool>]>,
+    action_dora_snapshots: Arc<[Option<Vec<u8>>]>,
     idx: usize,
     pending_action: Option<(u8, EnvAction)>,
     filter_seat: Option<u8>,
@@ -139,6 +143,16 @@ pub struct KyokuStepIterator3P {
 
 #[cfg(feature = "python")]
 impl KyokuStepIterator {
+    fn _apply_current_log_action(&mut self, action: &Action) {
+        let source_tsumogiri = self.action_tsumogiri.get(self.idx).copied().flatten();
+        let dora_snapshot = self
+            .action_dora_snapshots
+            .get(self.idx)
+            .and_then(Option::as_deref);
+        self.state
+            .apply_log_action_with_metadata(action, source_tsumogiri, dora_snapshot);
+    }
+
     /// After a discard is applied, check which other players could have
     /// claimed (chi/pon/ron) but didn't. For each such player, generate a
     /// pass observation so that "none" actions appear in the training data.
@@ -282,7 +296,7 @@ impl KyokuStepIterator {
                 let discarder_for_pass = pid;
 
                 let current_log_action = &actions[slf.idx];
-                slf.state.apply_log_action(current_log_action);
+                slf._apply_current_log_action(current_log_action);
                 slf.idx += 1;
 
                 // Collect pass observations for discards (including riichi discards)
@@ -321,7 +335,7 @@ impl KyokuStepIterator {
                 | Action::BaBei { .. }
                 | Action::NoTile
                 | Action::LiuJu { .. } => {
-                    slf.state.apply_log_action(action);
+                    slf._apply_current_log_action(action);
                     slf.idx += 1;
                 }
                 Action::Other(_) => {
@@ -379,7 +393,7 @@ impl KyokuStepIterator {
                             &format!("{:?}", action),
                         )?;
 
-                        slf.state.apply_log_action(action);
+                        slf._apply_current_log_action(action);
                         slf.idx += 1;
 
                         // Collect pass observations for players who could
@@ -430,7 +444,7 @@ impl KyokuStepIterator {
                         &format!("{:?}", action),
                     )?;
 
-                    slf.state.apply_log_action(action);
+                    slf._apply_current_log_action(action);
                     slf.idx += 1;
 
                     if let Some(target) = slf.filter_seat {
@@ -493,7 +507,7 @@ impl KyokuStepIterator {
                         &format!("{:?}", action),
                     )?;
 
-                    slf.state.apply_log_action(action);
+                    slf._apply_current_log_action(action);
                     slf.idx += 1;
 
                     if let Some(target) = slf.filter_seat {
@@ -537,7 +551,7 @@ impl KyokuStepIterator {
                         decisions.push((pid, obs, env_action));
                     }
 
-                    slf.state.apply_log_action(action);
+                    slf._apply_current_log_action(action);
                     slf.idx += 1;
                     decisions.reverse();
                     slf.pending_hule_obs = decisions;
@@ -549,6 +563,16 @@ impl KyokuStepIterator {
 
 #[cfg(feature = "python")]
 impl KyokuStepIterator3P {
+    fn _apply_current_log_action(&mut self, action: &Action) {
+        let source_tsumogiri = self.action_tsumogiri.get(self.idx).copied().flatten();
+        let dora_snapshot = self
+            .action_dora_snapshots
+            .get(self.idx)
+            .and_then(Option::as_deref);
+        self.state
+            .apply_log_action_with_metadata(action, source_tsumogiri, dora_snapshot);
+    }
+
     /// After a discard is applied, check which other players could have
     /// claimed (pon/ron) but didn't. For each such player, generate a
     /// pass observation so that "none" actions appear in the training data.
@@ -706,7 +730,7 @@ impl KyokuStepIterator3P {
                 let discarder_for_pass = pid;
 
                 let current_log_action = &actions[slf.idx];
-                slf.state.apply_log_action(current_log_action);
+                slf._apply_current_log_action(current_log_action);
                 slf.idx += 1;
 
                 // Collect pass observations for discards (including riichi discards)
@@ -747,7 +771,7 @@ impl KyokuStepIterator3P {
                 | Action::Dora { .. }
                 | Action::NoTile
                 | Action::LiuJu { .. } => {
-                    slf.state.apply_log_action(action);
+                    slf._apply_current_log_action(action);
                     slf.idx += 1;
                 }
                 Action::Other(_) => {
@@ -764,7 +788,7 @@ impl KyokuStepIterator3P {
                         &format!("{:?}", action),
                     )?;
 
-                    slf.state.apply_log_action(action);
+                    slf._apply_current_log_action(action);
                     slf.idx += 1;
 
                     let env_action_3p = Action3P::from_action(env_action);
@@ -841,7 +865,7 @@ impl KyokuStepIterator3P {
                             &format!("{:?}", action),
                         )?;
 
-                        slf.state.apply_log_action(action);
+                        slf._apply_current_log_action(action);
                         slf.idx += 1;
 
                         // Collect pass observations for players who could
@@ -897,7 +921,7 @@ impl KyokuStepIterator3P {
                         &format!("{:?}", action),
                     )?;
 
-                    slf.state.apply_log_action(action);
+                    slf._apply_current_log_action(action);
                     slf.idx += 1;
 
                     let env_action_3p = Action3P::from_action(env_action);
@@ -962,7 +986,7 @@ impl KyokuStepIterator3P {
                         &format!("{:?}", action),
                     )?;
 
-                    slf.state.apply_log_action(action);
+                    slf._apply_current_log_action(action);
                     slf.idx += 1;
 
                     let env_action_3p = Action3P::from_action(env_action);
@@ -1009,7 +1033,7 @@ impl KyokuStepIterator3P {
                         decisions.push((pid, obs, env_action));
                     }
 
-                    slf.state.apply_log_action(action);
+                    slf._apply_current_log_action(action);
                     slf.idx += 1;
                     decisions.reverse();
                     slf.pending_hule_obs = decisions;
@@ -1039,6 +1063,14 @@ pub struct LogKyoku {
     pub paishan: Option<String>,
     #[cfg_attr(not(feature = "python"), allow(dead_code))]
     pub(crate) actions: Arc<[Action]>,
+    /// Source-provided tsumogiri/moqie metadata aligned one-to-one with
+    /// `actions`. Kept out of the public `Action` enum for v0.4.8 source ABI.
+    #[cfg_attr(not(feature = "python"), allow(dead_code))]
+    pub(crate) action_tsumogiri: Arc<[Option<bool>]>,
+    /// Cumulative dora snapshots carried by source actions whose v0.4.8
+    /// public `Action` variant has no dora field (notably BaBei).
+    #[cfg_attr(not(feature = "python"), allow(dead_code))]
+    pub(crate) action_dora_snapshots: Arc<[Option<Vec<u8>>]>,
     pub rule: crate::rule::GameRule,
     pub game_end_scores: Option<Vec<i32>>,
 }
@@ -1051,13 +1083,14 @@ impl LogKyoku {
 
     #[cfg(feature = "python")]
     fn initial_doras_for_action_replay(&self) -> Vec<u8> {
-        let has_sequential_updates = self.actions.iter().any(|action| match action {
-            Action::Dora { .. } => true,
-            Action::DealTile { doras, .. }
-            | Action::DiscardTile { doras, .. }
-            | Action::AnGangAddGang { doras, .. } => doras.is_some(),
-            _ => false,
-        });
+        let has_sequential_updates = self.action_dora_snapshots.iter().any(Option::is_some)
+            || self.actions.iter().any(|action| match action {
+                Action::Dora { .. } => true,
+                Action::DealTile { doras, .. }
+                | Action::DiscardTile { doras, .. }
+                | Action::AnGangAddGang { doras, .. } => doras.is_some(),
+                _ => false,
+            });
         if has_sequential_updates {
             self.doras.first().copied().into_iter().collect()
         } else {
@@ -1233,6 +1266,8 @@ impl LogKyoku {
             let iter = KyokuStepIterator3P {
                 state,
                 actions: self.actions.clone(),
+                action_tsumogiri: self.action_tsumogiri.clone(),
+                action_dora_snapshots: self.action_dora_snapshots.clone(),
                 idx: 0,
                 pending_action: None,
                 filter_seat: seat,
@@ -1322,6 +1357,8 @@ impl LogKyoku {
             let iter = KyokuStepIterator {
                 state,
                 actions: self.actions.clone(),
+                action_tsumogiri: self.action_tsumogiri.clone(),
+                action_dora_snapshots: self.action_dora_snapshots.clone(),
                 idx: 0,
                 pending_action: None,
                 filter_seat: seat,
@@ -1387,7 +1424,7 @@ impl LogKyoku {
         events.append(nr_event)?;
 
         // Actions
-        for action in self.actions.iter() {
+        for (action_index, action) in self.actions.iter().enumerate() {
             let a_event = PyDict::new(py);
             let a_data = PyDict::new(py);
 
@@ -1404,7 +1441,16 @@ impl LogKyoku {
                     a_data.set_item("tile", TileConverter::to_string(*tile))?;
                     a_data.set_item("is_liqi", is_liqi)?;
                     a_data.set_item("is_wliqi", is_wliqi)?;
-                    if let Some(d) = doras {
+                    if let Some(tsumogiri) =
+                        self.action_tsumogiri.get(action_index).copied().flatten()
+                    {
+                        a_data.set_item("moqie", tsumogiri)?;
+                    }
+                    if let Some(d) = doras.as_deref().or_else(|| {
+                        self.action_dora_snapshots
+                            .get(action_index)
+                            .and_then(Option::as_deref)
+                    }) {
                         let d_list =
                             PyList::new(py, d.iter().map(|t| TileConverter::to_string(*t)))?;
 
@@ -1420,7 +1466,11 @@ impl LogKyoku {
                     a_event.set_item("name", "DealTile")?;
                     a_data.set_item("seat", seat)?;
                     a_data.set_item("tile", TileConverter::to_string(*tile))?;
-                    if let Some(d) = doras {
+                    if let Some(d) = doras.as_deref().or_else(|| {
+                        self.action_dora_snapshots
+                            .get(action_index)
+                            .and_then(Option::as_deref)
+                    }) {
                         let d_list =
                             PyList::new(py, d.iter().map(|t| TileConverter::to_string(*t)))?;
                         a_data.set_item("doras", d_list)?;
@@ -1469,7 +1519,11 @@ impl LogKyoku {
                     if let Some(first) = tiles.first() {
                         a_data.set_item("tiles", TileConverter::to_string(*first))?;
                     }
-                    if let Some(d) = doras {
+                    if let Some(d) = doras.as_deref().or_else(|| {
+                        self.action_dora_snapshots
+                            .get(action_index)
+                            .and_then(Option::as_deref)
+                    }) {
                         let d_list =
                             PyList::new(py, d.iter().map(|t| TileConverter::to_string(*t)))?;
                         a_data.set_item("doras", d_list)?;
@@ -1520,6 +1574,15 @@ impl LogKyoku {
                     a_event.set_item("name", "BaBei")?;
                     a_data.set_item("seat", seat)?;
                     a_data.set_item("moqie", moqie)?;
+                    if let Some(d) = self
+                        .action_dora_snapshots
+                        .get(action_index)
+                        .and_then(Option::as_deref)
+                    {
+                        let d_list =
+                            PyList::new(py, d.iter().map(|t| TileConverter::to_string(*t)))?;
+                        a_data.set_item("doras", d_list)?;
+                    }
                 }
                 Action::NoTile => {
                     a_event.set_item("name", "NoTile")?;

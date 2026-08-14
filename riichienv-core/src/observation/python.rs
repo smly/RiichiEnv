@@ -1369,6 +1369,32 @@ impl Observation {
         Ok(pyo3::types::PyBytes::new(py, byte_slice))
     }
 
+    /// Encode versioned DREV-v2 public-history and yaku evidence.
+    #[pyo3(name = "encode_drev_v2")]
+    pub fn encode_drev_v2_py<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let buf = self.encode_drev_v2_features().map_err(PyErr::from)?;
+        let byte_len = std::mem::size_of_val(buf.as_slice());
+        let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<u8>(), byte_len) };
+        Ok(pyo3::types::PyBytes::new(py, byte_slice))
+    }
+
+    /// Encode the opt-in extended + SP + DREV-v2 474-channel bundle.
+    #[pyo3(name = "encode_extended_with_sp_drev_v2")]
+    pub fn encode_extended_with_sp_drev_v2_py<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let buf = self
+            .encode_extended_with_sp_drev_v2_features()
+            .map_err(PyErr::from)?;
+        let byte_len = std::mem::size_of_val(buf.as_slice());
+        let byte_slice = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<u8>(), byte_len) };
+        Ok(pyo3::types::PyBytes::new(py, byte_slice))
+    }
+
     // ── Sequence features (transformer) ─────────────────────────────────
 
     /// Encode sparse features as variable-length u16 indices.

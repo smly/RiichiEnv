@@ -12,6 +12,7 @@ mod yaku_3p;
 
 pub mod action;
 pub mod drev;
+pub mod drev_v2;
 pub mod engine;
 pub mod feature_context;
 pub mod features;

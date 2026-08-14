@@ -11,6 +11,9 @@ Run on every change:
 - tile, scoring, rule, action encoding, and state-transition units;
 - `EventJournal` boundary, cursor, unfinished-EOF, and censorship properties;
 - feature buffer length and single-row/batch-row equality;
+- DREV-v2 hard-safe proofs, per-seat temporary-furiten expiry, unresolved-
+  response exclusion, public-history completeness, and public-only input
+  invariants;
 - 4P/3P action masks and typed game-mode validation;
 - reset rejection before mutation, deterministic reseeding, complete pending-action batches, and terminal decision suppression.
 
@@ -59,11 +62,17 @@ Committed, reviewable fixtures are required for:
 - `contracts/v0.4.8/observation_{4p,3p}.b64` decode and byte-for-byte legacy re-encode;
 - all ActionType → MJAI forms, actors, red fives, consumed-tile order, parser mapping, and current `reach` omission of `pai`;
 - action masks and every action ID mapping (82/60);
-- base, extended, SP, DREV, and sequence shapes/dtypes;
-- selected semantic feature cells plus a deterministic full-vector digest.
+- base, extended, SP, DREV, combined, and sequence shapes/dtypes;
+- the DREV-v2 schema ID, all 81 ordered channel names, relative-opponent slot
+  order, and the inactive sanma slot across Rust/Python/WASM;
+- selected semantic feature cells plus a deterministic full-vector digest;
 - the historical base-v0/extended-v0 channel-30 difference after a called meld.
 
-New encoders must compare every float or documented-tolerance value against v0. Shape-only checks do not protect trained models.
+Frozen encoders must compare every float or documented-tolerance value against
+their committed v0/v1 goldens. New versioned encoders need independent semantic
+oracles and their own digests; comparing DREV v2 to v1 would preserve the v1
+defects rather than validate the new contract. Shape-only checks do not protect
+trained models.
 
 ### 5. Replay corpus validation
 
@@ -98,7 +107,10 @@ Record:
 - SP s0/s1/s2/s3 and approximation paths;
 - closed/open, aka, dora, kan, and replay-derived positions;
 - allocation count and requested bytes per call;
-- Observation → base/extended/SP/DREV combined features;
+- Observation → base/extended/SP/DREV and the 402/474-channel combined
+  features;
+- DREV v1/v2 separately, including 4P/3P, history length, batch 1/16/256, and
+  caller-buffer reuse;
 - complete engine decision cycles and batches 1/16/256;
 - steps/s and p50/p95 latency.
 
@@ -132,7 +144,7 @@ Optimization order is:
 ## Foundation currently present
 
 - pure Rust base/extended/SP/DREV Observation entry points;
-- explicit v0/v1 `FeatureSpec` constants and caller-buffer batch writers;
+- explicit v0/v1/v2 `FeatureSpec` constants and caller-buffer batch writers;
 - typed `GameEngine`/`BatchGameEngine` facade;
 - pure append-only `EventJournal` and schema-v1 cursor envelope;
 - synthetic journal censorship/property tests;
@@ -143,6 +155,10 @@ Optimization order is:
 - tracked replay validator test and failure exit status;
 - corrected SP benchmark fixtures with post-discard shanten assertions;
 - Python, WASM typed-array, and TypeScript adapters over the new seams.
+- versioned 81-channel 4P/3P DREV-v2 encoders with full tedashi/tsumogiri
+  discard history, resolved same-turn and post-riichi safety proofs, soft-only
+  suji/kabe evidence, 19 evidence heads per relative opponent, and explicit
+  474-channel combined bundles;
 - generated and package-exported TypeScript declarations for the browser APIs.
 - real-browser smoke coverage for the bundled web-target WASM loader.
 - pure Rust `ReplayLog`/borrowed kyoku cursor with tracked-corpus coverage;
@@ -209,8 +225,9 @@ On 2026-08-09, `scripts/validate_sp_features.py` was run against both local
 MjSoul corpora after rebuilding the Python extension. The validator checks the
 compact/canonical tile mapping, all SP shape/yaku/point ranges, binary planes,
 probability monotonicity, `win <= tenpai`, shanten lower bounds, drawable waits,
-min/mean/max and point-threshold ordering, DREV range, and exact standalone vs
-combined block equality.
+min/mean/max and point-threshold ordering, frozen DREV-v1 range, and exact
+standalone versus 402-channel combined block equality. It predates DREV v2 and
+is not evidence for the 81-channel contract.
 
 | Variant | Files | Sampled observations | Issues |
 |---|---:|---:|---:|
@@ -271,3 +288,93 @@ and evaluate all deadlines over it, then consider end-to-end versioned
 Observation/batch bindings only after correctness goldens and replay-derived
 performance gates are green. Legacy APIs remain supported throughout that
 migration.
+
+## DREV v2 correctness and quality gates
+
+DREV v2 is a public-information feature, while a correctness oracle may inspect
+the complete game state only to produce labels. Tests must keep this boundary
+explicit.
+
+Current deterministic regressions cover both variants where applicable:
+
+- a decoded v0.4.x Observation has no runtime history and DREV v2 fails closed;
+- engine observations carry aligned chronological actor, riichi-discard, and
+  tedashi/tsumogiri histories;
+- the current unresolved normal discard is excluded until the response window
+  closes;
+- an opponent's own river is permanently hard-safe;
+- a resolved normal discard is temporarily hard-safe against each non-
+  discarder, remains so while other players act, and expires only when the
+  protected seat next draws or calls;
+- a resolved post-riichi pass remains hard-safe after later draws because the
+  wait is fixed;
+- adding or removing a hard-safe proof changes `ron_prob`, but does not erase
+  or renormalize the structural `wait_prob`;
+- suji and kabe reduce a soft prior but never produce hard-safe zero;
+- completed kans, honor triplets, sanma 1m/9m triplets, and four-meld
+  pair-wait copy exhaustion produce hard-safe zero, while an ordinary 4P
+  numeric Pon alone does not;
+- a called physical tile is not double-counted into a false wall;
+- an externally supplied opponent concealed hand is rejected;
+- the 3P absent opponent slot, including all yaku planes, is zero;
+- post-riichi Kita can only extract the just-drawn North;
+- all 19 evidence heads use the documented order and ordinal states, including
+  normal-yaku/value groups and Kokushi, Daisangen, wind yakuman, Suuankou,
+  Tsuuiisou, Ryuuiisou, Chinroutou, Chuuren, and Suukantsu;
+- three public kans remain strong Suukantsu evidence, while Chi and exhausted
+  dragon/wind blockers produce genuinely impossible yakuman-family states;
+  the offered discard is removed from those blocker counts before declaring
+  the family impossible;
+- three public wind triplets give the missing-wind candidate a confirmed
+  yakuman loss floor in both 4P and 3P without broadcasting confirmation to
+  unrelated tiles;
+- four compatible public melds give only matching pair candidates confirmed
+  Tsuuiisou, Ryuuiisou, or Chinroutou loss floors, and compatible confirmed
+  families stack;
+- candidate-conditioned ordinary-yaku floors cover conclusive flush,
+  terminal/honor, Tanyao, and Shousangen shapes, while public Sanankou,
+  Sankantsu, and Sanshoku doukou are counted independently;
+- replay action dora snapshots are visible in the immediately following 4P/3P
+  Observation, including kan/Kita snapshots and the legacy incremental
+  singular-marker input;
+- cumulative dora snapshots cannot shrink or rewrite an earlier indicator;
+  malformed updates leave the prior public indicator list unchanged and make
+  DREV v2 fail closed;
+- positive-but-unconfirmed evidence does not act as a probability, add han, or
+  lift yakuman loss; only public confirmation and exact public bonus counts do;
+- the 81-channel standalone and 474-channel combined layouts match their
+  exported schema metadata and single-row/batch output;
+- caller-owned DREV and combined feature buffers are fully cleared before
+  reuse, so no positive cell survives from a prior observation.
+- the hidden-state exact-zero integration oracle runs four deterministic seeds
+  for both 4P and 3P, enumerates every legal physical discard against every
+  opponent, and currently checks 17,920 candidate/opponent cells including
+  3,871 hard-safe cells with zero false positives.
+
+The seeded integration oracle validates the exact-zero rule claim, not
+statistical quality or rare-event coverage. The corpus-quality oracle must
+extend the same hidden-state boundary to record exact waits, legal Ron,
+canonical yaku and yakuman IDs/units, han/fu, bonus components, points, and
+player deltas. Only the labels may inspect concealed hands, wall state, ura
+indicators, or legal responses; the encoded input must be generated from the
+original public Observation. Train/calibration/test splits are by game, not by
+observation, to avoid adjacent-position leakage.
+
+Promotion from experimental use requires that labelled corpus and the following
+reported metrics:
+
+1. `hard_safe_zero` false-positive count, which must be exactly zero;
+2. legal-Ron log loss, Brier score, AUPRC, and adaptive ECE;
+3. conditional-loss and expected-loss MAE, bias, and tail-weighted error;
+4. within-decision candidate ranking regret and paired-seed policy return;
+5. separate 4P/3P, riichi/dama/open, turn, dealer, red, Kakan/Ankan/Kita, pao,
+   and multi-Ron slices;
+6. per-family support and recall for rare yakuman rather than only a micro
+   average.
+
+Normal-discard same-turn-furiten epochs are now represented by per-seat runtime
+masks. The next history gate is a versioned public-event reducer shared by live
+and replay paths. It must type Draw, Call, Kakan, Ankan, Kita, DoraFlip,
+ReachAccepted, and OfferResolved without exposing private response state. Only
+then may DREV claim source-specific Kakan/Ankan/Kita response proofs. See ADR
+0002.
