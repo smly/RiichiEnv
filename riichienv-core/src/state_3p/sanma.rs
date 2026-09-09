@@ -16,6 +16,9 @@ impl GameState3P {
         // failing to remove any tile.  Instead, look up a North tile from the hand.
         let tile = match act.tile {
             Some(t) if t / 4 == 30 => t,
+            _ if self.players[p_idx].riichi_declared => self
+                .drawn_tile
+                .expect("a legal kita after riichi must extract the drawn North"),
             _ => self.players[p_idx]
                 .hand
                 .iter()
@@ -124,6 +127,10 @@ impl GameState3P {
                     vec![],
                     Some(i),
                 ));
+            } else if res.has_win_shape {
+                // Like a normal discard, a completed shape without a yaku
+                // causes temporary furiten even though Ron is not offered.
+                self.players[i as usize].missed_agari_doujun = true;
             }
         }
 
@@ -155,11 +162,18 @@ impl GameState3P {
         }
 
         let p_idx = pid as usize;
+        // A riichi declaration must be followed by its tenpai-preserving
+        // discard. Once accepted, only the newly drawn North may be extracted.
+        if self.players[p_idx].riichi_stage {
+            return Vec::new();
+        }
         let mut actions = Vec::new();
 
         // Find North tiles (type 30, IDs 120-123) in hand
         for &tile in &self.players[p_idx].hand {
-            if tile / 4 == 30 {
+            if tile / 4 == 30
+                && (!self.players[p_idx].riichi_declared || Some(tile) == self.drawn_tile)
+            {
                 // North wind
                 actions.push(Action::new(ActionType::Kita, Some(tile), vec![], Some(pid)));
             }

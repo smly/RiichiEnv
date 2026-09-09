@@ -113,7 +113,7 @@ impl GameState3PLegalActions for GameState3P {
                 }
 
                 if self.players[pid_us].score >= 1000
-                    && self.wall.drawable_count > 0
+                    && self.wall.drawable_count >= 3
                     && self.players[pid_us].melds.iter().all(|m| !m.opened)
                 {
                     let mut can_riichi = false;
