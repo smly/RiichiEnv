@@ -1498,7 +1498,11 @@ impl GameState3P {
         }
     }
 
-    pub fn _initialize_next_round(&mut self, oya_won: bool, is_draw: bool) {
+    pub fn _initialize_next_round(&mut self, is_renchan: bool, is_draw: bool) {
+        self._advance_round(is_renchan, is_draw, false);
+    }
+
+    fn _advance_round(&mut self, is_renchan: bool, is_draw: bool, is_abortive_draw: bool) {
         if self.is_done {
             return;
         }
@@ -1521,7 +1525,13 @@ impl GameState3P {
             5 => self.round_wind == 1 && self.oya == np - 1,
             _ => false,
         };
-        if oya_won && is_last_regular_round && dealer_is_top && dealer_score >= 40000 {
+        // Abortive draws repeat without applying agari-yame or tenpai-yame.
+        if !is_abortive_draw
+            && is_renchan
+            && is_last_regular_round
+            && dealer_is_top
+            && dealer_score >= 40000
+        {
             self._process_end_game();
             return;
         }
@@ -1530,7 +1540,7 @@ impl GameState3P {
         let mut next_oya = self.oya;
         let mut next_round_wind = self.round_wind;
 
-        if oya_won {
+        if is_renchan {
             next_honba = next_honba.saturating_add(1);
         } else if is_draw {
             next_honba = next_honba.saturating_add(1);
@@ -1550,7 +1560,10 @@ impl GameState3P {
             4 => {
                 // 3p-red-east
                 let max_score = self.players.iter().map(|p| p.score).max().unwrap_or(0);
-                if next_round_wind >= 1 && (max_score >= 40000 || next_round_wind > 1) {
+                if !is_abortive_draw
+                    && next_round_wind >= 1
+                    && (max_score >= 40000 || next_round_wind > 1)
+                {
                     self._process_end_game();
                     return;
                 }
@@ -1558,7 +1571,10 @@ impl GameState3P {
             5 => {
                 // 3p-red-half
                 let max_score = self.players.iter().map(|p| p.score).max().unwrap_or(0);
-                if next_round_wind >= 2 && (max_score >= 40000 || next_round_wind > 2) {
+                if !is_abortive_draw
+                    && next_round_wind >= 2
+                    && (max_score >= 40000 || next_round_wind > 2)
+                {
                     self._process_end_game();
                     return;
                 }
@@ -1854,7 +1870,7 @@ impl GameState3P {
             self._push_mjai_event(Value::Object(ev));
         }
 
-        self._initialize_next_round(is_renchan, true);
+        self._advance_round(is_renchan, true, reason != "exhaustive_draw");
     }
 
     fn check_abortive_draw(&mut self) -> bool {

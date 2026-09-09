@@ -1,0 +1,5 @@
+{"bakaze":"S","dora_marker":"3s","honba":0,"kyoku":4,"kyotaku":0,"oya":3,"scores":[6000,34500,14600,44900],"tehais":[["2m","3m","3p","6p","7p","7p","7p","8p","4s","8s","S","F","F"],["5m","9m","1p","1p","5p","6p","6p","2s","5s","6s","N","N","P"],["1m","2m","4m","4m","7m","9m","9m","6s","7s","9s","W","P","F"],["7m","9m","4p","5p","9p","1s","9s","E","W","W","N","P","C"]],"type":"start_kyoku"}
+{"actor":3,"pai":"7m","type":"tsumo"}
+{"deltas":[0,0,0,0],"reason":"kyushu_kyuhai","type":"ryukyoku"}
+{"type":"end_kyoku"}
+{"type":"end_game"}
