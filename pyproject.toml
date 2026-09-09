@@ -1,6 +1,6 @@
 [project]
 name = "riichienv"
-version = "0.4.8"
+version = "0.4.9"
 authors = [
     { name="Kohei Ozaki", email="19337+smly@users.noreply.github.com" },
 ]
@@ -17,6 +17,7 @@ license-files = ["LICENSE"]
 dependencies = [
     "pyyaml>=6.0.3",
     "ipython",
+    "pygments>=2.20.0",  # Security floor for IPython's syntax highlighter.
 ]
 
 [project.urls]
@@ -37,7 +38,7 @@ include = ["src/riichienv/visualizer/assets/**"]
 dev = [
     "maturin>=1.9.4,<2.0",
     "pre-commit>=4.5.1",
-    "pytest>=9.0",
+    "pytest>=9.0.3",
     "ruff>=0.8.0",
     "ty>=0.0.7",
 ]

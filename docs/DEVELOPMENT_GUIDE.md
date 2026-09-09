@@ -355,21 +355,26 @@ This project uses an automated GitHub Actions workflow for releases.
    - Create a new environment named `pypi`.
    - (Optional) Configure "Required reviewers" to require manual approval before publishing.
    - **Note**: You do *not* need to set `PYPI_API_TOKEN` secret if using Trusted Publisher.
+2. **crates.io**:
+   - Create a `crates-io` environment and configure a `CARGO_REGISTRY_TOKEN` secret with permission to publish `riichienv-core`.
 
 ### 3. Creating a Release
 To publish a new version:
 
-1. Update the version number in `riichienv-core/Cargo.toml`, `riichienv-python/Cargo.toml`, `riichienv-wasm/Cargo.toml`, and `pyproject.toml`.
-2. Commit and push the changes:
+1. Update the version number in `riichienv-core/Cargo.toml`, `riichienv-python/Cargo.toml`, `riichienv-wasm/Cargo.toml`, `pyproject.toml`, and `riichienv-ml/pyproject.toml`.
+2. Refresh and check the lockfiles without upgrading dependencies:
    ```bash
-   git add riichienv-core/Cargo.toml riichienv-python/Cargo.toml riichienv-wasm/Cargo.toml pyproject.toml
-   git commit -m "chore: bump version to X.Y.Z"
-   git push
+   cargo metadata --format-version 1 > /dev/null
+   uv lock
+   cargo metadata --locked --format-version 1 > /dev/null
+   uv lock --check
    ```
-3. **Draft a Release on GitHub**:
+   Include `Cargo.lock` and `uv.lock` in the version update.
+3. Open a pull request for the version update, wait for CI to pass, and merge it into `main`.
+4. **Draft a Release on GitHub**:
    - Go to the **Releases** page on GitHub.
    - Click **Draft a new release**.
-   - **Choose a tag**: Create a new tag (e.g., `vX.Y.Z`) on the target branch.
+   - **Choose a tag**: Create a new tag (e.g., `vX.Y.Z`) targeting the merged version update on `main`.
    - **Release title**: `vX.Y.Z` (or your preferred title).
    - Write your release notes.
    - Click **Publish release**.
@@ -379,14 +384,18 @@ The GitHub Actions workflow will automatically:
 - Build wheels for Linux, Windows, and macOS.
 - **Upload the binary artifacts** to your existing release.
 - Publish the package to PyPI.
+- Publish `riichienv-core` to crates.io.
 
-### 4. Publishing to crates.io
-To publish the Rust core library to crates.io:
+Publishing the GitHub Release triggers `.github/workflows/release.yml` via `release.published`. Merging the PR, pushing a tag, or saving a draft release does not trigger package publication. There is no manual `workflow_dispatch` trigger.
+
+### 4. Verify Publication
+
+After publishing the release, check the **Release** workflow in GitHub Actions. Both the **Release** (PyPI and release assets) and **Publish to crates.io** jobs must succeed; they run independently after the builds finish.
+
+Confirm that the new version is available on both PyPI and crates.io before updating downstream applications such as RiichiLab. If an environment requires reviewer approval, approve its deployment in GitHub Actions.
+
+To check Rust packaging locally before release without uploading a package:
 
 ```bash
-# Dry-run first
 cargo publish -p riichienv-core --dry-run
-
-# Publish
-cargo publish -p riichienv-core
 ```
