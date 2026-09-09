@@ -29,12 +29,12 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.6",
-    "esbuild": "^0.27.3",
-    "sharp": "^0.34.5",
-    "svgo": "^4.0.1",
+    "esbuild": "^0.28.2",
+    "sharp": "^0.35.4",
+    "svgo": "^4.1.0",
     "text-to-svg": "^3.1.5",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.11"
   },
   "author": "",
   "license": "Apache-2.0"
