@@ -1618,15 +1618,15 @@ impl GameState {
                 || dealer_score > player.score
                 || (dealer_score == player.score && self.oya as usize <= seat)
         });
-        let is_last_regular_round = match self.game_mode {
-            1 | 4 => self.round_wind == 0 && self.oya == np - 1,
-            2 | 5 => self.round_wind == 1 && self.oya == np - 1,
+        let is_all_last_or_later = match self.game_mode {
+            1 | 4 => self.round_wind > 0 || self.oya == np - 1,
+            2 | 5 => self.round_wind > 1 || (self.round_wind == 1 && self.oya == np - 1),
             _ => false,
         };
         // Abortive draws repeat without applying agari-yame or tenpai-yame.
         if !is_abortive_draw
             && is_renchan
-            && is_last_regular_round
+            && is_all_last_or_later
             && dealer_is_top
             && dealer_score >= 30000
         {
@@ -1659,6 +1659,7 @@ impl GameState {
                 // TODO: Delete 4, 5, 3
                 let max_score = self.players.iter().map(|p| p.score).max().unwrap_or(0);
                 if !is_abortive_draw
+                    && !is_renchan
                     && next_round_wind >= 1
                     && (max_score >= 30000 || next_round_wind > 1)
                 {
@@ -1669,6 +1670,7 @@ impl GameState {
             2 | 5 => {
                 let max_score = self.players.iter().map(|p| p.score).max().unwrap_or(0);
                 if !is_abortive_draw
+                    && !is_renchan
                     && next_round_wind >= 2
                     && (max_score >= 30000 || next_round_wind > 2)
                 {
@@ -2111,6 +2113,21 @@ impl GameState {
     }
 
     pub(crate) fn _process_end_game(&mut self) {
+        // Single-round mode exposes hand settlement, including any unclaimed
+        // pot. A completed match awards that pot to the top-ranked seat.
+        if !matches!(self.game_mode, 0 | 3) && self.riichi_sticks > 0 {
+            let top = self
+                .players
+                .iter()
+                .enumerate()
+                .max_by_key(|(seat, p)| (p.score, std::cmp::Reverse(*seat)))
+                .map(|(seat, _)| seat)
+                .expect("a game has players");
+            let deposit = self.riichi_sticks as i32 * 1000;
+            self.players[top].score += deposit;
+            self.players[top].score_delta += deposit;
+            self.riichi_sticks = 0;
+        }
         self.is_done = true;
         if !self.skip_mjai_logging {
             let mut ek = serde_json::Map::new();
