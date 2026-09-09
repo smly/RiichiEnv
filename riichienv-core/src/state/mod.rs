@@ -1944,10 +1944,10 @@ impl GameState {
             }
         }
 
-        let is_renchan = if final_reason == "exhaustive_draw" {
+        // Nagashi mangan replaces the payments, but renchan still depends on
+        // dealer tenpai as in any other exhaustive draw.
+        let is_renchan = if reason == "exhaustive_draw" {
             tenpai[self.oya as usize]
-        } else if final_reason == "nagashimangan" {
-            nagashi_winners.contains(&self.oya)
         } else {
             true
         };
