@@ -2,8 +2,11 @@
 
 import importlib.util
 import json
+import lzma
+import sys
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -75,3 +78,29 @@ def test_red_tile_mismatch_is_detected(record):
 def test_empty_exhaustive_draw_deltas_mean_no_payment():
     events = [{"name": "NoTile", "data": {"scores": [{"old_scores": [25000] * 4, "delta_scores": []}]}}]
     assert validator.expected_end_scores(events) == [25000] * 4
+
+
+@pytest.mark.parametrize("corrupt_header", [False, True])
+def test_final_match_scores_use_raw_header_after_deposit_settlement(tmp_path, monkeypatch, corrupt_header):
+    record = json.loads((ROOT / "tests/data/mjsoul_final_deposits.json").read_text())
+    final_scores = record["final_scores"]
+    if corrupt_header:
+        final_scores[2] -= 1000  # Reproduce the missing terminal deposit.
+    paifu = SimpleNamespace(
+        data=[record["events"]],
+        header={
+            "config": {"category": 2, "mode": {"mode": record["mode"]}},
+            "result": {"players": [{"seat": seat, "part_point_1": score} for seat, score in enumerate(final_scores)]},
+        },
+    )
+    # Only the optional protobuf decoder is substituted; all gameplay and
+    # source score checks run through the real simulator and validate_file.
+    monkeypatch.setitem(
+        sys.modules, "mjsoul_parser", SimpleNamespace(MjsoulPaifuParser=SimpleNamespace(to_dict=lambda _: paifu))
+    )
+    path = tmp_path / "final-deposits.bin.xz"
+    path.write_bytes(lzma.compress(b"fixture"))
+    result = validator.validate_file(str(path))
+    assert result["counts"]["rounds_passed"] == 1
+    assert result["counts"]["final_score_checks"] == 1
+    assert [f["category"] for f in result["failures"]] == (["final_game_scores"] if corrupt_header else [])

@@ -11,6 +11,11 @@ mode preserves the completed hand and win results; match mode independently
 checks whether the match ends and which round would follow. The next round is
 then initialized from its own recorded wall.
 
+Final-hand scores and final-match scores have separate oracles: the round's
+payment record excludes unclaimed deposits, while the original game header
+includes their award to the top player. Single-round mode preserves the former;
+match mode settles the latter. A header-mutation test verifies this distinction.
+
 Checks cover:
 
 - All initial hands and dora indicators, including red fives.

@@ -269,13 +269,17 @@ def validate_round(events, next_start, mode, counters):  # noqa: PLR0915 - Keep 
             equal("draw_reason", [e["reason"] for e in draw], [expected])
         expected_scores = expected_end_scores(events)
         equal("end_scores", single.scores(), expected_scores)
-        equal("match_end_scores", match.scores(), expected_scores)
         equal("match_finished", match.is_done, next_start is None)
+        equal("match_point_conservation", sum(match.scores()) + 1000 * match.riichi_sticks, total)
         if next_start is not None:
+            equal("match_end_scores", match.scores(), expected_scores)
             expected_meta = [next_start[k] for k in ("chang", "ju", "ben", "liqibang")]
             actual_meta = [match.round_wind, match.oya, match.honba, match.riichi_sticks]
             equal("next_round", actual_meta, expected_meta)
             equal("score_continuity", match.scores(), next_start["scores"])
+        # The final hand's scores exclude unclaimed deposits. Match scores
+        # include the terminal award and are checked against the raw header
+        # by validate_file(), independently of hand settlement above.
         counters["rounds_passed"] += 1
         return match.scores()
     except Exception as error:
