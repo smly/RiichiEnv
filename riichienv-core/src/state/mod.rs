@@ -1303,6 +1303,9 @@ impl GameState {
                     self._resolve_kan(pk_pid, pk_act);
                 } else {
                     self._accept_riichi();
+                    if self.check_abortive_draw() {
+                        return;
+                    }
                     self.turn_count += 1;
                     self.current_player = (self.current_player + 1) % np as u8;
                     self._deal_next();
@@ -1860,7 +1863,13 @@ impl GameState {
     }
 
     pub fn _trigger_ryukyoku(&mut self, reason: &str) {
-        self._accept_riichi();
+        if reason == "sanchaho" {
+            // Ron on the declaration discard prevents the riichi deposit,
+            // including when three ron claims end in an abortive draw.
+            self.riichi_pending_acceptance = None;
+        } else {
+            self._accept_riichi();
+        }
 
         let np = NP;
         let mut tenpai = vec![false; np];
@@ -1972,7 +1981,16 @@ impl GameState {
             let mut ev = serde_json::Map::new();
             ev.insert("type".to_string(), Value::String("ryukyoku".to_string()));
             ev.insert("reason".to_string(), Value::String(final_reason.clone()));
-            let deltas: Vec<i32> = self.players.iter().map(|p| p.score_delta).collect();
+            // Riichi deposits were already recorded by reach_accepted.
+            // An abortive draw itself transfers no points.
+            let deltas: Vec<i32> = if matches!(
+                reason,
+                "kyushu_kyuhai" | "sufuurenta" | "suukansansen" | "suucha_riichi" | "sanchaho"
+            ) {
+                vec![0; NP]
+            } else {
+                self.players.iter().map(|p| p.score_delta).collect()
+            };
             ev.insert(
                 "deltas".to_string(),
                 serde_json::to_value(deltas).expect("valid JSON"),
@@ -1984,6 +2002,29 @@ impl GameState {
     }
 
     fn check_abortive_draw(&mut self) -> bool {
+        if let Some(reason) = self.abortive_draw_reason() {
+            self._trigger_ryukyoku(reason);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn kan_counts(&self) -> [usize; NP] {
+        self.players.each_ref().map(|p| {
+            p.melds
+                .iter()
+                .filter(|m| {
+                    matches!(
+                        m.meld_type,
+                        MeldType::Daiminkan | MeldType::Ankan | MeldType::Kakan
+                    )
+                })
+                .count()
+        })
+    }
+
+    fn abortive_draw_reason(&self) -> Option<&'static str> {
         // 1. Sufuurenta (Four Winds)
         let turns_ok = self.players.iter().all(|p| p.discards.len() == 1);
         let melds_empty = self.players.iter().all(|p| p.melds.is_empty());
@@ -1999,39 +2040,24 @@ impl GameState {
                     .iter()
                     .all(|p| p.discards.first().map(|&t| t / 4) == Some(first))
             {
-                self._trigger_ryukyoku("sufuurenta");
-                return true;
+                return Some("sufuurenta");
             }
         }
 
         // 2. Suukansansen (4 Kans)
-        let mut kan_owners = Vec::new();
-        for (pid, p) in self.players.iter().enumerate() {
-            for m in &p.melds {
-                if m.meld_type == crate::types::MeldType::Daiminkan
-                    || m.meld_type == crate::types::MeldType::Ankan
-                    || m.meld_type == crate::types::MeldType::Kakan
-                {
-                    kan_owners.push(pid);
-                }
-            }
-        }
-
-        if kan_owners.len() == 4 {
-            let first_owner = kan_owners[0];
-            if !kan_owners.iter().all(|&o| o == first_owner) {
-                self._trigger_ryukyoku("suukansansen");
-                return true;
-            }
+        let kan_counts = self.kan_counts();
+        if kan_counts.iter().sum::<usize>() >= 4
+            && kan_counts.iter().filter(|&&count| count > 0).count() > 1
+        {
+            return Some("suukansansen");
         }
 
         // 3. Suucha Riichi (Four Riichis)
         if self.players.iter().all(|p| p.riichi_declared) {
-            self._trigger_ryukyoku("suucha_riichi");
-            return true;
+            return Some("suucha_riichi");
         }
 
-        false
+        None
     }
 
     pub fn _reveal_kan_dora(&mut self) {

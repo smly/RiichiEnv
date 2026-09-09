@@ -1209,6 +1209,9 @@ impl GameState3P {
                     }
                 } else {
                     self._accept_riichi();
+                    if self.check_abortive_draw() {
+                        return;
+                    }
                     self.turn_count += 1;
                     self.current_player = (self.current_player + 1) % NP as u8;
                     self._deal_next();
@@ -1862,7 +1865,13 @@ impl GameState3P {
             let mut ev = serde_json::Map::new();
             ev.insert("type".to_string(), Value::String("ryukyoku".to_string()));
             ev.insert("reason".to_string(), Value::String(final_reason.clone()));
-            let deltas: Vec<i32> = self.players.iter().map(|p| p.score_delta).collect();
+            // Riichi deposits were already recorded by reach_accepted.
+            // An abortive draw itself transfers no points.
+            let deltas: Vec<i32> = if matches!(reason, "kyushu_kyuhai" | "suukansansen") {
+                vec![0; NP]
+            } else {
+                self.players.iter().map(|p| p.score_delta).collect()
+            };
             ev.insert(
                 "deltas".to_string(),
                 serde_json::to_value(deltas).expect("valid JSON"),
@@ -1874,36 +1883,46 @@ impl GameState3P {
     }
 
     fn check_abortive_draw(&mut self) -> bool {
+        if let Some(reason) = self.abortive_draw_reason() {
+            self._trigger_ryukyoku(reason);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn kan_counts(&self) -> [usize; NP] {
+        self.players.each_ref().map(|p| {
+            p.melds
+                .iter()
+                .filter(|m| {
+                    matches!(
+                        m.meld_type,
+                        MeldType::Daiminkan | MeldType::Ankan | MeldType::Kakan
+                    )
+                })
+                .count()
+        })
+    }
+
+    fn abortive_draw_reason(&self) -> Option<&'static str> {
         // 1. Sufuurenta (Four Winds) - disabled in 3P
         // Sufuurenta requires all 4 players to discard the same wind tile.
         // With only 3 players this rule does not apply (MjSoul 3P confirmed).
 
         // 2. Suukansansen (4 Kans)
-        let mut kan_owners = Vec::new();
-        for (pid, p) in self.players.iter().enumerate() {
-            for m in &p.melds {
-                if m.meld_type == MeldType::Daiminkan
-                    || m.meld_type == MeldType::Ankan
-                    || m.meld_type == MeldType::Kakan
-                {
-                    kan_owners.push(pid);
-                }
-            }
-        }
-
-        if kan_owners.len() == 4 {
-            let first_owner = kan_owners[0];
-            if !kan_owners.iter().all(|&o| o == first_owner) {
-                self._trigger_ryukyoku("suukansansen");
-                return true;
-            }
+        let kan_counts = self.kan_counts();
+        if kan_counts.iter().sum::<usize>() >= 4
+            && kan_counts.iter().filter(|&&count| count > 0).count() > 1
+        {
+            return Some("suukansansen");
         }
 
         // 3. Suucha Riichi (All Riichis) - disabled in 3P
         // Suucha riichi requires all 4 players to declare riichi.
         // With only 3 players this rule does not apply (MjSoul 3P confirmed).
 
-        false
+        None
     }
 
     pub fn _reveal_kan_dora(&mut self) {

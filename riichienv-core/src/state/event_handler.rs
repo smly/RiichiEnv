@@ -16,6 +16,16 @@ pub trait GameStateEventHandler {
 
 impl GameStateEventHandler for GameState {
     fn apply_mjai_event(&mut self, event: MjaiEvent) {
+        if matches!(
+            &event,
+            MjaiEvent::Pon { .. }
+                | MjaiEvent::Chi { .. }
+                | MjaiEvent::Kan { .. }
+                | MjaiEvent::Ankan { .. }
+                | MjaiEvent::Kakan { .. }
+        ) {
+            self.is_first_turn = false;
+        }
         match event {
             MjaiEvent::StartGame { .. } => {
                 // Clear stale state from constructor's reset() so that
@@ -120,6 +130,10 @@ impl GameStateEventHandler for GameState {
                 self.players[actor].discards.push(tile);
                 self.last_discard = Some((actor as u8, tile));
                 self.drawn_tile = None;
+                self.turn_count += 1;
+                if self.turn_count >= self.players.len() as u32 {
+                    self.is_first_turn = false;
+                }
 
                 if self.players[actor].riichi_stage {
                     self.players[actor].riichi_declared = true;
@@ -411,7 +425,10 @@ impl GameStateEventHandler for GameState {
                 self.phase = Phase::WaitAct;
                 self.active_players = vec![self.current_player];
                 self.needs_tsumo = true;
-                self.is_first_turn = false;
+                self.turn_count += 1;
+                if self.turn_count >= self.players.len() as u32 {
+                    self.is_first_turn = false;
+                }
                 self.is_after_kan = false;
             }
             LogAction::DealTile { seat, tile, .. } => {
