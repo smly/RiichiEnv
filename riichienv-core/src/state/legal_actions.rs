@@ -133,7 +133,10 @@ impl GameStateLegalActions for GameState {
             }
 
             // 3. Kan (Ankan / Kakan)
-            if self.wall.drawable_count > 0 && self.drawn_tile.is_some() {
+            if self.wall.drawable_count > 0
+                && self.drawn_tile.is_some()
+                && self.kan_counts().iter().sum::<usize>() < 4
+            {
                 let mut counts = [0; 34];
                 for &t in &self.players[pid_us].hand {
                     let idx = t as usize / 4;
@@ -225,7 +228,12 @@ impl GameStateLegalActions for GameState {
             // In original GameState, melds was [Vec<Meld>; 4]. so self.melds.iter().all... checked all 4 vectors.
             let no_calls = self.players.iter().all(|p| p.melds.is_empty());
 
-            if self.is_first_turn && no_calls && !self.players[pid_us].riichi_stage {
+            if self.is_first_turn
+                && self.players[pid_us].discards.is_empty()
+                && self.drawn_tile.is_some()
+                && no_calls
+                && !self.players[pid_us].riichi_stage
+            {
                 let mut distinct_terminals = std::collections::HashSet::new();
                 for &t in &self.players[pid_us].hand {
                     if is_terminal_tile(t) {
@@ -309,6 +317,11 @@ impl GameStateLegalActions for GameState {
             }
         }
 
+        // Ron takes priority over an abortive draw; other calls do not.
+        if self.abortive_draw_reason().is_some() {
+            return (legals, missed_agari);
+        }
+
         // 2. Pon / Kan
         if !self.players[i_us].riichi_declared && self.wall.drawable_count > 0 {
             let count = hand.iter().filter(|&&t| t / 4 == tile / 4).count();
@@ -365,7 +378,7 @@ impl GameStateLegalActions for GameState {
                     }
                 }
             }
-            if count >= 3 {
+            if count >= 3 && self.kan_counts().iter().sum::<usize>() < 4 {
                 let consumes: Vec<u8> = hand
                     .iter()
                     .filter(|&&t| t / 4 == tile / 4)
