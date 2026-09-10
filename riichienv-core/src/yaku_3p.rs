@@ -65,24 +65,51 @@ pub fn calculate_yaku_3p(
     let mut best_res = YakuResult::default();
 
     if divisions.is_empty() {
-        if agari::is_kokushi(hand) {
-            let is_13_wait = hand.counts[win_tile as usize] == 2;
+        let kokushi = agari::is_kokushi(hand);
+        let chiitoitsu = agari::is_chiitoitsu(hand);
+        if !kokushi && !chiitoitsu {
+            return best_res;
+        }
+
+        // Special hands can also have Tenhou/Chiihou or all-honors yakuman.
+        // Evaluate those before adding either Kokushi or ordinary seven-pairs yaku.
+        apply_yakuman(
+            &mut best_res,
+            hand,
+            melds,
+            ctx,
+            &Division {
+                head: 0,
+                body: Vec::new(),
+            },
+            None,
+            win_tile,
+        );
+        if kokushi {
+            // The Tenhou yaku has no distinguished winning tile among the initial 14:
+            // use the thirteen-sided interpretation regardless of dealing order.
+            // GameRule still caps this pattern when double yakuman is disabled.
+            let is_13_wait =
+                best_res.yaku_ids.contains(&ID_TENHO) || hand.counts[win_tile as usize] == 2;
             if is_13_wait {
-                best_res.han = 26;
-                best_res.yakuman_count = 2;
+                best_res.han += 26;
+                best_res.yakuman_count += 2;
                 best_res.yaku_ids.push(ID_KOKUSHI_13);
                 best_res
                     .yaku_names
                     .push("Kokushi Musou 13-wait".to_string());
             } else {
-                best_res.han = 13;
-                best_res.yakuman_count = 1;
+                best_res.han += 13;
+                best_res.yakuman_count += 1;
                 best_res.yaku_ids.push(ID_KOKUSHI);
                 best_res.yaku_names.push("Kokushi Musou".to_string());
             }
             return best_res;
         }
-        if agari::is_chiitoitsu(hand) {
+        if chiitoitsu {
+            if best_res.yakuman_count > 0 {
+                return best_res;
+            }
             best_res.han = 2;
             best_res.fu = 25;
             best_res.yaku_ids.push(ID_CHITOITSU);
@@ -108,18 +135,6 @@ pub fn calculate_yaku_3p(
                 best_res.yaku_names.push("Honroutou".to_string());
             }
 
-            apply_yakuman(
-                &mut best_res,
-                hand,
-                melds,
-                ctx,
-                &Division {
-                    head: 0,
-                    body: Vec::new(),
-                },
-                None,
-                win_tile,
-            );
             apply_static_yaku(&mut best_res, ctx);
             return best_res;
         }
