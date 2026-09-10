@@ -255,7 +255,11 @@ pub fn calculate_yaku(hand: &Hand, melds: &[Meld], ctx: &YakuContext, win_tile: 
             win_tile,
         );
         if kokushi {
-            let is_13_wait = hand.counts[win_tile as usize] == 2;
+            // The Tenhou yaku has no distinguished winning tile among the initial 14:
+            // use the thirteen-sided interpretation regardless of dealing order.
+            // GameRule still caps this pattern when double yakuman is disabled.
+            let is_13_wait =
+                best_res.yaku_ids.contains(&ID_TENHO) || hand.counts[win_tile as usize] == 2;
             if is_13_wait {
                 best_res.han += 26;
                 best_res.yakuman_count += 2;

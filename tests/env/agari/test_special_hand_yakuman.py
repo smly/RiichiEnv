@@ -13,8 +13,13 @@ HANDS = {
 }
 
 
-def setup_wall(players, winner, kind, first_turn):
-    hand, winning_tile = HANDS[kind]
+def setup_wall(players, winner, kind, first_turn, winning_tile=None):
+    hand, default_tile = HANDS[kind]
+    if winning_tile is None:
+        winning_tile = default_tile
+    else:
+        hand = hand + [default_tile]
+        hand.remove(winning_tile)
     all_tiles = [t for t in range(136) if players == 4 or t < 4 or t >= 32]
     # 6p indicates 7p, absent from every test hand. Keep it in the dead wall.
     indicator = 56
@@ -79,8 +84,9 @@ def test_special_hand_yakuman_payments(players, preset, winner, kind, first_turn
     units = int(first_turn)
     expected_yaku = [35 if winner == 0 else 36] if first_turn else []
     if kind in ("kokushi", "kokushi_13"):
-        units += 1 + int(kind == "kokushi_13" and preset == "mjsoul")
-        expected_yaku.append(42 if kind == "kokushi" else 49)
+        thirteen_sided = kind == "kokushi_13" or (first_turn and winner == 0)
+        units += 1 + int(thirteen_sided and preset == "mjsoul")
+        expected_yaku.append(49 if thirteen_sided else 42)
     elif kind == "all_honors":
         units += 1
         expected_yaku.append(39)
@@ -100,3 +106,26 @@ def test_special_hand_yakuman_payments(players, preset, winner, kind, first_turn
     deltas[winner] = -sum(deltas)
     assert env.score_deltas == deltas
     assert env.scores() == [100000 + delta for delta in deltas]
+
+
+@pytest.mark.parametrize("players", [3, 4])
+@pytest.mark.parametrize("double_kokushi", [True, False], ids=["double", "single"])
+def test_tenhou_kokushi_score_is_independent_of_initial_deal_order(players, double_kokushi):
+    # Observed Mahjong Soul behavior: https://mj-news.net/column/nemata-quiz/20200516145895
+    # Every choice of the 14th dealt tile must yield the same highest-scoring hand.
+    rule = GameRule.default_mjsoul()
+    rule.is_kokushi_musou_13machi_double = double_kokushi
+    for tile in HANDS["kokushi"][0] + [HANDS["kokushi"][1]]:
+        wall, _, _ = setup_wall(players, 0, "kokushi", True, winning_tile=tile)
+        env = RiichiEnv(f"{players}p-red-single", rule=rule, seed=42)
+        env.reset(wall=wall, oya=0, scores=[100000] * players)
+        assert env.drawn_tile == tile
+        tsumo = next(a for a in env.get_observation(0).legal_actions() if a.action_type == ActionType.TSUMO)
+        env.step({0: tsumo})
+        assert env.is_done
+        result = env.win_results[0]
+        units = 3 if double_kokushi else 2
+        assert result.han == 13 * units
+        assert sorted(result.yaku) == [35, 49]
+        assert result.tsumo_agari_ko == 16000 * units
+        assert env.score_deltas == [16000 * units * (players - 1)] + [-16000 * units] * (players - 1)

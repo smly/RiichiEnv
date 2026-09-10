@@ -55,6 +55,13 @@ macro_rules! special_hand_tests {
                         } else {
                             ID_CHIHO
                         };
+                        // Tenhou uses all 14 initial tiles, so Kokushi is always
+                        // interpreted as thirteen-sided regardless of the last dealt tile.
+                        let (units, id) = if wind == Wind::East {
+                            (2, ID_KOKUSHI_13)
+                        } else {
+                            (units, id)
+                        };
                         assert_yaku(&result, 13 * (units + 1), &[id, heavenly]);
                         assert!(result.yakuman);
                         assert_eq!(result.fu, 0);
@@ -67,6 +74,28 @@ macro_rules! special_hand_tests {
                             assert_eq!(result.tsumo_agari_oya, base * 2 + 200);
                         }
                     }
+                }
+            }
+
+            #[test]
+            fn tenhou_kokushi_is_independent_of_the_designated_winning_tile() {
+                let evaluator = Evaluator::hand_from_text("119m19p19s1234567z").unwrap();
+                for tile in [0, 1, 32, 36, 68, 72, 104, 108, 112, 116, 120, 124, 128, 132] {
+                    let result = evaluator.calc(
+                        tile,
+                        vec![],
+                        vec![],
+                        Some(Conditions {
+                            tsumo: true,
+                            tsumo_first_turn: true,
+                            player_wind: Wind::East,
+                            is_sanma: $players == 3,
+                            num_players: $players,
+                            ..Default::default()
+                        }),
+                    );
+                    assert_yaku(&result, 39, &[ID_TENHO, ID_KOKUSHI_13]);
+                    assert_eq!(result.tsumo_agari_ko, 48000);
                 }
             }
 
