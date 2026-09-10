@@ -881,6 +881,10 @@ impl GameState3P {
                 }
             }
 
+            // Retire this response's offers after recording missed wins and
+            // selecting claims, before a call can open a new response window.
+            self.current_claims.clear();
+
             if !ron_claims.is_empty() {
                 let (target_pid, win_tile) = self.last_discard.unwrap_or((self.current_player, 0));
                 ron_claims.sort_by_key(|&pid| (pid + NP as u8 - target_pid) % NP as u8);
@@ -1195,7 +1199,6 @@ impl GameState3P {
                 }
             } else {
                 // All Pass
-                self.current_claims.clear();
                 self.active_players.clear();
 
                 if let Some((pk_pid, pk_act)) = self.pending_kan.take() {
