@@ -1077,7 +1077,6 @@ impl GameState3P {
                 self._accept_riichi();
                 self.is_rinshan_flag = false;
                 self.is_first_turn = false;
-                self.players[claimer as usize].missed_agari_doujun = false;
 
                 // Discard was called → discarder loses nagashi eligibility
                 if let Some((discarder_pid, _)) = self.last_discard {
@@ -1283,6 +1282,8 @@ impl GameState3P {
             self._push_mjai_event(Value::Object(ev));
         }
 
+        // A player's own discard ends temporary furiten, including after a call.
+        // Other players' calls and discards must not clear this player's furiten.
         self.players[pid as usize].missed_agari_doujun = false;
         self.players[pid as usize].nagashi_eligible &= crate::types::is_terminal_tile(tile);
 
