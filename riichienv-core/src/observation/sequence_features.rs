@@ -814,6 +814,9 @@ impl Observation {
 
     /// Check if discarding this tile would be tsumogiri.
     fn is_tsumogiri_candidate(&self, tile: u8) -> bool {
+        if self.forced_tedashi {
+            return false;
+        }
         if let Some(drawn) = self.get_drawn_tile() {
             drawn == tile
         } else {

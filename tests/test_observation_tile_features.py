@@ -163,7 +163,7 @@ def test_riichi_discard_features_after_separate_declaration(players, preset, tsu
         for observer in range(players):
             obs = env.get_observation(observer)
             assert obs.riichi_sutehais == [tile] + [None] * (players - 1)
-            assert obs.last_tedashis[0] == (None if tsumogiri else tile)
+            assert obs.last_tedashis[0] == (None if tsumogiri and preset == "tenhou" else tile)
             if observer != 0:
                 expected = [tile_types(players).index(tile // 4) / (len(tile_types(players)) - 1), 0.0, 1.0]
                 assert list(memoryview(obs.encode_riichi_sutehais()).cast("f")[:3]) == pytest.approx(expected)

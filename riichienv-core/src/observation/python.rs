@@ -14,7 +14,7 @@ use super::helpers::get_next_tile;
 impl Observation {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (player_id, hands, melds, discards, dora_indicators, scores, riichi_declared, legal_actions, events, honba, riichi_sticks, round_wind, oya, kyoku_index, waits, is_tenpai, riichi_sutehais, last_tedashis, last_discard, drawn_tile=None))]
+    #[pyo3(signature = (player_id, hands, melds, discards, dora_indicators, scores, riichi_declared, legal_actions, events, honba, riichi_sticks, round_wind, oya, kyoku_index, waits, is_tenpai, riichi_sutehais, last_tedashis, last_discard, drawn_tile=None, forced_tedashi=false))]
     pub fn py_new(
         player_id: u8,
         hands: Vec<Vec<u8>>,
@@ -36,6 +36,7 @@ impl Observation {
         last_tedashis: Vec<Option<u8>>,
         last_discard: Option<u32>,
         drawn_tile: Option<u8>,
+        forced_tedashi: bool,
     ) -> Self {
         let hands: [Vec<u8>; 4] = hands.try_into().expect("expected 4 hands");
         let melds: [Vec<Meld>; 4] = melds.try_into().expect("expected 4 melds");
@@ -49,7 +50,7 @@ impl Observation {
             .expect("expected 4 riichi_sutehais");
         let last_tedashis: [Option<u8>; 4] =
             last_tedashis.try_into().expect("expected 4 last_tedashis");
-        Self::new(
+        let mut obs = Self::new(
             player_id,
             hands,
             melds,
@@ -70,7 +71,9 @@ impl Observation {
             last_tedashis,
             last_discard,
             drawn_tile,
-        )
+        );
+        obs.forced_tedashi = forced_tedashi;
+        obs
     }
 
     #[getter]
@@ -124,7 +127,8 @@ impl Observation {
     pub fn select_action_from_mjai(&self, mjai_data: &Bound<'_, PyAny>) -> Option<Action> {
         use super::mjai_select::{parse_mjai_message, select_action};
         let parsed = parse_mjai_message(mjai_data)?;
-        select_action(&self._legal_actions, &parsed, self.drawn_tile, false).cloned()
+        let drawn_tile = self.drawn_tile.filter(|_| !self.forced_tedashi);
+        select_action(&self._legal_actions, &parsed, drawn_tile, false).cloned()
     }
 
     #[pyo3(name = "new_events")]

@@ -53,6 +53,10 @@ pub struct Observation {
     pub last_discard: Option<u32>,
     #[serde(default)]
     pub drawn_tile: Option<u8>,
+    /// Every discard from this initial hand is recorded as tedashi, including
+    /// the drawn tile. Keep drawn_tile available for winning and hand features.
+    #[serde(default)]
+    pub forced_tedashi: bool,
 }
 
 /// Pure Rust methods (no PyO3 dependency).
@@ -107,6 +111,7 @@ impl Observation {
             last_tedashis,
             last_discard,
             drawn_tile,
+            forced_tedashi: false,
         }
     }
 

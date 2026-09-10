@@ -198,7 +198,7 @@ impl GameState3P {
         let scores: [i32; 3] = std::array::from_fn(|i| self.players[i].score);
         let riichi_declared: [bool; 3] = std::array::from_fn(|i| self.players[i].riichi_declared);
 
-        Observation3P::new(
+        let mut obs = Observation3P::new(
             player_id,
             masked_hands,
             melds,
@@ -219,7 +219,9 @@ impl GameState3P {
             self.last_tedashis,
             self.last_discard.map(|(_pid, tile)| tile as u32),
             self.drawn_tile,
-        )
+        );
+        obs.forced_tedashi = self.is_forced_tedashi(player_id);
+        obs
     }
 
     pub fn get_observation_for_replay(
@@ -1223,7 +1225,15 @@ impl GameState3P {
         }
     }
 
+    fn is_forced_tedashi(&self, pid: u8) -> bool {
+        self.rule.dealer_first_discard_is_tedashi
+            && pid == self.oya
+            && self.is_first_turn
+            && self.players[pid as usize].discards.is_empty()
+    }
+
     fn _resolve_discard(&mut self, pid: u8, tile: u8, tsumogiri: bool) {
+        let tsumogiri = tsumogiri && !self.is_forced_tedashi(pid);
         // A normal discard is never chankan, so clear any stale pending_kan
         // to prevent false chankan detection on subsequent ron claims.
         self.pending_kan = None;

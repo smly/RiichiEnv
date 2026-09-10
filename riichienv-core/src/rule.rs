@@ -17,6 +17,11 @@ pub struct GameRule {
     pub sanchaho_is_draw: bool,
 
     pub kuikae_forbidden: bool,
+
+    /// Treat the dealer's uninterrupted initial 14 tiles as hand tiles when
+    /// recording a discard. This does not change the first-draw win context.
+    #[serde(default)]
+    pub dealer_first_discard_is_tedashi: bool,
 }
 
 impl Default for GameRule {
@@ -38,6 +43,7 @@ impl GameRule {
             sanchaho_is_draw: true,
 
             kuikae_forbidden: true,
+            dealer_first_discard_is_tedashi: false,
         }
     }
 
@@ -53,6 +59,7 @@ impl GameRule {
             sanchaho_is_draw: false,
 
             kuikae_forbidden: true,
+            dealer_first_discard_is_tedashi: true,
         }
     }
 }
@@ -61,7 +68,7 @@ impl GameRule {
 #[pymethods]
 impl GameRule {
     #[new]
-    #[pyo3(signature = (allows_ron_on_ankan_for_kokushi_musou=false, is_kokushi_musou_13machi_double=false, is_suuankou_tanki_double=false, is_junsei_chuurenpoutou_double=false, is_daisuushii_double=false, yakuman_pao_is_liability_only=false, sanchaho_is_draw=false, kuikae_forbidden=true))]
+    #[pyo3(signature = (allows_ron_on_ankan_for_kokushi_musou=false, is_kokushi_musou_13machi_double=false, is_suuankou_tanki_double=false, is_junsei_chuurenpoutou_double=false, is_daisuushii_double=false, yakuman_pao_is_liability_only=false, sanchaho_is_draw=false, kuikae_forbidden=true, dealer_first_discard_is_tedashi=false))]
     #[allow(clippy::too_many_arguments)]
     pub fn py_new(
         allows_ron_on_ankan_for_kokushi_musou: bool,
@@ -72,6 +79,7 @@ impl GameRule {
         yakuman_pao_is_liability_only: bool,
         sanchaho_is_draw: bool,
         kuikae_forbidden: bool,
+        dealer_first_discard_is_tedashi: bool,
     ) -> Self {
         Self {
             allows_ron_on_ankan_for_kokushi_musou,
@@ -82,6 +90,7 @@ impl GameRule {
             yakuman_pao_is_liability_only,
             sanchaho_is_draw,
             kuikae_forbidden,
+            dealer_first_discard_is_tedashi,
         }
     }
 
@@ -99,7 +108,7 @@ impl GameRule {
 
     fn __repr__(&self) -> String {
         format!(
-            "GameRule(allows_ron_on_ankan_for_kokushi_musou={}, is_kokushi_musou_13machi_double={}, is_suuankou_tanki_double={}, is_junsei_chuurenpoutou_double={}, is_daisuushii_double={}, yakuman_pao_is_liability_only={}, sanchaho_is_draw={}, kuikae_forbidden={})",
+            "GameRule(allows_ron_on_ankan_for_kokushi_musou={}, is_kokushi_musou_13machi_double={}, is_suuankou_tanki_double={}, is_junsei_chuurenpoutou_double={}, is_daisuushii_double={}, yakuman_pao_is_liability_only={}, sanchaho_is_draw={}, kuikae_forbidden={}, dealer_first_discard_is_tedashi={})",
             self.allows_ron_on_ankan_for_kokushi_musou,
             self.is_kokushi_musou_13machi_double,
             self.is_suuankou_tanki_double,
@@ -107,7 +116,8 @@ impl GameRule {
             self.is_daisuushii_double,
             self.yakuman_pao_is_liability_only,
             self.sanchaho_is_draw,
-            self.kuikae_forbidden
+            self.kuikae_forbidden,
+            self.dealer_first_discard_is_tedashi
         )
     }
 }

@@ -229,7 +229,6 @@ impl GameState {
         let scores: [i32; 4] = std::array::from_fn(|i| self.players[i].score);
         let riichi_declared: [bool; 4] = std::array::from_fn(|i| self.players[i].riichi_declared);
 
-        #[cfg_attr(not(feature = "python"), allow(unused_mut))]
         let mut obs = Observation::new(
             player_id,
             masked_hands,
@@ -252,6 +251,8 @@ impl GameState {
             self.last_discard.map(|(_pid, tile)| tile as u32),
             self.drawn_tile,
         );
+
+        obs.forced_tedashi = self.is_forced_tedashi(player_id);
 
         // Attach pre-computed progression snapshot.
         #[cfg(feature = "python")]
@@ -1314,7 +1315,15 @@ impl GameState {
         }
     }
 
+    fn is_forced_tedashi(&self, pid: u8) -> bool {
+        self.rule.dealer_first_discard_is_tedashi
+            && pid == self.oya
+            && self.is_first_turn
+            && self.players[pid as usize].discards.is_empty()
+    }
+
     fn _resolve_discard(&mut self, pid: u8, tile: u8, tsumogiri: bool) {
+        let tsumogiri = tsumogiri && !self.is_forced_tedashi(pid);
         // After a discard the rinshan context is over. Clearing here ensures
         // that houtei (last-discard win) is correctly detected even when the
         // discard comes after a kan draw.
