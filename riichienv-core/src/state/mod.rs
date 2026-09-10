@@ -338,6 +338,7 @@ impl GameState {
         }
         // Validation
         let np = NP;
+        let mut normalized_kakan = None;
         for pid in 0..np {
             if let Some(act) = actions.get(&(pid as u8)) {
                 let legals = self._get_legal_actions_internal(pid as u8);
@@ -346,15 +347,16 @@ impl GameState {
                         return false;
                     }
 
+                    if act.action_type == ActionType::Kakan {
+                        normalized_kakan = act.resolve_kakan(l);
+                        return normalized_kakan.is_some();
+                    }
+
                     let tiles_match = l.tile == act.tile;
                     let consumes_match = l.consume_tiles == act.consume_tiles;
 
                     if tiles_match {
                         if consumes_match {
-                            return true;
-                        }
-                        // Allow empty consume for Kakan
-                        if act.consume_tiles.is_empty() && l.action_type == ActionType::Kakan {
                             return true;
                         }
                         // Allow empty consume for Discard, Riichi, Tsumo, Ron, Pass
@@ -372,9 +374,7 @@ impl GameState {
                         }
                     }
 
-                    if consumes_match
-                        && matches!(l.action_type, ActionType::Ankan | ActionType::Kakan)
-                    {
+                    if consumes_match && l.action_type == ActionType::Ankan {
                         return true;
                     }
 
@@ -405,6 +405,7 @@ impl GameState {
         if self.phase == Phase::WaitAct {
             let pid = self.current_player;
             if let Some(act) = actions.get(&pid) {
+                let act = normalized_kakan.as_ref().unwrap_or(act);
                 match act.action_type {
                     ActionType::Discard => {
                         if let Some(tile) = act.tile {

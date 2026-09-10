@@ -148,6 +148,22 @@ impl Action {
         Value::Object(data).to_string()
     }
 
+    /// Resolve an abbreviated kakan against a legal candidate. At least the
+    /// added tile or the original pon must identify the kan, and every supplied
+    /// tile field must agree. Execute the complete candidate so its tile and
+    /// consumed tiles stay consistent during chankan checks, meld updates, and logging.
+    pub(crate) fn resolve_kakan(&self, legal: &Self) -> Option<Self> {
+        if self.action_type != ActionType::Kakan
+            || legal.action_type != ActionType::Kakan
+            || (self.tile.is_none() && self.consume_tiles.is_empty())
+            || self.tile.is_some_and(|tile| legal.tile != Some(tile))
+            || (!self.consume_tiles.is_empty() && self.consume_tiles != legal.consume_tiles)
+        {
+            return None;
+        }
+        Some(legal.clone())
+    }
+
     pub fn repr(&self) -> String {
         format!(
             "Action(action_type={:?}, tile={:?}, consume_tiles={:?}, actor={:?})",
