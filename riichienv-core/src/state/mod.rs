@@ -249,7 +249,7 @@ impl GameState {
             is_tenpai,
             self.riichi_sutehais,
             self.last_tedashis,
-            self.last_discard.map(|(tile, _pid)| tile as u32),
+            self.last_discard.map(|(_pid, tile)| tile as u32),
             self.drawn_tile,
         );
 
@@ -462,12 +462,6 @@ impl GameState {
                                     && dt == t
                                 {
                                     tsumogiri = true;
-                                }
-                                // Record riichi sutehai (riichi discard tile)
-                                self.riichi_sutehais[pid as usize] = Some(t);
-                                // Record last tedashi if not tsumogiri
-                                if !tsumogiri {
-                                    self.last_tedashis[pid as usize] = Some(t);
                                 }
                                 if let Some(idx) =
                                     self.players[pid as usize].hand.iter().position(|&x| x == t)
@@ -1350,6 +1344,7 @@ impl GameState {
         self.needs_tsumo = true;
 
         if self.players[pid as usize].riichi_stage {
+            self.riichi_sutehais[pid as usize] = Some(tile);
             self.players[pid as usize].riichi_declared = true;
             if self.is_first_turn {
                 self.players[pid as usize].double_riichi_declared = true;

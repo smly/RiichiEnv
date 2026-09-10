@@ -515,16 +515,16 @@ impl Observation3P {
                 },
             );
 
-            let dora_tiles: Vec<u8> = self
+            let dora_types: Vec<u8> = self
                 .dora_indicators
                 .iter()
-                .map(|&ind| self.dora_next(ind))
+                .map(|&ind| self.dora_next(ind) / 4)
                 .collect();
             broadcast_scalar(
                 buf,
                 ch_offset,
                 2,
-                if dora_tiles.contains(&(tile as u8)) {
+                if dora_types.contains(&((tile / 4) as u8)) {
                     1.0
                 } else {
                     0.0
@@ -536,10 +536,10 @@ impl Observation3P {
     /// Write 6 last tedashis channels (broadcast) into buf starting at ch_offset.
     /// 2 opponents x 3 features = 6 channels.
     pub(crate) fn encode_last_ted_into(&self, buf: &mut [f32], ch_offset: usize) {
-        let dora_tiles: Vec<u8> = self
+        let dora_types: Vec<u8> = self
             .dora_indicators
             .iter()
-            .map(|&ind| self.dora_next(ind))
+            .map(|&ind| self.dora_next(ind) / 4)
             .collect();
 
         let mut opp_idx = 0;
@@ -566,7 +566,11 @@ impl Observation3P {
                     buf,
                     ch_offset,
                     opp_idx * 3 + 2,
-                    if dora_tiles.contains(&tile) { 1.0 } else { 0.0 },
+                    if dora_types.contains(&(tile / 4)) {
+                        1.0
+                    } else {
+                        0.0
+                    },
                 );
             }
             opp_idx += 1;
@@ -576,10 +580,10 @@ impl Observation3P {
     /// Write 6 riichi sutehais channels (broadcast) into buf starting at ch_offset.
     /// 2 opponents x 3 features = 6 channels.
     pub(crate) fn encode_riichi_sute_into(&self, buf: &mut [f32], ch_offset: usize) {
-        let dora_tiles: Vec<u8> = self
+        let dora_types: Vec<u8> = self
             .dora_indicators
             .iter()
-            .map(|&ind| self.dora_next(ind))
+            .map(|&ind| self.dora_next(ind) / 4)
             .collect();
 
         let mut opp_idx = 0;
@@ -606,7 +610,11 @@ impl Observation3P {
                     buf,
                     ch_offset,
                     opp_idx * 3 + 2,
-                    if dora_tiles.contains(&tile) { 1.0 } else { 0.0 },
+                    if dora_types.contains(&(tile / 4)) {
+                        1.0
+                    } else {
+                        0.0
+                    },
                 );
             }
             opp_idx += 1;
@@ -788,5 +796,69 @@ mod tests {
                 pid
             );
         }
+    }
+
+    #[test]
+    fn test_discard_feature_dora_copies() {
+        // Indicator -> dora physical IDs, including suit/honor wraparound.
+        let pairs = [
+            (0, 32),
+            (32, 0),
+            (48, 52),
+            (68, 36),
+            (84, 88),
+            (104, 72),
+            (120, 108),
+            (132, 124),
+        ];
+        for (indicator, dora) in pairs {
+            for copy in 0..4 {
+                for (tile, is_dora) in [(dora + copy, 1.0), (indicator + copy, 0.0)] {
+                    let mut obs = make_obs(1, Default::default(), empty_melds());
+                    obs.dora_indicators = vec![indicator as u32 + copy as u32];
+                    obs.last_discard = Some(tile as u32);
+                    obs.last_tedashis[0] = Some(tile);
+                    obs.riichi_sutehais[0] = Some(tile);
+                    let aka = if matches!(tile, 16 | 52 | 88) {
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    // Use the public extended layout offsets; unfilled opponents stay zero.
+                    let mut buf = vec![0.0; 215 * TILE_DIM_3P];
+                    obs.encode_pass_ctx_into(&mut buf, 194);
+                    obs.encode_last_ted_into(&mut buf, 197);
+                    obs.encode_riichi_sute_into(&mut buf, 206);
+                    for start in [194, 197, 206] {
+                        for column in 0..TILE_DIM_3P {
+                            assert_eq!(buf[(start + 1) * TILE_DIM_3P + column], aka);
+                            assert_eq!(
+                                buf[(start + 2) * TILE_DIM_3P + column],
+                                is_dora,
+                                "indicator={indicator}, tile={tile}, channel={start}"
+                            );
+                        }
+                    }
+                    for start in [200, 209] {
+                        assert!(
+                            buf[start * TILE_DIM_3P..(start + 6) * TILE_DIM_3P]
+                                .iter()
+                                .all(|&v| v == 0.0)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_missing_discard_features_stay_zero() {
+        let mut obs = make_obs(1, Default::default(), empty_melds());
+        obs.dora_indicators = vec![48];
+        let mut buf = vec![0.0; 215 * TILE_DIM_3P];
+        obs.encode_pass_ctx_into(&mut buf, 194);
+        obs.encode_last_ted_into(&mut buf, 197);
+        obs.encode_riichi_sute_into(&mut buf, 206);
+        assert!(buf.iter().all(|&v| v == 0.0));
     }
 }

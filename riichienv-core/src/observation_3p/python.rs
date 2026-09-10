@@ -940,10 +940,10 @@ impl Observation3P {
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
         let mut arr = Array2::<f32>::zeros((NP - 1, 3));
 
-        let dora_tiles: Vec<u8> = self
+        let dora_types: Vec<u8> = self
             .dora_indicators
             .iter()
-            .map(|&indicator| get_next_tile_sanma(indicator))
+            .map(|&indicator| get_next_tile_sanma(indicator) / 4)
             .collect();
 
         let mut opponent_idx = 0;
@@ -959,7 +959,7 @@ impl Observation3P {
                 }
                 let is_aka = matches!(tile, 16 | 52 | 88);
                 arr[[opponent_idx, 1]] = if is_aka { 1.0 } else { 0.0 };
-                let is_dora = dora_tiles.contains(&tile);
+                let is_dora = dora_types.contains(&(tile / 4));
                 arr[[opponent_idx, 2]] = if is_dora { 1.0 } else { 0.0 };
             }
 
@@ -984,10 +984,10 @@ impl Observation3P {
     ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
         let mut arr = Array2::<f32>::zeros((NP - 1, 3));
 
-        let dora_tiles: Vec<u8> = self
+        let dora_types: Vec<u8> = self
             .dora_indicators
             .iter()
-            .map(|&indicator| get_next_tile_sanma(indicator))
+            .map(|&indicator| get_next_tile_sanma(indicator) / 4)
             .collect();
 
         let mut opponent_idx = 0;
@@ -1003,7 +1003,7 @@ impl Observation3P {
                 }
                 let is_aka = matches!(tile, 16 | 52 | 88);
                 arr[[opponent_idx, 1]] = if is_aka { 1.0 } else { 0.0 };
-                let is_dora = dora_tiles.contains(&tile);
+                let is_dora = dora_types.contains(&(tile / 4));
                 arr[[opponent_idx, 2]] = if is_dora { 1.0 } else { 0.0 };
             }
 
@@ -1035,12 +1035,12 @@ impl Observation3P {
             }
             let is_aka = matches!(tile, 16 | 52 | 88);
             arr[1] = if is_aka { 1.0 } else { 0.0 };
-            let dora_tiles: Vec<u8> = self
+            let dora_types: Vec<u8> = self
                 .dora_indicators
                 .iter()
-                .map(|&indicator| get_next_tile_sanma(indicator))
+                .map(|&indicator| get_next_tile_sanma(indicator) / 4)
                 .collect();
-            let is_dora = dora_tiles.contains(&(tile as u8));
+            let is_dora = dora_types.contains(&((tile / 4) as u8));
             arr[2] = if is_dora { 1.0 } else { 0.0 };
         }
 
