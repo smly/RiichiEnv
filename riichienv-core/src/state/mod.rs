@@ -943,6 +943,10 @@ impl GameState {
                 }
             }
 
+            // Retire this response's offers after recording missed wins and
+            // selecting claims, before a call can open a new response window.
+            self.current_claims.clear();
+
             if !ron_claims.is_empty() {
                 // Sanchaho: all non-discarders ron → abortive draw
                 if ron_claims.len() >= NP - 1 && self.rule.sanchaho_is_draw {
@@ -1296,7 +1300,6 @@ impl GameState {
                 }
             } else {
                 // All Pass
-                self.current_claims.clear();
                 self.active_players.clear();
 
                 if let Some((pk_pid, pk_act)) = self.pending_kan.take() {
