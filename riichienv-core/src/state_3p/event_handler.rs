@@ -397,11 +397,7 @@ impl GameState3PEventHandler for GameState3P {
             } => {
                 let s = *seat;
                 let t = *tile;
-                let is_tsumogiri = if let Some(dt) = self.drawn_tile {
-                    dt == t
-                } else {
-                    false
-                };
+                let is_tsumogiri = self.drawn_tile == Some(t) && !self.is_forced_tedashi(s as u8);
 
                 if let Some(idx) = self.players[s].hand.iter().position(|&x| x == t) {
                     self.players[s].hand.remove(idx);

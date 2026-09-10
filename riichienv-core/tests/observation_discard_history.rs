@@ -89,9 +89,88 @@ macro_rules! discard_history_tests {
                     }
                 }
             }
+
+            #[test]
+            fn log_dealer_initial_discard_obeys_configured_convention() {
+                for preset in [GameRule::default_tenhou(), GameRule::default_mjsoul()] {
+                    for dealer in 0..$np {
+                        for forced in [false, true] {
+                            for interrupted in [false, true] {
+                                let mut rule = preset;
+                                rule.dealer_first_discard_is_tedashi = forced;
+                                let mut state = State::new($mode, false, Some(42), 0, rule);
+                                state._initialize_round(dealer, 0, 0, 0, None, None);
+                                // Calls interrupt first-turn status even without a discard.
+                                state.is_first_turn = !interrupted;
+                                let tile = state.drawn_tile.unwrap();
+                                let tedashi = forced && !interrupted;
+                                assert_eq!(state.get_observation(dealer).forced_tedashi, tedashi);
+                                for observer in 0..$np {
+                                    if observer != dealer {
+                                        assert!(!state.get_observation(observer).forced_tedashi);
+                                    }
+                                }
+                                state.apply_log_action(&LogAction::DiscardTile {
+                                    seat: dealer as usize,
+                                    tile,
+                                    is_liqi: false,
+                                    is_wliqi: false,
+                                    doras: None,
+                                });
+                                assert_eq!(
+                                    state.players[dealer as usize].discard_from_hand,
+                                    vec![tedashi]
+                                );
+                                assert!(state.drawn_tile.is_none());
+                                for observer in 0..$np {
+                                    let obs = state.get_observation(observer);
+                                    assert_eq!(
+                                        obs.last_tedashis[dealer as usize],
+                                        tedashi.then_some(tile)
+                                    );
+                                    assert!(!obs.forced_tedashi);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            #[test]
+            fn explicit_mjai_initial_discard_metadata_is_preserved() {
+                for tsumogiri in [false, true] {
+                    let mut state = setup();
+                    state.apply_mjai_event(MjaiEvent::Tsumo {
+                        actor: 0,
+                        pai: "S".into(),
+                    });
+                    state.apply_mjai_event(MjaiEvent::Dahai {
+                        actor: 0,
+                        pai: "S".into(),
+                        tsumogiri,
+                    });
+                    assert_eq!(state.last_tedashis[0], (!tsumogiri).then_some(112));
+                }
+            }
         }
     };
 }
 
 discard_history_tests!(four_player, riichienv_core::state::GameState, 0, 4);
 discard_history_tests!(three_player, riichienv_core::state_3p::GameState3P, 3, 3);
+
+#[test]
+fn old_serialized_rules_keep_the_previous_discard_convention() {
+    for rule in [GameRule::default_tenhou(), GameRule::default_mjsoul()] {
+        let mut data = serde_json::to_value(rule).unwrap();
+        assert_eq!(
+            serde_json::from_value::<GameRule>(data.clone()).unwrap(),
+            rule
+        );
+        data.as_object_mut()
+            .unwrap()
+            .remove("dealer_first_discard_is_tedashi");
+        let restored: GameRule = serde_json::from_value(data).unwrap();
+        assert!(!restored.dealer_first_discard_is_tedashi);
+    }
+}

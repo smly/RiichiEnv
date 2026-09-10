@@ -38,6 +38,12 @@ Controls whether players are forbidden from discarding a tile that completes the
 |------|-------------|
 | `.kuikae_forbidden` | When `True`, kuikae is forbidden: after Chi/Pon, the called tile and flank tiles cannot be discarded. When `False`, no kuikae restriction applies. |
 
+## Dealer's Initial Discard Metadata
+
+`dealer_first_discard_is_tedashi` records any discard from the dealer's uninterrupted initial 14 tiles as tedashi (`tsumogiri=false`). It is enabled by `GameRule.default_mjsoul()` to match Mahjong Soul logs in both 3P and 4P. The Tenhou preset and custom constructor keep the previous behavior by default (`false`).
+
+An initial kan or kita ends this convention; discarding its replacement tile can be tsumogiri. The initial drawn tile remains available for Tenhou (heavenly hand) scoring. Observations expose `forced_tedashi` so action encoders can follow the same convention without removing the drawn-tile information. Explicit tsumogiri flags in imported MJAI events are preserved.
+
 ## Kokushi Musou Rules
 
 | Flag | Description |

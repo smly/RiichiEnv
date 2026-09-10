@@ -15,6 +15,7 @@ class GameRule:
     yakuman_pao_is_liability_only: bool
     sanchaho_is_draw: bool
     kuikae_forbidden: bool
+    dealer_first_discard_is_tedashi: bool
     def __init__(
         self,
         allows_ron_on_ankan_for_kokushi_musou: bool = False,
@@ -25,6 +26,7 @@ class GameRule:
         yakuman_pao_is_liability_only: bool = False,
         sanchaho_is_draw: bool = False,
         kuikae_forbidden: bool = True,
+        dealer_first_discard_is_tedashi: bool = False,
     ) -> None: ...
     @staticmethod
     def default_tenhou() -> GameRule: ...
@@ -232,6 +234,7 @@ class Observation:
     hand: list[int]
     player_id: int
     prev_events_size: int
+    forced_tedashi: bool
     def new_events(self) -> list[str]:
         """Return MJAI JSON events unseen by this player since their previous observation.
 
@@ -502,6 +505,7 @@ class Observation3P:
     waits: list[int]
     is_tenpai: bool
     tsumogiri_flags: list[list[bool]]
+    forced_tedashi: bool
     riichi_sutehais: list[int | None]
     last_tedashis: list[int | None]
     last_discard: int | None
