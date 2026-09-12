@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
+const notices = fs.readFileSync(path.join(__dirname, '..', '..', 'THIRD_PARTY_NOTICES.md'), 'utf8');
 const assetDir = path.join(__dirname, '..', 'assets', 'tile-art');
 const atlas = fs.readFileSync(path.join(assetDir, 'tiles.png'));
 const { tileWidth, tileHeight, rows } = JSON.parse(
@@ -16,7 +17,8 @@ const positions = rows.flatMap((row, y) => row.flatMap((id, x) => id ? [[id, [x,
 for (const suit of ['m', 'p', 's']) {
     positions.push([`0${suit}`, positions.find(([id]) => id === `5${suit}r`)[1]]);
 }
-const output = `export const TILE_SPRITE_URL = 'data:image/png;base64,${atlas.toString('base64')}';
+const output = `/*!\n${notices}*/
+export const TILE_SPRITE_URL = 'data:image/png;base64,${atlas.toString('base64')}';
 export const TILE_COLUMNS = ${columns};
 export const TILE_ROWS = ${rows.length};
 export const TILE_POSITIONS = new Map<string, readonly [number, number]>(${JSON.stringify(positions)});
