@@ -1,3 +1,5 @@
+export type { Locale } from './i18n/index';
+
 import { LiveViewer } from './live_viewer';
 import { RiichiViewer } from './riichi_viewer';
 import { Viewer } from './viewer';

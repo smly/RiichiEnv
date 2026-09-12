@@ -1,7 +1,9 @@
+import { computeKyokuSummaries } from './analyzer';
 import { createGameConfig3P, createGameConfig4P, detectPlayerCount, type GameConfig } from './config';
 import { COLORS } from './constants';
 import { ReplayController } from './controller';
 import { GameState } from './game_state';
+import { I18n, isLocale, type Locale } from './i18n/index';
 import {
     ICON_ARROW_LEFT,
     ICON_ARROW_RIGHT,
@@ -12,7 +14,11 @@ import {
     ICON_EYE,
     ICON_PLAY_PAUSE,
 } from './icons';
+import { DEFAULT_DISPLAY_OPTIONS, type DisplayOptions } from './renderers/board_presentation';
 import type { IRenderer } from './renderers/renderer_interface';
+import { createRoundSelector } from './renderers/round_selector';
+import { createSettingsModal } from './renderers/settings_modal';
+import { loadReplayFile, loadReplayUrl } from './replay_loader';
 import type { MjaiEvent, PlayerConfig } from './types';
 import { initWasm } from './wasm/loader';
 
@@ -31,6 +37,7 @@ export interface BaseViewerInit {
  * Subclasses implement getLayoutInfo() and createRenderer() to configure the specific renderer.
  */
 export abstract class BaseViewer {
+    readonly i18n = new I18n();
     gameState: GameState;
     renderer: IRenderer;
     container: HTMLElement;
@@ -44,6 +51,14 @@ export abstract class BaseViewer {
     private _resizeObserver: ResizeObserver | null = null;
     private _windowResizeHandler: (() => void) | null = null;
     private _destroyed = false;
+    private settingsLoad: AbortController | null = null;
+    private displayOptions: DisplayOptions = { ...DEFAULT_DISPLAY_OPTIONS };
+    private replayDock: HTMLElement | null = null;
+    private replaySeek: HTMLInputElement | null = null;
+    private replayPosition: HTMLElement | null = null;
+    private replayRound: HTMLButtonElement | null = null;
+    private replayPrevious: HTMLButtonElement | null = null;
+    private replayNext: HTMLButtonElement | null = null;
 
     /** Callback invoked after any navigation action changes position. */
     onPositionChange: (() => void) | null = null;
@@ -65,6 +80,7 @@ export abstract class BaseViewer {
         container.innerHTML = '';
         Object.assign(container.style, {
             display: 'block',
+            position: 'relative',
             maxWidth: '100%',
             overflow: 'hidden',
             backgroundColor: '#000',
@@ -88,6 +104,7 @@ export abstract class BaseViewer {
         container.appendChild(scrollContainer);
 
         const scaleWrapper = document.createElement('div');
+        scaleWrapper.className = 'viewer-stage';
         Object.assign(scaleWrapper.style, {
             position: 'relative',
             overflow: 'hidden',
@@ -133,23 +150,9 @@ export abstract class BaseViewer {
         // Create sidebar
         const rightSidebar = document.createElement('div');
         if (layoutInfo.sidebarStyle === 'grid') {
-            Object.assign(rightSidebar.style, {
-                position: 'absolute',
-                bottom: '20%',
-                right: '20%',
-                backgroundColor: 'rgba(0,0,0,0.65)',
-                display: 'grid',
-                gridTemplateColumns: 'auto repeat(2, auto)',
-                gap: '6px',
-                padding: '8px',
-                alignItems: 'center',
-                justifyItems: 'center',
-                flexShrink: '0',
-                zIndex: '500',
-                borderRadius: '10px',
-                backdropFilter: 'blur(4px)',
-            });
-            viewArea.appendChild(rightSidebar);
+            rightSidebar.className = 'replay-dock';
+            this.replayDock = rightSidebar;
+            container.appendChild(rightSidebar);
         } else {
             Object.assign(rightSidebar.style, {
                 width: '40px',
@@ -217,10 +220,14 @@ export abstract class BaseViewer {
         return pc === 3 ? createGameConfig3P() : createGameConfig4P();
     }
 
-    private createBtn(_id: string, svgContent: string, tooltip: string): HTMLDivElement {
-        const btn = document.createElement('div');
+    private createBtn(_id: string, svgContent: string, tooltip: string): HTMLButtonElement {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.i18nLabel = tooltip;
+        btn.setAttribute('aria-label', this.i18n.text(tooltip));
         btn.className = 'icon-btn';
-        btn.title = tooltip;
+        btn.title = this.i18n.text(tooltip);
+        btn.dataset.control = _id;
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', '0 0 24 24');
@@ -256,13 +263,18 @@ export abstract class BaseViewer {
             fontFamily: 'sans-serif',
             lineHeight: '1',
         });
-        lbl.textContent = label;
+        lbl.dataset.i18n = label;
+        lbl.textContent = this.i18n.text(label);
         wrapper.appendChild(lbl);
 
         return wrapper;
     }
 
     private setupControls(rightSidebar: HTMLElement) {
+        if (this.replayDock && !this.isFrozen) {
+            this.setupReplayDock(rightSidebar);
+            return;
+        }
         if (!this.isFrozen) {
             // Left options box (Debug + Auto)
             const optionsBox = document.createElement('div');
@@ -310,7 +322,8 @@ export abstract class BaseViewer {
                     whiteSpace: 'nowrap',
                     paddingRight: '4px',
                 });
-                lbl.textContent = text;
+                lbl.dataset.i18n = text;
+                lbl.textContent = this.i18n.text(text);
                 return lbl;
             };
 
@@ -349,6 +362,107 @@ export abstract class BaseViewer {
         }
     }
 
+    /** Keep the same two-row replay controls on the table at every size. */
+    private setupReplayDock(dock: HTMLElement) {
+        this.controller = new ReplayController(this);
+        dock.setAttribute('role', 'group');
+        dock.dataset.i18nLabel = 'Replay controls';
+        dock.setAttribute('aria-label', this.i18n.text('Replay controls'));
+        const timeline = document.createElement('div');
+        timeline.className = 'replay-timeline';
+        const round = this.createBtn('round', ICON_CHEVRON_DOUBLE_RIGHT, 'Jump to round');
+        round.classList.add('replay-round');
+        round.style.width = 'auto';
+        round.style.fontSize = '13px';
+        round.onclick = () => this.showRoundSelector();
+        this.replayRound = round;
+        const seek = document.createElement('input');
+        seek.type = 'range';
+        seek.min = this.log.length ? '1' : '0';
+        seek.step = '1';
+        seek.dataset.i18nLabel = 'Replay position';
+        seek.setAttribute('aria-label', this.i18n.text('Replay position'));
+        seek.oninput = () => this.controller.seekTo(Number(seek.value));
+        this.replaySeek = seek;
+        const position = document.createElement('span');
+        position.className = 'replay-position';
+        this.replayPosition = position;
+        timeline.append(round, seek, position);
+        dock.appendChild(timeline);
+
+        const actions = document.createElement('div');
+        actions.className = 'replay-actions';
+        const group = (label?: string) => {
+            const el = document.createElement('div');
+            el.className = 'replay-group';
+            if (label) {
+                const text = document.createElement('span');
+                text.className = 'replay-group-label';
+                text.dataset.i18n = label;
+                text.textContent = this.i18n.text(label);
+                el.appendChild(text);
+            }
+            actions.appendChild(el);
+            return el;
+        };
+        const playback = group();
+        playback.classList.add('replay-playback');
+        const previous = this.createBtn('previous', ICON_CHEVRON_LEFT, 'Previous step (←)');
+        previous.onclick = () => this.controller.stepBackward();
+        this.replayPrevious = previous;
+        const play = this.createBtn('play', ICON_PLAY_PAUSE, 'Play / pause (Space)');
+        play.classList.add('replay-play');
+        play.setAttribute('aria-pressed', 'false');
+        play.onclick = () => this.controller.toggleAutoPlay(play);
+        const next = this.createBtn('next', ICON_CHEVRON_RIGHT, 'Next step (→)');
+        next.onclick = () => this.controller.stepForward();
+        this.replayNext = next;
+        playback.append(play, previous, next);
+
+        const turns = group('Turn');
+        const previousTurn = this.createBtn('previous-turn', ICON_ARROW_LEFT, 'Previous turn (↑)');
+        previousTurn.onclick = () => this.controller.prevTurn();
+        const nextTurn = this.createBtn('next-turn', ICON_ARROW_RIGHT, 'Next turn (↓)');
+        nextTurn.onclick = () => this.controller.nextTurn();
+        turns.append(previousTurn, nextTurn);
+        const rounds = group('Round');
+        const previousRound = this.createBtn('previous-round', ICON_CHEVRON_DOUBLE_LEFT, 'Previous round');
+        previousRound.onclick = () => this.controller.prevKyoku();
+        const nextRound = this.createBtn('next-round', ICON_CHEVRON_DOUBLE_RIGHT, 'Next round');
+        nextRound.onclick = () => this.controller.nextKyoku();
+        rounds.append(previousRound, nextRound);
+
+        const options = group();
+        options.classList.add('replay-options');
+        const speed = document.createElement('select');
+        speed.dataset.i18nLabel = 'Playback speed';
+        speed.setAttribute('aria-label', this.i18n.text('Playback speed'));
+        for (const value of [0.5, 1, 2, 4]) {
+            const option = document.createElement('option');
+            option.value = String(value);
+            option.textContent = `${value}×`;
+            option.selected = value === 1;
+            speed.appendChild(option);
+        }
+        speed.onchange = () => {
+            this.controller.playbackSpeed = Number(speed.value);
+        };
+        const debug = this.createBtn('debug', ICON_EYE, 'Show event details');
+        debug.setAttribute('aria-pressed', 'false');
+        debug.onclick = () => this.controller.toggleLog(debug, this.debugPanel);
+        options.append(speed, debug);
+        // Keep the same two rows, including keyboard order, at every viewer size.
+        actions.append(turns, rounds, playback, options);
+        dock.appendChild(actions);
+        this.controller.setupKeyboardControls(this.container, play);
+        this.controller.setupWheelControls(this.viewArea);
+        this.viewArea.addEventListener('click', (e) => {
+            if (e.target instanceof Element && !e.target.closest('button, input, select, .re-modal-overlay')) {
+                this.viewArea.focus({ preventScroll: true });
+            }
+        });
+    }
+
     private setupInitialSeek(initialStep?: number) {
         if (typeof initialStep === 'number') {
             this.gameState.jumpTo(initialStep);
@@ -358,12 +472,23 @@ export abstract class BaseViewer {
 
     private setupResize(baseW: number, baseH: number, scaleWrapper: HTMLElement, contentWrapper: HTMLElement) {
         const doResize = (availableW: number) => {
-            const availableH = window.innerHeight;
             if (availableW === 0) return;
-            const scale = Math.min(availableW / baseW, availableH / baseH, 1.0);
+            // Account for page content above the viewer, not just viewport height.
+            const viewportH = this.replayDock
+                ? Math.max(1, window.innerHeight - Math.max(0, this.container.getBoundingClientRect().top))
+                : Math.max(180, window.innerHeight);
+            const scale = Math.min(availableW / baseW, viewportH / baseH, 1.0);
+            this.replayDock?.classList.add('is-floating');
             contentWrapper.style.transform = `scale(${scale})`;
             scaleWrapper.style.width = `${Math.floor(baseW * scale)}px`;
             scaleWrapper.style.height = `${Math.floor(baseH * scale)}px`;
+            if (this.replayDock) {
+                const dock = this.replayDock;
+                const rightInset = 232;
+                dock.style.left = `${(availableW - baseW * scale) / 2 + (baseW - rightInset - dock.offsetWidth) * scale}px`;
+                dock.style.top = `${(baseH - 246 - dock.offsetHeight) * scale}px`;
+                dock.style.transform = `scale(${scale})`;
+            }
         };
 
         this._resizeObserver = new ResizeObserver((entries) => {
@@ -378,6 +503,9 @@ export abstract class BaseViewer {
     }
 
     private setupRendererCallbacks() {
+        this.renderer.i18n = this.i18n;
+        this.container.lang = this.i18n.locale;
+        this.renderer.onSettingsClick = () => this.showSettings();
         if (!this.isFrozen) {
             this.renderer.onViewpointChange = (pIdx: number) => {
                 if (this.renderer.viewpoint !== pIdx) {
@@ -392,75 +520,141 @@ export abstract class BaseViewer {
         }
     }
 
+    private showSettings() {
+        if (this.container.querySelector('.re-settings-overlay')) return;
+        this.controller?.stopAutoPlay();
+        const overlay = createSettingsModal(
+            () => {
+                this.settingsLoad?.abort();
+                overlay.remove();
+                this.container
+                    .querySelector<HTMLButtonElement>('.viewer-settings-button')
+                    ?.focus({ preventScroll: true });
+            },
+            this.i18n,
+            (locale) => this.setLanguage(locale),
+            (url) => this.loadSettingsReplay(url),
+            (file) => this.loadSettingsReplay(file),
+            this.displayOptions,
+            (options) => {
+                this.displayOptions = options;
+                this.updateImmediate();
+            },
+        );
+        this.container.appendChild(overlay);
+        overlay.querySelector<HTMLButtonElement>('.settings-close')?.focus({ preventScroll: true });
+    }
+
+    private async loadSettingsReplay(source: string | File) {
+        this.settingsLoad?.abort();
+        const request = new AbortController();
+        this.settingsLoad = request;
+        const timeout = window.setTimeout(() => request.abort(), 30000);
+        try {
+            const events = await (typeof source === 'string'
+                ? loadReplayUrl(source, request.signal)
+                : loadReplayFile(source, request.signal));
+            if (request.signal.aborted || this._destroyed) return;
+            this.replaceReplay(events);
+        } finally {
+            window.clearTimeout(timeout);
+            if (this.settingsLoad === request) this.settingsLoad = null;
+        }
+    }
+
+    private replaceReplay(events: MjaiEvent[]) {
+        const pc = detectPlayerCount(events);
+        const config = pc === 3 ? createGameConfig3P() : createGameConfig4P();
+        // Construct before replacing the live replay so a failed load keeps it intact.
+        const next = new GameState(events, config);
+        this.controller?.stopAutoPlay();
+        if (pc !== this.gameState.config.playerCount) {
+            this.viewArea.querySelector('.scene-3d')?.remove();
+            this.renderer = this.createRenderer(this.viewArea, config, events);
+            this.setupRendererCallbacks();
+        }
+        this.viewArea.querySelectorAll('.re-modal-overlay').forEach((modal) => modal.remove());
+        this.gameState = next;
+        this.log = events;
+        this.renderer.viewpoint = 0;
+        this.updateImmediate();
+        this.onPositionChange?.();
+        this.onViewpointChangeCallback?.(0);
+    }
+
+    setLanguage(locale: Locale) {
+        if (!isLocale(locale)) throw new Error(`Unsupported language: ${locale}`);
+        this.i18n.locale = locale;
+        this.container.lang = locale;
+        this.i18n.apply(this.container);
+        this.container.querySelectorAll<HTMLSelectElement>('.settings-language').forEach((select) => {
+            select.value = locale;
+        });
+        const roundSelectorOpen = !!this.container.querySelector('.re-round-selector');
+        if (roundSelectorOpen) this.container.querySelector('.re-round-selector')?.remove();
+        this.updateImmediate();
+        if (roundSelectorOpen) this.showRoundSelector();
+    }
+
     showRoundSelector() {
+        if (this.container.querySelector('.re-round-selector')) return;
+        this.controller?.stopAutoPlay();
+        const opener = document.activeElement as HTMLElement | null;
         const pc = this.gameState.config.playerCount;
 
         const overlay = document.createElement('div');
-        overlay.className = 're-modal-overlay';
-        overlay.onclick = () => overlay.remove();
+        overlay.className = 're-modal-overlay re-round-selector';
+        const close = () => {
+            overlay.remove();
+            opener?.focus({ preventScroll: true });
+        };
+        overlay.onclick = close;
+        // Let the table scroll without triggering the replay's wheel shortcuts.
+        overlay.onwheel = (event) => event.stopPropagation();
 
-        const content = document.createElement('div');
-        content.className = 're-modal-content';
-        content.onclick = (e) => e.stopPropagation();
-
-        const title = document.createElement('h3');
-        title.textContent = 'Jump to Round';
-        title.className = 're-modal-title';
-        title.style.marginTop = '0';
-        content.appendChild(title);
-
-        const table = document.createElement('table');
-        table.className = 're-kyoku-table';
-
-        const thead = document.createElement('thead');
-        const headerRow = document.createElement('tr');
-        const state = this.gameState.getState();
-        for (const label of ['Round', 'Honba']) {
-            const th = document.createElement('th');
-            th.textContent = label;
-            headerRow.appendChild(th);
-        }
-        for (let i = 0; i < pc; i++) {
-            const th = document.createElement('th');
-            th.textContent = state.playerNames?.[i] || `P${i}`;
-            headerRow.appendChild(th);
-        }
-        thead.appendChild(headerRow);
-        table.appendChild(thead);
-
-        const tbody = document.createElement('tbody');
-        const kyokus = this.gameState.kyokus;
-
-        kyokus.forEach((k, idx) => {
-            const tr = document.createElement('tr');
-            tr.onclick = () => {
-                this.gameState.jumpToKyoku(idx);
+        const currentIndex = this.gameState.kyokus.reduce(
+            (current, k, i) => (k.index < this.gameState.cursor ? i : current),
+            0,
+        );
+        const content = createRoundSelector({
+            i18n: this.i18n,
+            summaries: computeKyokuSummaries(this.gameState),
+            names: this.gameState.getState().playerNames,
+            playerCount: pc,
+            currentIndex,
+            onClose: close,
+            onSelect: (index) => {
+                this.gameState.jumpToKyoku(index);
                 this.update();
-                overlay.remove();
-            };
-
-            const winds = this.gameState.config.winds;
-            const w = winds[Math.floor(k.round / pc)] || winds[0];
-            const rNum = (k.round % pc) + 1;
-            const roundStr = `${w}${rNum}`;
-
-            let scoresCells = '';
-            for (let i = 0; i < pc; i++) {
-                scoresCells += `<td>${k.scores[i] ?? '-'}</td>`;
-            }
-
-            tr.innerHTML = `
-                <td>${roundStr}</td>
-                <td>${k.honba}</td>
-                ${scoresCells}
-            `;
-            tbody.appendChild(tr);
+                this.onPositionChange?.();
+                close();
+            },
         });
-        table.appendChild(tbody);
-        content.appendChild(table);
+        content.onclick = (e) => e.stopPropagation();
+        overlay.onkeydown = (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                close();
+            }
+            if (event.key === 'Tab') {
+                const buttons = Array.from(content.querySelectorAll<HTMLButtonElement>('button')).filter(
+                    (b) => b.getClientRects().length > 0,
+                );
+                const first = buttons[0],
+                    last = buttons[buttons.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last?.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first?.focus();
+                }
+            }
+        };
 
         overlay.appendChild(content);
-        (this.viewArea || this.container).appendChild(overlay);
+        (this.replayDock ? this.container : this.viewArea).appendChild(overlay);
+        content.querySelector<HTMLButtonElement>('.round-browser-close')?.focus({ preventScroll: true });
     }
 
     update() {
@@ -475,13 +669,29 @@ export abstract class BaseViewer {
     updateImmediate() {
         if (this._destroyed || !this.gameState || !this.renderer) return;
         const state = this.gameState.getState();
-        this.renderer.render(state, this.debugPanel);
+        this.renderer.render(state, this.debugPanel, this.displayOptions);
+        if (this.replaySeek) {
+            this.replaySeek.max = String(state.totalEvents);
+            this.replaySeek.value = String(state.eventIndex);
+            this.replaySeek.setAttribute(
+                'aria-valuetext',
+                this.i18n.text('Event {step} of {total}', { step: state.eventIndex, total: state.totalEvents }),
+            );
+        }
+        if (this.replayPosition) this.replayPosition.textContent = `${state.eventIndex} / ${state.totalEvents}`;
+        if (this.replayRound) {
+            const pc = state.playerCount;
+            this.replayRound.textContent = `${this.i18n.round(state.round, pc)} ▾`;
+        }
+        if (this.replayPrevious) this.replayPrevious.disabled = state.eventIndex <= 1;
+        if (this.replayNext) this.replayNext.disabled = state.eventIndex >= state.totalEvents;
     }
 
     destroy() {
         this._destroyed = true;
+        this.settingsLoad?.abort();
         if (this.controller) {
-            this.controller.stopAutoPlay();
+            this.controller.destroy();
         }
         if (this._rafId) {
             cancelAnimationFrame(this._rafId);

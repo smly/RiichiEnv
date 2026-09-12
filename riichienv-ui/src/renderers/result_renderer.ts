@@ -1,4 +1,4 @@
-import { YAKU_MAP } from '../constants';
+import { I18n } from '../i18n/index';
 import { ICON_ARROW_LEFT, ICON_ARROW_RIGHT } from '../icons';
 import type { BoardState } from '../types';
 import { HandRenderer } from './hand_renderer';
@@ -8,7 +8,7 @@ export class ResultRenderer {
     // We keep track of the current page index internally, or we can just render the modal and let it handle its own state.
     // Since Renderer.render creates new elements every time, we should create a self-contained component.
 
-    static renderModal(results: any[], state: BoardState): HTMLElement {
+    static renderModal(results: any[], state: BoardState, i18n = new I18n()): HTMLElement {
         const modal = document.createElement('div');
         modal.className = 're-modal-overlay';
         // Prevent click propagation to close needed? The overlay itself might be the close target...
@@ -17,7 +17,7 @@ export class ResultRenderer {
         // Let's implement click-to-close on the overlay background.
 
         const content = document.createElement('div');
-        content.className = 're-modal-content';
+        content.className = 're-modal-content re-result-dialog';
         // Stop propagation so clicking content doesn't close
         content.onclick = (e) => e.stopPropagation();
 
@@ -39,9 +39,12 @@ export class ResultRenderer {
             // Header (Result Title)
             const header = document.createElement('div');
             header.className = 're-modal-title';
-            const actorName = state.playerNames?.[actor] || `P${actor}`;
-            const targetName = state.playerNames?.[target] || `P${target}`;
-            const titleText = `${actorName} ${isTsumo ? 'Tsumo' : `Ron from ${targetName}`}`;
+            const actorName = state.playerNames?.[actor] || `Player${actor}`;
+            const targetName = state.playerNames?.[target] || `Player${target}`;
+            const titleText = i18n.text(isTsumo ? '{actor} Tsumo' : '{actor} Ron from {target}', {
+                actor: actorName,
+                target: targetName,
+            });
             header.textContent = totalPages > 1 ? `${titleText} (${idx + 1}/${totalPages})` : titleText;
             content.appendChild(header);
 
@@ -55,16 +58,7 @@ export class ResultRenderer {
             const player = state.players[actor];
             if (player) {
                 const handContainer = document.createElement('div');
-                Object.assign(handContainer.style, {
-                    display: 'flex',
-                    flexWrap: 'wrap', // Allow wrapping if small screen
-                    alignItems: 'flex-end',
-                    gap: '0px', // Managed manually for precise control
-                    marginBottom: '15px',
-                    padding: '12px',
-                    background: 'rgba(0,0,0,0.3)',
-                    borderRadius: '8px',
-                });
+                handContainer.className = 're-result-hand';
 
                 // Closed Hand
                 const closedDiv = document.createElement('div');
@@ -148,7 +142,7 @@ export class ResultRenderer {
                     // My code order is correct.
 
                     player.melds.forEach((m) => {
-                        HandRenderer.renderMeld(meldsDiv, m, actor);
+                        HandRenderer.renderMeld(meldsDiv, m, actor, state.playerCount, state);
                     });
                     handContainer.appendChild(meldsDiv);
                 }
@@ -158,15 +152,7 @@ export class ResultRenderer {
 
             // 3. Dora & Ura Dora
             const doraContainer = document.createElement('div');
-            Object.assign(doraContainer.style, {
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '20px',
-                marginBottom: '15px',
-                padding: '5px 10px',
-                background: 'rgba(0,0,0,0.2)',
-                borderRadius: '6px',
-            });
+            doraContainer.className = 're-result-dora';
 
             // Dora
             const createIndicatorRow = (label: string, tiles: string[]) => {
@@ -197,13 +183,13 @@ export class ResultRenderer {
             };
 
             if (state.doraMarkers && state.doraMarkers.length > 0) {
-                doraContainer.appendChild(createIndicatorRow('Dora:', state.doraMarkers));
+                doraContainer.appendChild(createIndicatorRow(i18n.text('Dora:'), state.doraMarkers));
             }
 
             // Ura Dora
             // Now accessed via res.uraMarkers (enriched in GameState)
             if (res.uraMarkers && Array.isArray(res.uraMarkers) && res.uraMarkers.length > 0) {
-                doraContainer.appendChild(createIndicatorRow('Ura Dora:', res.uraMarkers));
+                doraContainer.appendChild(createIndicatorRow(i18n.text('Ura Dora:'), res.uraMarkers));
             }
 
             body.appendChild(doraContainer);
@@ -218,7 +204,7 @@ export class ResultRenderer {
                     color: '#aaa',
                     fontStyle: 'italic',
                 });
-                noScoreMsg.textContent = 'Score data unavailable';
+                noScoreMsg.textContent = i18n.text('Score data unavailable');
                 body.appendChild(noScoreMsg);
                 content.appendChild(body);
             } else {
@@ -229,23 +215,10 @@ export class ResultRenderer {
 
                     const yakuList = document.createElement('ul');
                     yakuList.className = 're-yaku-list';
-                    Object.assign(yakuList.style, {
-                        columns: '2',
-                        listStyleType: 'none',
-                        paddingLeft: '0',
-                        margin: '15px 0',
-                        columnGap: '40px',
-                        fontFamily: '"Times New Roman", Times, serif',
-                        fontSize: '1.8em',
-                        fontWeight: 'bold',
-                        lineHeight: '1.8',
-                    });
 
                     sortedYaku.forEach((yId: number) => {
                         const li = document.createElement('li');
-                        li.textContent = YAKU_MAP[yId] || `Yaku ${yId}`;
-                        li.style.borderBottom = '1px dotted #555';
-                        li.style.marginBottom = '5px';
+                        li.textContent = i18n.yaku(yId);
                         yakuList.appendChild(li);
                     });
                     body.appendChild(yakuList);
@@ -270,7 +243,7 @@ export class ResultRenderer {
                 if (limitInfo) {
                     const limitBanner = document.createElement('div');
                     limitBanner.className = `limit-banner ${limitInfo.css}`;
-                    limitBanner.textContent = limitInfo.text;
+                    limitBanner.textContent = i18n.text(limitInfo.text);
                     body.appendChild(limitBanner);
                 }
 
@@ -278,16 +251,8 @@ export class ResultRenderer {
                 // Yakuman hands are not scored by han/fu. Keep this line for kazoe yakuman.
                 if (!isYakuman || isKazoe) {
                     const statsRow = document.createElement('div');
-                    Object.assign(statsRow.style, {
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        marginTop: '15px',
-                        fontWeight: 'bold',
-                        fontSize: '1.1em',
-                        borderTop: '1px solid #444',
-                        paddingTop: '10px',
-                    });
-                    statsRow.innerHTML = `<span>${score.han} Han</span><span>${score.fu} Fu</span>`;
+                    statsRow.className = 're-result-stats';
+                    statsRow.innerHTML = `<span>${i18n.text('{count} Han', { count: score.han })}</span><span>${i18n.text('{count} Fu', { count: score.fu })}</span>`;
                     body.appendChild(statsRow);
                 }
 
@@ -296,7 +261,7 @@ export class ResultRenderer {
                 // 6. Points
                 const scoreDisplay = document.createElement('div');
                 scoreDisplay.className = 're-score-display';
-                scoreDisplay.textContent = `${score.points} Points`;
+                scoreDisplay.textContent = i18n.text('{count} Points', { count: score.points });
                 content.appendChild(scoreDisplay);
             }
 
@@ -346,12 +311,13 @@ export class ResultRenderer {
     static renderRyukyokuModal(
         details: { reason?: string; deltas?: number[]; scores?: number[] },
         state: BoardState,
+        i18n = new I18n(),
     ): HTMLElement {
         const modal = document.createElement('div');
         modal.className = 're-modal-overlay';
 
         const content = document.createElement('div');
-        content.className = 're-modal-content';
+        content.className = 're-modal-content re-result-dialog';
         content.onclick = (e) => e.stopPropagation();
 
         modal.appendChild(content);
@@ -359,7 +325,7 @@ export class ResultRenderer {
         // Header
         const header = document.createElement('div');
         header.className = 're-modal-title';
-        header.textContent = 'Ryukyoku';
+        header.textContent = i18n.text('Ryukyoku');
         content.appendChild(header);
 
         // Body
@@ -379,11 +345,8 @@ export class ResultRenderer {
             reasonDiv.style.fontSize = '1.5em';
             reasonDiv.style.fontWeight = 'bold';
 
-            if (details.reason === 'Error') {
-                reasonDiv.innerHTML = 'Reason: <span style="color: #ff4757;">Error (Penalty)</span>';
-            } else {
-                reasonDiv.textContent = `Reason: ${details.reason}`;
-            }
+            reasonDiv.textContent = i18n.text('Reason: {reason}', { reason: i18n.reason(details.reason) });
+            if (details.reason === 'Error') reasonDiv.style.color = '#ff4757';
             body.appendChild(reasonDiv);
         }
 
@@ -412,7 +375,7 @@ export class ResultRenderer {
                 });
 
                 const name = document.createElement('div');
-                name.textContent = state.playerNames?.[i] || `Player ${i}`;
+                name.textContent = state.playerNames?.[i] || `Player${i}`;
                 name.style.fontSize = '0.9em';
                 name.style.color = '#ccc';
 

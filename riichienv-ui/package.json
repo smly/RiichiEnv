@@ -24,7 +24,9 @@
     "lint:fix": "biome check src/ --fix",
     "format": "biome format src/ --write",
     "format:check": "biome format src/",
+    "pretest": "npm run build:tiles",
     "test": "vitest run",
+    "pretest:watch": "npm run build:tiles",
     "test:watch": "vitest"
   },
   "devDependencies": {

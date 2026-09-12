@@ -1,4 +1,7 @@
 import { COLORS } from './constants';
+import { PANEL_CSS } from './styles_panels';
+import { ROUND_SELECTOR_CSS } from './styles_round_selector';
+import { TILE_COLUMNS, TILE_ROWS, TILE_SPRITE_URL } from './tiles';
 
 export const VIEWER_CSS = `
     .mahjong-board {
@@ -29,7 +32,7 @@ export const VIEWER_CSS = `
         height: 100%;
         contain: layout style;
     }
-    .tile-bg, .tile-fg {
+    .tile-bg {
         position: absolute;
         top: 0; 
         left: 0;
@@ -41,15 +44,13 @@ export const VIEWER_CSS = `
         border-radius: 4px;
         box-shadow: 1px 1px 2px rgba(0,0,0,0.3);
     }
-    .tile-fg { 
-        z-index: 2; 
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    .tile-fg svg {
-        width: 85% !important;
-        height: 85% !important;
+    .tile-sprite {
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        background-image: url("${TILE_SPRITE_URL}");
+        background-size: ${TILE_COLUMNS * 100}% ${TILE_ROWS * 100}%;
+        background-repeat: no-repeat;
     }
     
     @keyframes blink-yellow {
@@ -207,6 +208,15 @@ export const VIEWER_CSS = `
         animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
 
+    .re-round-choice {
+        background: none;
+        border: 0;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+        padding: 6px 12px;
+    }
+    .re-modal-overlay button:focus-visible { outline: 2px solid #7dd5de; outline-offset: 2px; }
     .icon-btn {
         width: 46px;
         height: 46px;
@@ -346,4 +356,6 @@ export const VIEWER_CSS = `
         50% { filter: brightness(1.2); }
         100% { filter: brightness(1); }
     }
+${PANEL_CSS}
+${ROUND_SELECTOR_CSS}
 `;

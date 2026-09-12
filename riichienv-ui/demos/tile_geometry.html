@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RiichiEnv 立体表示の確認</title>
+<style>body{margin:0;background:#081b29;color:#d9e6ed;font:14px system-ui}header{padding:16px 24px}h1{font-size:18px;margin:0 0 6px}p{margin:0;color:#b6cad6;line-height:1.6}#viewer{width:100%}</style>
+</head>
+<body>
+<header><h1>立体表示の確認</h1><p>描画確認用の局面です。各席をクリックして、河・伏せ牌・暗槓・加槓・大明槓・チーの向きを確認できます。</p></header>
+<div id="viewer"></div>
+<script src="../dist/viewer.js"></script>
+<script>
+const geometry=[{type:'start_game',names:['東家','南家','西家','北家']},{type:'start_kyoku',bakaze:'E',kyoku:1,honba:0,kyotaku:0,oya:0,dora_marker:'9p',scores:[25000,25000,25000,25000],tehais:[['1m','1m','1m','1m','2s','2s','3s','4s','5sr','6s','7p','8p','9p'],['5p','5p','5p','3m','4m','6m','7m','8m','2p','3p','4p','E','E'],['8s','8s','8s','E','F','C','1p','2p','3p','4p','5p','6p','7p'],Array(13).fill('?')]},
+{type:'ankan',actor:0,consumed:['1m','1m','1m','1m']},
+{type:'tsumo',actor:3,pai:'5pr'},{type:'dahai',actor:3,pai:'5pr',tsumogiri:true},
+{type:'pon',actor:1,target:3,pai:'5pr',consumed:['5p','5p']},
+{type:'kakan',actor:1,pai:'5p',consumed:['5p']},
+{type:'tsumo',actor:3,pai:'8s'},{type:'dahai',actor:3,pai:'8s',tsumogiri:true},
+{type:'daiminkan',actor:2,target:3,pai:'8s',consumed:['8s','8s','8s']},
+{type:'tsumo',actor:3,pai:'6s'},{type:'dahai',actor:3,pai:'6s',tsumogiri:true},
+{type:'chi',actor:0,target:3,pai:'6s',consumed:['4s','5sr']}];
+for(let n=0;n<7;n++)for(let actor=0;actor<4;actor++){const pai=['1s','9p','C','6p','5s','F','S'][n];geometry.push({type:'tsumo',actor,pai});if(n===2&&actor===3)geometry.push({type:'reach',actor});geometry.push({type:'dahai',actor,pai,tsumogiri:false});}
+
+RiichiViewer.mount('viewer',{log:geometry,renderer:'3d',initialPosition:{step:geometry.length}});
+</script>
+</body>
+</html>

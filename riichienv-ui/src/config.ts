@@ -22,7 +22,7 @@ export interface GameConfig {
 export interface LayoutConfig {
     /** Base board dimension in px (square). */
     boardSize: number;
-    /** Rotation angles (degrees) for each player position relative to viewpoint. */
+    /** Rotation angles for the four physical edges (bottom, right, opposite, left). */
     playerAngles: number[];
     /** Overall content area width (board + sidebar). */
     contentWidth: number;
@@ -73,7 +73,7 @@ export function createGameConfig3P(): GameConfig {
 export function createLayoutConfig3P(): LayoutConfig {
     return {
         boardSize: 800,
-        playerAngles: [0, -90, 180],
+        playerAngles: [0, -90, 180, 90],
         contentWidth: 970,
         contentHeight: 900,
         viewAreaSize: 880,
@@ -145,13 +145,14 @@ export function createLayout3DConfig4P(): LayoutConfig3D {
         perspective: 1800 /** **/,
         tiltAngle: 48 /** **/,
         handLayerHeight: 144,
+        // Slightly shorten the printed face to a 2:3 width-to-height ratio.
         tileSizes: {
-            riverTile: [26, 36],
-            opponentTile: [30, 42],
-            ownTile: [60, 84],
-            doraTile: [28, 39],
-            meldTileTable: [20, 28],
-            meldTileOwn: [48, 67],
+            riverTile: [26, 39],
+            opponentTile: [30, 45],
+            ownTile: [60, 90],
+            doraTile: [36, 54],
+            meldTileTable: [20, 30],
+            meldTileOwn: [48, 72],
         },
     };
 }
@@ -166,13 +167,14 @@ export function createLayout3DConfig3P(): LayoutConfig3D {
         perspective: 1800,
         tiltAngle: 48,
         handLayerHeight: 144,
+        // Slightly shorten the printed face to a 2:3 width-to-height ratio.
         tileSizes: {
-            riverTile: [26, 36],
-            opponentTile: [30, 42],
-            ownTile: [60, 84],
-            doraTile: [28, 39],
-            meldTileTable: [20, 28],
-            meldTileOwn: [48, 67],
+            riverTile: [26, 39],
+            opponentTile: [30, 45],
+            ownTile: [60, 90],
+            doraTile: [36, 54],
+            meldTileTable: [20, 30],
+            meldTileOwn: [48, 72],
         },
     };
 }

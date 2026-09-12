@@ -1,18 +1,26 @@
-import { CHAR_MAP, CHAR_SPRITE_BASE64 } from '../char_assets';
 import { createLayout3DConfig4P, type LayoutConfig3D } from '../config';
 import { CALL_TYPES } from '../constants';
+import { I18n } from '../i18n/index';
 import { VIEWER_CSS } from '../styles';
 import { VIEWER_3D_CSS } from '../styles_3d';
 import type { BoardState, PlayerState, Tile } from '../types';
+import { type DisplayOptions, presentBoard } from './board_presentation';
+import { drawnTileIndex } from './hand_presentation';
+import { playerAvatar } from './player_identity';
 import type { IRenderer } from './renderer_interface';
 import { ResultRenderer } from './result_renderer';
+import { relativeSeat } from './seat_position';
+import { paintTileBodies, type TileBodyRequest } from './tile_body_sprite';
+import { TILE_BACK_COLOR, TILE_FACE_COLOR } from './tile_material';
 import { TileRenderer } from './tile_renderer';
 
 export class Renderer3D implements IRenderer {
+    i18n = new I18n();
     container: HTMLElement;
     viewpoint: number = 0;
     onViewpointChange: ((pIdx: number) => void) | null = null;
     onCenterClick: (() => void) | null = null;
+    onSettingsClick: (() => void) | null = null;
 
     private sceneEl: HTMLElement | null = null;
     private layout: LayoutConfig3D;
@@ -45,108 +53,76 @@ export class Renderer3D implements IRenderer {
         // Handled by Viewer3D's ResizeObserver
     }
 
-    /**
-     * Set 3D tile content on a table-surface element.
-     * Creates a CSS 3D box with top face and specified side faces.
-     * @param faces Which side faces to render (default: front + right).
-     *   - relIndex 0 (self):     { front: true }
-     *   - relIndex 1 (right):    { back: true, left: true }
-     *   - relIndex 2 (opposite): { back: true }
-     *   - relIndex 3 (left):     { right: true, back: true }
-     */
-    private setTile3D(
-        el: HTMLElement,
-        tileId: string,
-        depth: number,
-        faces: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } = { front: true, right: true },
-    ): void {
+    private pendingBodies = new Map<HTMLElement, TileBodyRequest>();
+
+    /** One raster body and one live art face retain the existing CSS pose. */
+    private setTile3D(el: HTMLElement, tileId: string, tileWidth: number): void {
+        const tileHeight =
+            el.classList.contains('table-tile') || el.classList.contains('table-tile-rotated')
+                ? this.layout.tileSizes.riverTile[1]
+                : this.layout.tileSizes.opponentTile[1];
+        const rotated = el.className.includes('-rotated');
+        const w = rotated ? tileHeight : tileWidth;
+        const h = rotated ? tileWidth : tileHeight;
+        const depth = (tileWidth * 16.5) / 20.5;
+        const radius = tileWidth * 0.14;
+        const edge = tileWidth * 0.07;
+        const flipped = tileId === 'back' || tileId === '?';
         el.style.transformStyle = 'preserve-3d';
-        const isFlipped = tileId === 'back';
-        // Side faces are 1px taller/wider than depth to overlap with the top face,
-        // preventing sub-pixel rendering gaps at the seams.
-        const d1 = depth + 1;
-
-        // Build via DOM API + cloneNode (avoids innerHTML SVG parsing per tile)
-        const topFace = document.createElement('div');
-        topFace.className = 'tile-3d-top';
-        topFace.style.transform = `translateZ(${depth}px)`;
-        if (isFlipped) topFace.style.background = '#c8a030';
-        topFace.appendChild(TileRenderer.getTileElement(tileId));
-        el.appendChild(topFace);
-
-        // For face-down tiles, invert side face gradients so yellow (base) appears on top.
-        // Normal:  front=cream→yellow(bottom), back=yellow→cream(top)
-        // Flipped: front=yellow→cream(bottom), back=cream→yellow(top)
-        if (faces.front) {
-            const f = document.createElement('div');
-            f.className = 'tile-3d-front';
-            f.style.height = `${d1}px`;
-            if (isFlipped) f.style.background = 'linear-gradient(to bottom, #c8a030 30%, #e4dec8 30%)';
-            el.appendChild(f);
+        el.classList.toggle('tile-face-down', flipped);
+        el.setAttribute('aria-label', flipped ? this.i18n.text('Hidden tile') : tileId);
+        el.title = flipped ? this.i18n.text('Hidden tile') : tileId;
+        this.pendingBodies.set(el, { element: el, width: w, height: h, depth, radius, edge, flipped, overlays: [] });
+        // Overlap the bitmap rim slightly: two separately antialiased edges
+        // otherwise expose a hairline of the blue tabletop between them.
+        const faceInset = edge - 0.35;
+        const top = document.createElement('div');
+        top.className = 'tile-3d-surface tile-3d-top';
+        Object.assign(top.style, {
+            left: `${faceInset}px`,
+            top: `${faceInset}px`,
+            width: `${w - 2 * faceInset}px`,
+            height: `${h - 2 * faceInset}px`,
+            borderRadius: `${radius - faceInset}px`,
+            transform: `translateZ(${depth + 0.02}px)`,
+            background: flipped ? TILE_BACK_COLOR : TILE_FACE_COLOR,
+        });
+        if (!flipped) {
+            const art = TileRenderer.getTileElement(tileId);
+            if (rotated)
+                Object.assign(art.style, {
+                    width: `${tileWidth - 2 * faceInset}px`,
+                    height: `${tileHeight - 2 * faceInset}px`,
+                });
+            top.appendChild(art);
         }
-        if (faces.back) {
-            const b = document.createElement('div');
-            b.className = 'tile-3d-back';
-            b.style.height = `${d1}px`;
-            if (isFlipped) b.style.background = 'linear-gradient(to bottom, #e4dec8 70%, #c8a030 70%)';
-            el.appendChild(b);
-        }
-        if (faces.right) {
-            const r = document.createElement('div');
-            r.className = 'tile-3d-right';
-            r.style.width = `${d1}px`;
-            if (isFlipped) r.style.background = 'linear-gradient(to right, #dcd6c0 70%, #b08828 70%)';
-            el.appendChild(r);
-        }
-        if (faces.left) {
-            const l = document.createElement('div');
-            l.className = 'tile-3d-left';
-            l.style.width = `${d1}px`;
-            if (isFlipped) l.style.background = 'linear-gradient(to right, #b08828 30%, #dcd6c0 30%)';
-            el.appendChild(l);
-        }
+        el.appendChild(top);
     }
 
     /**
      * Add a colored overlay to all visible faces of a 3D tile element.
      */
     private addTile3DOverlay(el: HTMLElement, color: string, zIndex: string = '5'): void {
-        const topFace = el.querySelector('.tile-3d-top') as HTMLElement | null;
-        if (topFace) {
-            const ov = document.createElement('div');
-            Object.assign(ov.style, {
+        // Tint the already composited body once, instead of adding an overlay
+        // to every facet of the old mesh.
+        this.pendingBodies.get(el)?.overlays.push(color);
+        for (const face of el.querySelectorAll<HTMLElement>(':scope > .tile-3d-surface')) {
+            const overlay = document.createElement('div');
+            Object.assign(overlay.style, {
                 position: 'absolute',
-                top: '0',
-                left: '0',
-                width: '100%',
-                height: '100%',
+                inset: '0',
                 backgroundColor: color,
                 pointerEvents: 'none',
                 borderRadius: 'inherit',
                 zIndex,
             });
-            topFace.appendChild(ov);
-        }
-        for (const cls of ['tile-3d-front', 'tile-3d-back', 'tile-3d-right', 'tile-3d-left']) {
-            const face = el.querySelector(`.${cls}`) as HTMLElement | null;
-            if (face) {
-                const ov = document.createElement('div');
-                Object.assign(ov.style, {
-                    position: 'absolute',
-                    top: '0',
-                    left: '0',
-                    width: '100%',
-                    height: '100%',
-                    backgroundColor: color,
-                    pointerEvents: 'none',
-                    borderRadius: 'inherit',
-                });
-                face.appendChild(ov);
-            }
+            face.appendChild(overlay);
         }
     }
 
-    render(state: BoardState, debugPanel?: HTMLElement): void {
+    render(sourceState: BoardState, debugPanel?: HTMLElement, displayOptions?: Readonly<DisplayOptions>): void {
+        const state = presentBoard(sourceState, this.viewpoint, displayOptions);
+        this.pendingBodies.clear();
         const pc = state.playerCount;
 
         // 1. Create/reuse scene container
@@ -199,10 +175,10 @@ export class Renderer3D implements IRenderer {
         tableInner.appendChild(center);
 
         // Riichi sticks on table
-        this.renderRiichiSticks(tableInner, state, pc);
+        this.renderRiichiSticks(tableInner, state);
 
         // Floating score labels on table (above riichi sticks)
-        this.renderFloatingScores(tableInner, state, pc);
+        this.renderFloatingScores(tableInner, state);
 
         // Collect waits and build per-player "danger waits" (exclude own waits from own hand highlight)
         const activeWaits = new Set<string>();
@@ -229,15 +205,15 @@ export class Renderer3D implements IRenderer {
 
         // Per-player table elements
         state.players.forEach((p, i) => {
-            const relIndex = (i - this.viewpoint + pc) % pc;
+            const relIndex = relativeSeat(state, i, this.viewpoint);
 
             // River (discards)
-            const river = this.renderRiver3D(p.discards, relIndex, state, i, activeWaits);
+            const river = this.renderRiver3D(p.discards, relIndex, activeWaits);
             tableInner.appendChild(river);
 
             // Opponent hand + melds on table (skip viewpoint player)
             if (relIndex !== 0) {
-                const oppHand = this.renderOpponentHandArea(p, i, relIndex, pc, dangerWaitsByPlayer[i]);
+                const oppHand = this.renderOpponentHandArea(p, i, relIndex, dangerWaitsByPlayer[i], state);
                 tableInner.appendChild(oppHand);
             }
         });
@@ -259,48 +235,19 @@ export class Renderer3D implements IRenderer {
         }
         sceneFrag.appendChild(handLayer);
 
-        // 4b. Own melds layer (above hand gradient, same 3D perspective as table)
-        if (vpPlayer && vpPlayer.melds.length > 0) {
-            const meldPerspective = document.createElement('div');
-            meldPerspective.className = 'table-perspective';
-            Object.assign(meldPerspective.style, {
-                perspective: `${this.layout.perspective}px`,
-                perspectiveOrigin: '50% 40%',
-                position: 'absolute',
-                top: '0',
-                left: '0',
-                width: '100%',
-                height: '100%',
-                zIndex: '25',
-                pointerEvents: 'none',
-            });
-
-            const meldSurface = document.createElement('div');
-            meldSurface.className = 'table-surface';
-            const meldSurfaceSize = this.layout.tableSize + frameWidth * 2;
-            Object.assign(meldSurface.style, {
-                width: `${meldSurfaceSize}px`,
-                height: `${meldSurfaceSize}px`,
-                top: tableTop,
-                transform: `translate(-50%, -50%) rotateX(${this.layout.tiltAngle}deg)`,
-                background: 'none',
-                border: 'none',
-                boxShadow: 'none',
-            });
-
-            const meldInner = document.createElement('div');
-            Object.assign(meldInner.style, {
-                position: 'absolute',
-                top: `${frameWidth}px`,
-                left: `${frameWidth}px`,
-                right: `${frameWidth}px`,
-                bottom: `${frameWidth}px`,
-                transformStyle: 'preserve-3d',
-            });
-
-            const ownMelds = this.renderOwnMeldsOnTable(vpPlayer, this.viewpoint, pc);
-            ownMelds.style.pointerEvents = 'auto';
-            meldInner.appendChild(ownMelds);
+        // Share the table's exact projection, but paint own melds above the
+        // hand gradient. Shallow clones retain border widths and layout only.
+        if (vpPlayer && (vpPlayer.melds.length > 0 || (pc === 3 && vpPlayer.kitaCount > 0))) {
+            const meldPerspective = perspectiveEl.cloneNode(false) as HTMLElement;
+            meldPerspective.classList.add('own-meld-layer');
+            const meldSurface = tableSurface.cloneNode(false) as HTMLElement;
+            const meldInner = tableInner.cloneNode(false) as HTMLElement;
+            meldInner.appendChild(this.renderOwnMelds(vpPlayer, this.viewpoint, state));
+            if (pc === 3 && vpPlayer.kitaCount > 0) {
+                const kita = this.renderKita(vpPlayer.kitaCount);
+                kita.classList.add('own-kita-3d');
+                meldInner.appendChild(kita);
+            }
             meldSurface.appendChild(meldInner);
             meldPerspective.appendChild(meldSurface);
             sceneFrag.appendChild(meldPerspective);
@@ -310,16 +257,34 @@ export class Renderer3D implements IRenderer {
         const uiOverlay = document.createElement('div');
         uiOverlay.className = 'ui-overlay-3d';
 
-        // Score panels (at viewport edges)
-        state.players.forEach((p, i) => {
-            const relIndex = (i - this.viewpoint + pc) % pc;
-            const panel = this.renderPlayerPanel(p, i, relIndex, state);
+        uiOverlay.appendChild(this.renderDoraPanel(state));
+
+        const settingsButton = document.createElement('button');
+        settingsButton.type = 'button';
+        settingsButton.className = 'viewer-settings-button';
+        settingsButton.setAttribute('aria-label', this.i18n.text('Settings'));
+        settingsButton.setAttribute('aria-haspopup', 'dialog');
+        settingsButton.title = this.i18n.text('Settings');
+        settingsButton.innerHTML = `<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m9 3-.6 2.5-2 .9-2.2-.7-2 3.4L4 11v2l-1.8 1.9 2 3.4 2.2-.7 2 .9L9 21h6l.6-2.5 2-.9 2.2.7 2-3.4L20 13v-2l1.8-1.9-2-3.4-2.2.7-2-.9L15 3Z"/><circle cx="12" cy="12" r="3.2"/></svg>`;
+        settingsButton.onclick = (event) => {
+            event.stopPropagation();
+            this.onSettingsClick?.();
+        };
+        uiOverlay.appendChild(settingsButton);
+
+        // Player identity panels (at viewport edges)
+        state.players.forEach((_, i) => {
+            const relIndex = relativeSeat(state, i, this.viewpoint);
+            const panel = this.renderPlayerPanel(i, relIndex, state);
             uiOverlay.appendChild(panel);
         });
 
         // Center click zone (2D overlay for reliable click on 3D center panel)
         if (this.onCenterClick) {
-            const centerClick = document.createElement('div');
+            const centerClick = document.createElement('button');
+            centerClick.type = 'button';
+            centerClick.setAttribute('aria-label', this.i18n.text('Jump to round'));
+            centerClick.title = this.i18n.text('Jump to round');
             centerClick.className = 'center-click-zone';
             centerClick.onclick = (e) => {
                 e.stopPropagation();
@@ -341,8 +306,8 @@ export class Renderer3D implements IRenderer {
         // Wait indicators for all players (UI overlay)
         state.players.forEach((p, i) => {
             if (p.waits && p.waits.length > 0) {
-                const relIndex = (i - this.viewpoint + pc) % pc;
-                const waitEl = this.renderWaitIndicator(p.waits, relIndex, pc);
+                const relIndex = relativeSeat(state, i, this.viewpoint);
+                const waitEl = this.renderWaitIndicator(p.waits, relIndex);
                 uiOverlay.appendChild(waitEl);
             }
         });
@@ -350,15 +315,28 @@ export class Renderer3D implements IRenderer {
         sceneFrag.appendChild(uiOverlay);
 
         // Single DOM swap — replaces all scene content in one operation
+        const focusedViewpoint = this.sceneEl.contains(document.activeElement)
+            ? (document.activeElement as HTMLElement)?.dataset.viewpoint
+            : undefined;
         this.sceneEl.replaceChildren(sceneFrag);
+        const bodies = [...this.pendingBodies.values()];
+        for (const body of bodies) {
+            body.facePlane = !!body.element.closest('.opp-hand-3d .opp-meld-group, .own-melds-3d .opp-meld-group');
+        }
+        paintTileBodies(bodies, this.sceneEl);
+        if (focusedViewpoint !== undefined) {
+            this.sceneEl
+                .querySelector<HTMLButtonElement>(`[data-viewpoint="${focusedViewpoint}"]`)
+                ?.focus({ preventScroll: true });
+        }
 
         // 6. Result modals
         if (state.lastEvent && state.lastEvent.type === 'end_kyoku' && state.lastEvent.meta) {
             let modal: HTMLElement | null = null;
             if (state.lastEvent.meta.ryukyoku) {
-                modal = ResultRenderer.renderRyukyokuModal(state.lastEvent.meta.ryukyoku, state);
+                modal = ResultRenderer.renderRyukyokuModal(state.lastEvent.meta.ryukyoku, sourceState, this.i18n);
             } else if (state.lastEvent.meta.results) {
-                modal = ResultRenderer.renderModal(state.lastEvent.meta.results, state);
+                modal = ResultRenderer.renderModal(state.lastEvent.meta.results, sourceState, this.i18n);
             }
             if (modal) {
                 modal.onclick = (e) => {
@@ -386,146 +364,127 @@ export class Renderer3D implements IRenderer {
         const center = document.createElement('div');
         center.className = 'center-info-3d';
 
-        const pc = state.playerCount || 4;
+        for (let side = 0; side < 4; side++) {
+            const rail = document.createElement('span');
+            rail.className = `center-rail center-rail-${side}`;
+            rail.setAttribute('aria-hidden', 'true');
+            center.appendChild(rail);
+        }
 
-        // Wind labels at corners
-        const windMap = ['東_red', '南', '西', '北'].slice(0, pc);
-        state.players.forEach((p: PlayerState, i: number) => {
-            const relPos = (i - this.viewpoint + pc) % pc;
-            const windIdx = p.wind;
-            if (windIdx < 0 || windIdx >= pc) return;
-
-            const key = windMap[windIdx];
-            const asset = CHAR_MAP[key];
-            if (!asset) return;
-
-            const icon = document.createElement('div');
-            Object.assign(icon.style, {
-                position: 'absolute',
-                width: `${asset.w}px`,
-                height: `${asset.h}px`,
-                pointerEvents: 'none',
-                backgroundImage: `url(${CHAR_SPRITE_BASE64})`,
-                backgroundPosition: `-${asset.x}px -${asset.y}px`,
-                backgroundRepeat: 'no-repeat',
-                transformOrigin: 'center center',
-            });
-
-            const targetSize = 34;
-            const maxDim = Math.max(asset.w, asset.h);
-            const scale = targetSize / maxDim;
-
-            let rotation: string;
-            if (pc === 3) {
-                // 3P: 0=bottom, 1=right, 2=opposite (top)
-                if (relPos === 1) rotation = '-90deg';
-                else if (relPos === 2) rotation = '180deg';
-                else rotation = '0deg';
-            } else {
-                if (relPos === 1) rotation = '-90deg';
-                else if (relPos === 2) rotation = '180deg';
-                else if (relPos === 3) rotation = '90deg';
-                else rotation = '0deg';
-            }
-
-            icon.style.transform = `rotate(${rotation}) scale(${scale})`;
-
-            if (pc === 3) {
-                if (relPos === 0) {
-                    icon.style.bottom = '6px';
-                    icon.style.left = '6px';
-                } else if (relPos === 1) {
-                    icon.style.right = '6px';
-                    icon.style.bottom = '6px';
-                } else if (relPos === 2) {
-                    icon.style.top = '6px';
-                    icon.style.right = '6px';
-                }
-            } else {
-                if (relPos === 0) {
-                    icon.style.bottom = '6px';
-                    icon.style.left = '6px';
-                } else if (relPos === 1) {
-                    icon.style.right = '6px';
-                    icon.style.bottom = '6px';
-                } else if (relPos === 2) {
-                    icon.style.top = '6px';
-                    icon.style.right = '6px';
-                } else if (relPos === 3) {
-                    icon.style.left = '6px';
-                    icon.style.top = '6px';
-                }
-            }
-
-            center.appendChild(icon);
+        state.players.forEach((p, i) => {
+            const wind = document.createElement('span');
+            const seat = relativeSeat(state, i, this.viewpoint);
+            wind.className = `center-wind center-wind-${seat}`;
+            wind.classList.toggle('dealer', p.wind === 0);
+            wind.textContent = this.i18n.wind(p.wind, true);
+            center.appendChild(wind);
         });
 
-        // Content container
-        const contentDiv = document.createElement('div');
-        Object.assign(contentDiv.style, {
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '2px',
-        });
+        const display = document.createElement('div');
+        display.className = 'center-display';
+        const round = document.createElement('strong');
+        round.textContent = this.i18n.round(state.round, state.playerCount);
+        const remaining = document.createElement('div');
+        remaining.className = 'wall-remaining';
+        remaining.textContent = String(state.wallRemaining);
+        remaining.setAttribute('aria-label', this.i18n.text('{count} tiles remaining', { count: state.wallRemaining }));
+        remaining.title = this.i18n.text('{count} tiles remaining', { count: state.wallRemaining });
+        display.append(round, remaining);
+        center.appendChild(display);
 
-        // Row 1: Round info text
-        const roundWindNames = ['東', '南', '西', '北'];
-        const rWindIdx = Math.floor(state.round / pc);
-        const rNumIdx = state.round % pc;
-        const roundText = `${roundWindNames[rWindIdx] || '東'}${rNumIdx + 1}局`;
-
-        const row1 = document.createElement('div');
-        Object.assign(row1.style, {
-            fontSize: '26px',
-            fontWeight: 'bold',
-            color: 'white',
-            fontFamily: 'sans-serif',
-            marginBottom: '2px',
-        });
-        row1.textContent = roundText;
-        contentDiv.appendChild(row1);
-
-        // Row 2: Honba / Kyotaku
-        const row2 = document.createElement('div');
-        row2.textContent = `Depo: ${state.kyotaku}, Honba: ${state.honba}`;
-        Object.assign(row2.style, {
-            fontSize: '16px',
-            fontWeight: 'bold',
-            color: 'white',
-            fontFamily: 'sans-serif',
-            marginBottom: '6px',
-        });
-        contentDiv.appendChild(row2);
-
-        // Row 3: Dora markers
-        const row3 = document.createElement('div');
-        Object.assign(row3.style, { display: 'flex', gap: '2px' });
-
-        const doraTiles = [...state.doraMarkers];
-        while (doraTiles.length < 5) doraTiles.push('back');
-
-        doraTiles.forEach((t) => {
-            const d = document.createElement('div');
-            d.className = 'dora-tile-3d';
-            this.setTile3D(d, t, this.layout.tileSizes.doraTile[0]);
-            row3.appendChild(d);
-        });
-        contentDiv.appendChild(row3);
-
-        center.appendChild(contentDiv);
+        if (state.players[state.currentActor]) {
+            const indicator = document.createElement('div');
+            indicator.className = 'center-turn-indicator';
+            indicator.dataset.player = String(state.currentActor);
+            const seat = relativeSeat(state, state.currentActor, this.viewpoint);
+            const name = state.playerNames[state.currentActor] || `Player${state.currentActor}`;
+            indicator.setAttribute('role', 'img');
+            indicator.setAttribute('aria-label', this.i18n.text('Turn: {name}', { name }));
+            this.positionCenterEdge(indicator, seat, 59);
+            // Keep the blink phase continuous when replay events rebuild the DOM.
+            indicator.style.animationDelay = `-${performance.now() % 1200}ms`;
+            center.appendChild(indicator);
+        }
         return center;
+    }
+
+    private renderDoraPanel(state: BoardState): HTMLElement {
+        const panel = document.createElement('div');
+        panel.className = 'dora-panel-3d';
+        panel.setAttribute('role', 'group');
+        panel.setAttribute('aria-label', this.i18n.text('Dora indicators'));
+        const tiles = document.createElement('div');
+        tiles.className = 'dora-tiles';
+        const markers = [...state.doraMarkers];
+        while (markers.length < 5) markers.push('back');
+        markers.forEach((marker) => {
+            const tile = document.createElement('div');
+            tile.className = `dora-marker${marker === 'back' ? ' tile-face-down' : ''}`;
+            tile.title = marker === 'back' ? this.i18n.text('Unrevealed indicator') : marker;
+            tile.style.width = `${this.layout.tileSizes.doraTile[0]}px`;
+            tile.style.height = `${this.layout.tileSizes.doraTile[1]}px`;
+            tile.appendChild(TileRenderer.getTileElement(marker));
+            tiles.appendChild(tile);
+        });
+        const counters = document.createElement('div');
+        counters.className = 'table-counters';
+        counters.setAttribute('role', 'img');
+        counters.setAttribute(
+            'aria-label',
+            this.i18n.text('{honba} honba / {kyotaku} riichi sticks', {
+                honba: state.honba,
+                kyotaku: state.kyotaku,
+            }),
+        );
+        // 1,000-point stick (red dot), then 100-point stick (eight black dots).
+        for (const [kind, count] of [
+            ['riichi', state.kyotaku],
+            ['honba', state.honba],
+        ] as const) {
+            const counter = document.createElement('span');
+            counter.className = `table-counter table-counter-${kind}`;
+            counter.setAttribute('aria-hidden', 'true');
+            const dots =
+                kind === 'riichi'
+                    ? '<circle cx="17" cy="18" r="2.5" fill="#c82f38"/>'
+                    : [9, 14, 19, 24]
+                          .flatMap((x) => [16, 20].map((y) => `<circle cx="${x}" cy="${y}" r="1.25" fill="#30343a"/>`))
+                          .join('');
+            counter.innerHTML = `<svg viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+                <rect x="4" y="14" width="28" height="10" rx="1.5" fill="#061724" opacity=".6"/>
+                <rect x="3" y="13" width="28" height="10" rx="1.5" fill="#f6f3eb" stroke="#a2a9ad"/>
+                ${dots}
+            </svg>`;
+            const value = document.createElement('span');
+            value.textContent = `×${count}`;
+            counter.appendChild(value);
+            counters.appendChild(counter);
+        }
+        panel.append(tiles, counters);
+        return panel;
     }
 
     // =========================================================================
     // Riichi Sticks on table
     // =========================================================================
-    private renderRiichiSticks(table: HTMLElement, state: BoardState, pc: number): void {
-        const ts = this.layout.tableSize;
+    private positionCenterEdge(element: HTMLElement, seat: number, distance: number): void {
+        const [x, y] = [
+            [0, 1],
+            [1, 0],
+            [0, -1],
+            [-1, 0],
+        ][seat];
+        Object.assign(element.style, {
+            left: `calc(50% + ${x * distance}px)`,
+            top: `calc(50% + ${y * distance}px)`,
+            transform: `translate(-50%, -50%) translateZ(2px) rotate(${-90 * seat}deg)`,
+        });
+    }
+
+    private renderRiichiSticks(table: HTMLElement, state: BoardState): void {
         state.players.forEach((p, i) => {
             if (!p.riichi) return;
-            const relPos = (i - this.viewpoint + pc) % pc;
+            const relPos = relativeSeat(state, i, this.viewpoint);
 
             const stick = document.createElement('div');
             stick.className = 'riichi-stick-3d';
@@ -533,59 +492,8 @@ export class Renderer3D implements IRenderer {
             dot.className = 'dot';
             stick.appendChild(dot);
 
-            // Position just inside the edges of the center info panel (250x220, centered)
-            const centerHalf = 125; // half of 250px center panel width
-            const inset = 5;
-            const nearEdge = Math.round(ts / 2 + centerHalf - inset);
-            const farEdge = Math.round(ts / 2 - centerHalf + inset);
-            if (pc === 3) {
-                // 3P: 0=bottom, 1=right, 2=opposite (top)
-                if (relPos === 0) {
-                    Object.assign(stick.style, {
-                        left: '50%',
-                        top: `${nearEdge - 15}px`,
-                        transform: 'translateX(-50%)',
-                    });
-                } else if (relPos === 1) {
-                    Object.assign(stick.style, {
-                        left: `${nearEdge}px`,
-                        top: '50%',
-                        transform: 'translate(-50%, -50%) rotate(90deg)',
-                    });
-                } else if (relPos === 2) {
-                    Object.assign(stick.style, {
-                        left: '50%',
-                        top: `${farEdge}px`,
-                        transform: 'translateX(-50%)',
-                    });
-                }
-            } else {
-                if (relPos === 0) {
-                    Object.assign(stick.style, {
-                        left: '50%',
-                        top: `${nearEdge - 15}px`,
-                        transform: 'translateX(-50%)',
-                    });
-                } else if (relPos === 1) {
-                    Object.assign(stick.style, {
-                        left: `${nearEdge}px`,
-                        top: '50%',
-                        transform: 'translate(-50%, -50%) rotate(90deg)',
-                    });
-                } else if (relPos === 2) {
-                    Object.assign(stick.style, {
-                        left: '50%',
-                        top: `${farEdge}px`,
-                        transform: 'translateX(-50%)',
-                    });
-                } else if (relPos === 3) {
-                    Object.assign(stick.style, {
-                        left: `${farEdge}px`,
-                        top: '50%',
-                        transform: 'translate(-50%, -50%) rotate(90deg)',
-                    });
-                }
-            }
+            // Center the stick in the 14px groove inside the panel's 3px border.
+            this.positionCenterEdge(stick, relPos, 109);
             table.appendChild(stick);
         });
     }
@@ -593,71 +501,16 @@ export class Renderer3D implements IRenderer {
     // =========================================================================
     // Floating score labels on table (positioned above riichi sticks)
     // =========================================================================
-    private renderFloatingScores(table: HTMLElement, state: BoardState, pc: number): void {
-        const ts = this.layout.tableSize;
-        const centerHalf = 125; // half of 250px center panel width
-        const offset = 30; // px above riichi stick (toward center)
-
+    private renderFloatingScores(table: HTMLElement, state: BoardState): void {
         state.players.forEach((p, i) => {
-            const relPos = (i - this.viewpoint + pc) % pc;
+            const relPos = relativeSeat(state, i, this.viewpoint);
 
             const el = document.createElement('div');
             el.className = 'floating-score-3d';
-            el.textContent = p.score.toString();
+            el.textContent = String(p.score);
 
-            // Position above riichi stick, rotated to face the player
-            // "above" = closer to center from the riichi stick position
-            const nearEdge = Math.round(ts / 2 + centerHalf - 5);
-            const farEdge = Math.round(ts / 2 - centerHalf + 5);
-
-            if (pc === 3) {
-                // 3P: 0=bottom, 1=right, 2=opposite (top)
-                if (relPos === 0) {
-                    Object.assign(el.style, {
-                        left: '50%',
-                        top: `${nearEdge - 15 - offset - 10}px`,
-                        transform: 'translateX(-50%)',
-                    });
-                } else if (relPos === 1) {
-                    Object.assign(el.style, {
-                        left: `${nearEdge - offset + 15}px`,
-                        top: '50%',
-                        transform: 'translate(-50%, -50%) rotate(-90deg)',
-                    });
-                } else if (relPos === 2) {
-                    Object.assign(el.style, {
-                        left: '50%',
-                        top: `${farEdge + offset - 10}px`,
-                        transform: 'translateX(-50%) rotate(180deg)',
-                    });
-                }
-            } else {
-                if (relPos === 0) {
-                    Object.assign(el.style, {
-                        left: '50%',
-                        top: `${nearEdge - 15 - offset - 10}px`,
-                        transform: 'translateX(-50%)',
-                    });
-                } else if (relPos === 1) {
-                    Object.assign(el.style, {
-                        left: `${nearEdge - offset + 15}px`,
-                        top: '50%',
-                        transform: 'translate(-50%, -50%) rotate(-90deg)',
-                    });
-                } else if (relPos === 2) {
-                    Object.assign(el.style, {
-                        left: '50%',
-                        top: `${farEdge + offset - 10}px`,
-                        transform: 'translateX(-50%) rotate(180deg)',
-                    });
-                } else if (relPos === 3) {
-                    Object.assign(el.style, {
-                        left: `${farEdge + offset - 15}px`,
-                        top: '50%',
-                        transform: 'translate(-50%, -50%) rotate(90deg)',
-                    });
-                }
-            }
+            // Align the number's center, rather than its top edge, on every side.
+            this.positionCenterEdge(el, relPos, relPos === 0 ? 86 : 76);
 
             // Click to change viewpoint
             el.onclick = (e) => {
@@ -672,17 +525,11 @@ export class Renderer3D implements IRenderer {
     // =========================================================================
     // River (discards) on table
     // =========================================================================
-    private renderRiver3D(
-        discards: Tile[],
-        relIndex: number,
-        state: BoardState,
-        _playerIdx: number,
-        activeWaits: Set<string>,
-    ): HTMLElement {
+    private renderRiver3D(discards: Tile[], relIndex: number, activeWaits: Set<string>): HTMLElement {
         const [tw, th] = this.layout.tileSizes.riverTile;
         const gap = 1;
         // Fixed river area size: 6 columns × 3 rows (+ extra width for one possible riichi rotated tile)
-        const riverW = 6 * tw + 5 * gap + 10; // +10 for a rotated riichi tile being wider
+        const riverW = 6 * tw + 5 * gap + (th - tw); // Extra width for the sideways riichi tile
         const riverH = 3 * th + 2 * gap;
 
         const wrapper = document.createElement('div');
@@ -695,72 +542,40 @@ export class Renderer3D implements IRenderer {
 
         // Position on table (proportional to table size)
         const ts = this.layout.tableSize;
-        // All rivers scaled up for better visibility
-        const riverScale = 1.35;
-        // Left/right rivers shifted toward center by one tile height
-        const positions4P: { [key: number]: { left: string; top: string; transform: string } } = {
+        // Face-on rivers appear smaller after the table's perspective projection,
+        // especially across the table. Enlarge these without changing side rivers.
+        const baseScale = 1.35;
+        const riverScale = relIndex === 0 || relIndex === 2 ? 1.5 : baseScale;
+        // Expand outward to retain the clearance around the center display.
+        const expansion = ((riverScale - baseScale) * riverH) / 2;
+        // Leave clearance around the center display for the taller tile faces.
+        // Left/right rivers are also shifted toward center by one tile height.
+        const positions: { [key: number]: { left: string; top: string; transform: string } } = {
             0: {
                 left: '50%',
-                top: `${Math.round(ts * 0.7)}px`,
+                top: `${Math.round(ts * 0.712 + expansion + 4)}px`,
                 transform: `translate(-50%, -50%) scale(${riverScale})`,
             },
             1: {
-                left: `${Math.round(ts * 0.73 - th)}px`,
+                left: `${Math.round(ts * 0.742 - th)}px`,
                 top: '50%',
                 transform: `translate(-50%, -50%) rotate(-90deg) scale(${riverScale})`,
             },
             2: {
                 left: '50%',
-                top: `${Math.round(ts * 0.3)}px`,
+                top: `${Math.round(ts * 0.288 - expansion)}px`,
                 transform: `translate(-50%, -50%) rotate(180deg) scale(${riverScale})`,
             },
             3: {
-                left: `${Math.round(ts * 0.27 + th)}px`,
+                left: `${Math.round(ts * 0.258 + th)}px`,
                 top: '50%',
                 transform: `translate(-50%, -50%) rotate(90deg) scale(${riverScale})`,
             },
         };
-        const positions3P: { [key: number]: { left: string; top: string; transform: string } } = {
-            0: {
-                left: '50%',
-                top: `${Math.round(ts * 0.7)}px`,
-                transform: `translate(-50%, -50%) scale(${riverScale})`,
-            },
-            1: {
-                left: `${Math.round(ts * 0.73 - th)}px`,
-                top: '50%',
-                transform: `translate(-50%, -50%) rotate(-90deg) scale(${riverScale})`,
-            },
-            2: {
-                left: '50%',
-                top: `${Math.round(ts * 0.3)}px`,
-                transform: `translate(-50%, -50%) rotate(180deg) scale(${riverScale})`,
-            },
-        };
-        const positions = state.playerCount === 3 ? positions3P : positions4P;
         const pos = positions[relIndex] || positions[0];
         Object.assign(wrapper.style, pos);
 
         const normalize = (t: string) => t.replace('0', '5').replace('r', '');
-
-        // Determine which side faces to render based on viewing angle
-        // relIndex 0 (self):     top + front
-        // relIndex 1 (right):    top + back + left
-        // relIndex 2 (opposite): top + back
-        // relIndex 3 (left):     top + right + back
-        const riverFaces4P: { [key: number]: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } } = {
-            0: { front: true },
-            1: { back: true, left: true },
-            2: { back: true },
-            3: { right: true, back: true },
-        };
-        const riverFaces3P: { [key: number]: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } } = {
-            0: { front: true },
-            1: { back: true, left: true },
-            2: { back: true },
-        };
-        const riverFaces = state.playerCount === 3 ? riverFaces3P : riverFaces4P;
-        const faces = riverFaces[relIndex] || { front: true, right: true };
 
         // Split into 3 rows of 6
         const rows: Tile[][] = [[], [], []];
@@ -780,8 +595,7 @@ export class Renderer3D implements IRenderer {
                 cell.className = isRiichi ? 'table-tile-rotated' : 'table-tile';
                 if (d.isTsumogiri) cell.classList.add('table-tile-tsumogiri');
 
-                const tileDepth = tw;
-                this.setTile3D(cell, d.tile, tileDepth, faces);
+                this.setTile3D(cell, d.tile, tw);
 
                 // Tsumogiri: darken with overlay on all faces
                 if (d.isTsumogiri) {
@@ -811,23 +625,26 @@ export class Renderer3D implements IRenderer {
         player: PlayerState,
         playerIdx: number,
         relIndex: number,
-        pc: number,
         activeWaits: Set<string>,
+        state: BoardState,
     ): HTMLElement {
-        const [tw, _th] = this.layout.tileSizes.opponentTile;
+        const [tw, th] = this.layout.tileSizes.opponentTile;
 
         const wrapper = document.createElement('div');
         wrapper.className = 'opp-hand-3d';
 
         // Compute position: place hand between river outer edge and table edge
         const ts = this.layout.tableSize;
+        // Anchor both ends to a fixed stretch of this player's table edge.
+        // A content-sized row recenters whenever tiles move from hand to melds.
+        wrapper.style.width = `${ts * 0.7}px`;
         const [_rtw, rth] = this.layout.tileSizes.riverTile;
         const riverH = 3 * rth + 2; // 3 rows + 2 gaps
         const riverScale = 1.35;
         const halfRiverExtent = (riverH * riverScale) / 2;
 
         // Perpendicular offset (distance from table edge)
-        const positions4P: { [key: number]: { left: string; top: string; transform: string } } = {
+        const positions: { [key: number]: { left: string; top: string; transform: string } } = {
             1: {
                 left: `${Math.round((ts * 0.745 - rth + halfRiverExtent + ts) / 2)}px`,
                 top: '50%',
@@ -844,48 +661,39 @@ export class Renderer3D implements IRenderer {
                 transform: 'translate(-50%, -50%) rotate(90deg)',
             },
         };
-        const positions3P: { [key: number]: { left: string; top: string; transform: string } } = {
-            1: {
-                left: `${Math.round((ts * 0.745 - rth + halfRiverExtent + ts) / 2)}px`,
-                top: '50%',
-                transform: 'translate(-50%, -50%) rotate(-90deg)',
-            },
-            2: {
-                left: '50%',
-                top: `${Math.round((ts * 0.28 - halfRiverExtent) / 2)}px`,
-                transform: 'translate(-50%, -50%) rotate(180deg)',
-            },
-        };
-        const positions = pc === 3 ? positions3P : positions4P;
         const pos = positions[relIndex];
         if (pos) Object.assign(wrapper.style, pos);
 
-        // Determine visible side faces based on relIndex
-        const oppFaces4P: { [key: number]: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } } = {
-            1: { back: true, left: true },
-            2: { back: true, right: true, left: true },
-            3: { right: true, back: true },
-        };
-        const oppFaces3P: { [key: number]: { front?: boolean; back?: boolean; left?: boolean; right?: boolean } } = {
-            1: { back: true, left: true },
-            2: { back: true, right: true, left: true },
-        };
-        const oppFaces = pc === 3 ? oppFaces3P : oppFaces4P;
-        const faces = oppFaces[relIndex] || { front: true, right: true };
         const normalize = (t: string) => t.replace('0', '5').replace('r', '');
 
         // Hand tiles (left side from player's perspective)
         const handDiv = document.createElement('div');
         handDiv.className = 'opp-tiles-inner';
-        player.hand.forEach((t) => {
+        // Move only the hand along its edge: right side up, opposite left, left side down.
+        handDiv.style.marginLeft = `${4 * (tw + 1)}px`;
+        const drawIndex = drawnTileIndex(player, playerIdx, state);
+        const ownWaits = new Set((player.waits ?? []).map(normalize));
+        player.hand.forEach((t, idx) => {
             const tile = document.createElement('div');
             tile.className = 'opp-tile';
-            this.setTile3D(tile, t, tw, faces);
-            if (activeWaits.size > 0 && activeWaits.has(normalize(t))) {
+            this.setTile3D(tile, t, tw);
+            const isDrawnTile = idx === drawIndex;
+            // Use the same proportional gap in this seat's local direction.
+            if (isDrawnTile) tile.style.marginLeft = `${(tw * 28) / this.layout.tileSizes.ownTile[0]}px`;
+            if (activeWaits.has(normalize(t)) || (isDrawnTile && ownWaits.has(normalize(t)))) {
                 this.addTile3DOverlay(tile, 'rgba(255, 0, 0, 0.4)', '10');
             }
             handDiv.appendChild(tile);
         });
+        if (state.playerCount === 3 && player.kitaCount > 0) {
+            const kita = this.renderKita(player.kitaCount);
+            // Anchor to the fixed table edge, not the hand's changing tile count.
+            // Center-relative height also keeps the position stable when melds stack.
+            kita.style.right = relIndex === 2 ? '0px' : `${4 * (tw + 1)}px`;
+            kita.style.top = `calc(50% - ${1.5 * th + 45}px)`;
+            kita.style.bottom = 'auto';
+            wrapper.appendChild(kita);
+        }
         wrapper.appendChild(handDiv);
 
         // Melds (right side from player's perspective)
@@ -897,7 +705,7 @@ export class Renderer3D implements IRenderer {
                 const mGroup = document.createElement('div');
                 mGroup.className = 'opp-meld-group';
 
-                const rel = (m.from - playerIdx + pc) % pc;
+                const rel = relativeSeat(state, m.from, playerIdx);
                 const tiles = [...m.tiles];
 
                 const addWaitHighlight = (tileEl: HTMLElement, t: string) => {
@@ -909,16 +717,27 @@ export class Renderer3D implements IRenderer {
                 const addUpright = (t: string) => {
                     const d = document.createElement('div');
                     d.className = 'opp-tile';
-                    this.setTile3D(d, t, tw, faces);
+                    this.setTile3D(d, t, tw);
                     addWaitHighlight(d, t);
                     mGroup.appendChild(d);
                 };
-                const addRotated = (t: string) => {
+                const addRotated = (t: string, added?: string) => {
                     const d = document.createElement('div');
                     d.className = 'opp-tile-rotated';
-                    this.setTile3D(d, t, tw, faces);
+                    this.setTile3D(d, t, tw);
                     addWaitHighlight(d, t);
-                    mGroup.appendChild(d);
+                    if (added) {
+                        const pair = document.createElement('div');
+                        pair.className = 'kakan-pair-3d';
+                        const extra = document.createElement('div');
+                        extra.className = 'opp-tile-rotated';
+                        this.setTile3D(extra, added, tw);
+                        addWaitHighlight(extra, added);
+                        pair.append(extra, d);
+                        mGroup.appendChild(pair);
+                    } else {
+                        mGroup.appendChild(d);
+                    }
                 };
 
                 if (m.type === 'ankan') {
@@ -934,22 +753,18 @@ export class Renderer3D implements IRenderer {
 
                     if (rel === 1) {
                         consumed.forEach((t) => addUpright(t));
-                        addRotated(stolen);
-                        addUpright(added);
+                        addRotated(stolen, added);
                     } else if (rel === 3) {
-                        addRotated(stolen);
-                        addUpright(added);
+                        addRotated(stolen, added);
                         consumed.forEach((t) => addUpright(t));
                     } else {
                         if (consumed.length >= 2) {
                             addUpright(consumed[0]);
-                            addRotated(stolen);
-                            addUpright(added);
+                            addRotated(stolen, added);
                             addUpright(consumed[1]);
                         } else {
                             consumed.forEach((t) => addUpright(t));
-                            addRotated(stolen);
-                            addUpright(added);
+                            addRotated(stolen, added);
                         }
                     }
                 } else {
@@ -989,49 +804,65 @@ export class Renderer3D implements IRenderer {
     }
 
     // =========================================================================
-    // Own player melds on 3D table (relIndex=0, bottom edge)
+    // Extracted North stays face up beside the hand, independently of hand visibility.
     // =========================================================================
-    private renderOwnMeldsOnTable(player: PlayerState, playerIdx: number, pc: number): HTMLElement {
+    private renderKita(count: number): HTMLElement {
+        const group = document.createElement('div');
+        group.className = 'kita-display-3d';
+        group.setAttribute('role', 'img');
+        group.setAttribute('aria-label', `${this.i18n.text('Pei')} ×${count}`);
+        if (count > 1) {
+            const label = document.createElement('span');
+            label.className = 'kita-count-3d';
+            label.textContent = `x${count}`;
+            group.appendChild(label);
+        }
+        const tile = document.createElement('div');
+        tile.className = 'opp-tile kita-tile-3d';
+        this.setTile3D(tile, 'N', this.layout.tileSizes.opponentTile[0]);
+        group.appendChild(tile);
+        return group;
+    }
+
+    // =========================================================================
+    // Own melds lie on the near-right tabletop and share its camera.
+    // =========================================================================
+    private renderOwnMelds(player: PlayerState, playerIdx: number, state: BoardState): HTMLElement {
         const tw = this.layout.tileSizes.opponentTile[0];
-        const ts = this.layout.tableSize;
-        const [_rtw, rth] = this.layout.tileSizes.riverTile;
-        const riverH = 3 * rth + 2;
-        const riverScale = 1.35;
-        const halfRiverExtent = (riverH * riverScale) / 2;
-
         const wrapper = document.createElement('div');
-        wrapper.className = 'opp-hand-3d';
-        // Position at bottom edge (relIndex=0), right-aligned
-        Object.assign(wrapper.style, {
-            left: '50%',
-            top: `${Math.round((ts * 0.745 - rth + halfRiverExtent + ts) / 2)}px`,
-            transform: 'translate(calc(-50% + 60px), calc(-50% + 30px))',
-            justifyContent: 'flex-end',
-        });
-
-        const faces = { front: true, right: true, left: true };
+        wrapper.className = 'own-melds-3d';
 
         const meldsDiv = document.createElement('div');
-        meldsDiv.className = 'opp-melds-inner';
+        meldsDiv.className = 'opp-melds-inner own-melds-inner';
 
         player.melds.forEach((m) => {
             const mGroup = document.createElement('div');
             mGroup.className = 'opp-meld-group';
 
-            const rel = (m.from - playerIdx + pc) % pc;
+            const rel = relativeSeat(state, m.from, playerIdx);
             const tiles = [...m.tiles];
 
             const addUpright = (t: string) => {
                 const d = document.createElement('div');
                 d.className = 'opp-tile';
-                this.setTile3D(d, t, tw, faces);
+                this.setTile3D(d, t, tw);
                 mGroup.appendChild(d);
             };
-            const addRotated = (t: string) => {
+            const addRotated = (t: string, added?: string) => {
                 const d = document.createElement('div');
                 d.className = 'opp-tile-rotated';
-                this.setTile3D(d, t, tw, faces);
-                mGroup.appendChild(d);
+                this.setTile3D(d, t, tw);
+                if (added) {
+                    const pair = document.createElement('div');
+                    pair.className = 'kakan-pair-3d';
+                    const extra = document.createElement('div');
+                    extra.className = 'opp-tile-rotated';
+                    this.setTile3D(extra, added, tw);
+                    pair.append(extra, d);
+                    mGroup.appendChild(pair);
+                } else {
+                    mGroup.appendChild(d);
+                }
             };
 
             if (m.type === 'ankan') {
@@ -1046,22 +877,18 @@ export class Renderer3D implements IRenderer {
 
                 if (rel === 1) {
                     consumed.forEach((t) => addUpright(t));
-                    addRotated(stolen);
-                    addUpright(added);
+                    addRotated(stolen, added);
                 } else if (rel === 3) {
-                    addRotated(stolen);
-                    addUpright(added);
+                    addRotated(stolen, added);
                     consumed.forEach((t) => addUpright(t));
                 } else {
                     if (consumed.length >= 2) {
                         addUpright(consumed[0]);
-                        addRotated(stolen);
-                        addUpright(added);
+                        addRotated(stolen, added);
                         addUpright(consumed[1]);
                     } else {
                         consumed.forEach((t) => addUpright(t));
-                        addRotated(stolen);
-                        addUpright(added);
+                        addRotated(stolen, added);
                     }
                 }
             } else {
@@ -1125,45 +952,43 @@ export class Renderer3D implements IRenderer {
         _pc: number,
         activeWaits: Set<string>,
     ): HTMLElement {
-        const [_tw, _th] = this.layout.tileSizes.ownTile;
+        const [tw, th] = this.layout.tileSizes.ownTile;
         const handArea = document.createElement('div');
         handArea.className = 'own-hand-area-3d';
 
         // Closed hand
         const tilesDiv = document.createElement('div');
         tilesDiv.className = 'own-tiles-3d';
+        // Start two tile pitches in, while preserving left alignment and the meld anchor.
+        tilesDiv.style.marginLeft = `${2 * (tw + 2)}px`;
 
         const normalize = (t: string) => t.replace('0', '5').replace('r', '');
 
-        // Check if player has drawn a tile
-        let hasDraw = false;
-        let shouldAnimate = false;
-        if (state.currentActor === vpIdx && state.lastEvent) {
-            const type = state.lastEvent.type;
-            if (type === 'tsumo' && state.lastEvent.actor === vpIdx) {
-                hasDraw = true;
-                shouldAnimate = true;
-            } else if (type === 'reach' && state.lastEvent.actor === vpIdx) {
-                hasDraw = true;
-                shouldAnimate = false;
-            }
-        }
+        const ownWaits = new Set((player.waits ?? []).map(normalize));
+
+        const drawIndex = drawnTileIndex(player, vpIdx, state);
+        const shouldAnimate = state.lastEvent?.type === 'tsumo';
 
         player.hand.forEach((t, idx) => {
             const tDiv = document.createElement('div');
             tDiv.className = 'own-tile-3d';
-            tDiv.appendChild(TileRenderer.getTileElement(t));
+            tDiv.style.width = `${tw}px`;
+            tDiv.style.height = `${th}px`;
+            tDiv.title = t;
+            tDiv.classList.toggle('tile-face-down', t === '?' || t === 'back');
+            tDiv.appendChild(TileRenderer.getTileElement(t === '?' ? 'back' : t));
 
             // Tsumo tile separation
-            if (hasDraw && idx === player.hand.length - 1) {
-                tDiv.style.marginLeft = '14px';
+            const isDrawnTile = idx === drawIndex;
+            if (isDrawnTile) {
+                tDiv.style.marginLeft = '28px';
                 if (shouldAnimate) tDiv.classList.add('tsumo-anim-3d');
             }
 
             // Highlight
-            if (activeWaits.size > 0) {
+            if (activeWaits.size > 0 || (isDrawnTile && ownWaits.size > 0)) {
                 const normT = normalize(t);
-                if (activeWaits.has(normT)) {
+                if (activeWaits.has(normT) || (isDrawnTile && ownWaits.has(normT))) {
                     const overlay = document.createElement('div');
                     Object.assign(overlay.style, {
                         position: 'absolute',
@@ -1188,80 +1013,45 @@ export class Renderer3D implements IRenderer {
     }
 
     // =========================================================================
-    // Score panel (UI overlay)
+    // Player identity panel (UI overlay; scores live in the center display)
     // =========================================================================
-    private renderPlayerPanel(
-        player: PlayerState,
-        playerIdx: number,
-        relIndex: number,
-        state: BoardState,
-    ): HTMLElement {
-        const panel = document.createElement('div');
+    private renderPlayerPanel(playerIdx: number, relIndex: number, state: BoardState): HTMLElement {
+        const panel = document.createElement('button');
+        panel.type = 'button';
+        panel.dataset.viewpoint = String(playerIdx);
         panel.className = 'player-panel-3d';
-        // No visual distinction for active viewpoint — removed per design decision
+        panel.disabled = !this.onViewpointChange;
+        panel.classList.toggle('is-viewpoint', playerIdx === this.viewpoint);
+        panel.setAttribute('aria-pressed', String(playerIdx === this.viewpoint));
+        const name = state.playerNames[playerIdx] || `Player${playerIdx}`;
+        panel.setAttribute('aria-label', this.i18n.text('View from {name}', { name }));
+        panel.title = this.i18n.text('View from {name}', { name });
 
         // Position — corners and edges
-        const pc = state.playerCount;
-        const panelPositions4P: { [key: number]: { [k: string]: string } } = {
-            0: { bottom: '130px', left: '25%', transform: 'translateX(-50%)' },
-            1: { right: '20px', top: 'calc(45% - 70px)', transform: 'translateY(-50%)' },
-            2: { top: '100px', right: '350px' },
-            3: { left: '40px', top: '120px' },
+        const panelPositions: { [key: number]: { [k: string]: string } } = {
+            0: { bottom: '120px', left: '260px' },
+            1: { right: '40px', top: '156px' },
+            2: { top: '24px', right: '300px' },
+            3: { left: '32px', top: '172px' },
         };
-        const panelPositions3P: { [key: number]: { [k: string]: string } } = {
-            0: { bottom: '130px', left: '25%', transform: 'translateX(-50%)' },
-            1: { right: '20px', top: 'calc(45% - 70px)', transform: 'translateY(-50%)' },
-            2: { top: '100px', right: '350px' },
-        };
-        const panelPositions = pc === 3 ? panelPositions3P : panelPositions4P;
         const pos = panelPositions[relIndex] || panelPositions[0];
         Object.assign(panel.style, pos);
 
         // Avatar (centered)
         const avatar = document.createElement('div');
         avatar.className = 'avatar-3d';
-        const avatarUrl = state.playerAvatars[playerIdx];
-        if (avatarUrl) {
-            const avatarImg = document.createElement('img');
-            avatarImg.src = avatarUrl;
-            avatarImg.className = 'avatar-img';
-            avatar.appendChild(avatarImg);
-        } else {
-            avatar.classList.add('avatar-default');
-            avatar.textContent = (state.playerNames[playerIdx] || `P${playerIdx}`).charAt(0).toUpperCase();
-        }
+        const avatarImg = document.createElement('img');
+        avatarImg.src = state.playerAvatars[playerIdx] || playerAvatar(name);
+        avatarImg.className = 'avatar-img';
+        avatarImg.alt = '';
+        avatar.appendChild(avatarImg);
         panel.appendChild(avatar);
 
         // Player name
         const playerName = document.createElement('div');
         playerName.className = 'player-name';
-        playerName.textContent = state.playerNames[playerIdx] || `P${playerIdx}`;
+        playerName.textContent = name;
         panel.appendChild(playerName);
-
-        // Kita count badge
-        if (player.kitaCount > 0) {
-            const kitaBadge = document.createElement('div');
-            Object.assign(kitaBadge.style, {
-                fontSize: '11px',
-                color: '#fff',
-                background: 'rgba(120, 50, 180, 0.85)',
-                borderRadius: '4px',
-                padding: '1px 5px',
-                marginTop: '2px',
-                fontWeight: 'bold',
-                textAlign: 'center',
-            });
-            kitaBadge.textContent = `Pei ×${player.kitaCount}`;
-            panel.appendChild(kitaBadge);
-        }
-
-        // Active player bar
-        if (playerIdx === state.currentActor) {
-            const bar = document.createElement('div');
-            bar.className = 'active-player-bar';
-            Object.assign(bar.style, { marginTop: '3px' });
-            panel.appendChild(bar);
-        }
 
         // Click to change viewpoint
         panel.onclick = (e) => {
@@ -1281,7 +1071,6 @@ export class Renderer3D implements IRenderer {
         let label = '';
         let actorIdx: number | undefined;
         const evt = state.lastEvent;
-        const pc = state.playerCount || 4;
 
         let callCssClass: string | undefined;
 
@@ -1289,18 +1078,18 @@ export class Renderer3D implements IRenderer {
             const type = evt.type;
             const callDef = CALL_TYPES[type];
             if (callDef) {
-                label = callDef.label;
+                label = this.i18n.call(evt.type);
                 callCssClass = callDef.cssClass;
                 actorIdx = evt.actor;
             } else if (type === 'hora') {
-                label = evt.target === evt.actor ? 'Tsumo' : 'Ron';
+                label = this.i18n.text(evt.target === evt.actor ? 'Tsumo' : 'Ron');
                 callCssClass = 'call-hora';
                 actorIdx = evt.actor;
             }
         }
 
         if (evt.type === 'ryukyoku') {
-            label = 'Ryukyoku';
+            label = this.i18n.text('Ryukyoku');
         }
 
         if (label) {
@@ -1310,25 +1099,19 @@ export class Renderer3D implements IRenderer {
             el.textContent = label;
 
             if (actorIdx !== undefined) {
-                const relIndex = (actorIdx - this.viewpoint + pc) % pc;
+                const relIndex = relativeSeat(state, actorIdx, this.viewpoint);
                 // Position adjacent to each player's panel
                 // Panel positions:
                 //   0: bottom: 130px, left: 25%
                 //   1: right: 50px, top: 45%
                 //   2: top: 100px, right: 380px
                 //   3: left: 100px, top: 120px
-                const callPositions4P: { [key: number]: { [k: string]: string } } = {
+                const callPositions: { [key: number]: { [k: string]: string } } = {
                     0: { bottom: '180px', left: '25%', top: 'auto', right: 'auto', transform: 'translateX(-50%)' },
                     1: { right: '120px', top: '45%', bottom: 'auto', left: 'auto', transform: 'translateY(-50%)' },
                     2: { top: '95px', right: '470px', bottom: 'auto', left: 'auto', transform: 'none' },
                     3: { left: '170px', top: '115px', bottom: 'auto', right: 'auto', transform: 'none' },
                 };
-                const callPositions3P: { [key: number]: { [k: string]: string } } = {
-                    0: { bottom: '180px', left: '25%', top: 'auto', right: 'auto', transform: 'translateX(-50%)' },
-                    1: { right: '120px', top: '45%', bottom: 'auto', left: 'auto', transform: 'translateY(-50%)' },
-                    2: { top: '95px', right: '470px', bottom: 'auto', left: 'auto', transform: 'none' },
-                };
-                const callPositions = pc === 3 ? callPositions3P : callPositions4P;
                 const pos = callPositions[relIndex];
                 if (pos) Object.assign(el.style, pos);
             }
@@ -1341,27 +1124,21 @@ export class Renderer3D implements IRenderer {
     // =========================================================================
     // Wait indicator
     // =========================================================================
-    private renderWaitIndicator(waits: string[], relIndex: number, pc: number = 4): HTMLElement {
+    private renderWaitIndicator(waits: string[], relIndex: number): HTMLElement {
         const el = document.createElement('div');
         el.className = 'wait-indicator-3d';
 
         // Position near each player's panel on UI overlay
-        const waitPositions4P: { [key: number]: { [k: string]: string } } = {
-            0: { bottom: '110px', left: '40%' },
-            1: { right: '50px', top: 'calc(55% - 60px)' },
-            2: { top: '55px', right: '380px' },
-            3: { left: '70px', top: '30%' },
+        const waitPositions: { [key: number]: { [k: string]: string } } = {
+            0: { bottom: '110px', left: '384px' },
+            1: { right: '40px', top: '254px' },
+            2: { top: '122px', right: '380px' },
+            3: { left: '32px', top: '270px' },
         };
-        const waitPositions3P: { [key: number]: { [k: string]: string } } = {
-            0: { bottom: '110px', left: '40%' },
-            1: { right: '50px', top: 'calc(55% - 60px)' },
-            2: { top: '55px', right: '380px' },
-        };
-        const waitPositions = pc === 3 ? waitPositions3P : waitPositions4P;
         Object.assign(el.style, waitPositions[relIndex] || waitPositions[0]);
 
         const label = document.createElement('span');
-        label.textContent = 'Wait:';
+        label.textContent = this.i18n.text('Wait:');
         label.style.marginRight = '4px';
         el.appendChild(label);
 

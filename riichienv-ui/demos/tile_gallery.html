@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RiichiEnv 牌画像一覧</title>
+<style>
+body{margin:0;padding:28px;background:#102b40;color:#e4edf3;font:14px system-ui,sans-serif}h1{font-size:20px;font-weight:600;margin:0 0 8px}p{color:#b6cad6;margin:0 0 24px;line-height:1.7}.row{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 20px}.tile{position:relative;width:72px;aspect-ratio:5/8;flex-shrink:0;margin-bottom:22px;box-shadow:0 3px #9e6b26,1px 5px 6px #06172480;border-radius:4px}.face{width:100%;height:100%;border-radius:inherit;background-repeat:no-repeat}.label{position:absolute;top:calc(100% + 7px);width:100%;text-align:center;font-size:11px;color:#b6cad6}.red .label{color:#ffaba2}h2{font-size:13px;color:#b6cad6;font-weight:500;margin:16px 0 10px}
+</style>
+</head>
+<body>
+<h1>RiichiEnv 牌画像一覧</h1>
+<p>参考図柄をもとにしたPNG牌面。各段の右端は赤五です。<br>Viewerでは画像を埋め込み、厚み・側面・影をHTML/CSSで表示します。</p>
+<main id="tiles"></main>
+<script type="module">
+const base='../assets/tile-art/';
+const revision='?v='+Date.now();
+const {rows}=await (await fetch(base+'tiles.json'+revision)).json();
+const labels=['萬子','筒子','索子','字牌・裏面'];
+rows.forEach((ids,y)=>{
+ const title=document.createElement('h2');title.textContent=labels[y];
+ const row=document.createElement('div');row.className='row';
+ ids.forEach((id,x)=>{
+  if(!id||id==='blank')return;
+  const cell=document.createElement('div');cell.className='tile'+(id.endsWith('r')?' red':'');
+  const face=document.createElement('div');face.className='face';
+  face.style.backgroundImage=`url("${base}tiles.png${revision}")`;
+  face.style.backgroundSize=`${ids.length*100}% ${rows.length*100}%`;
+  face.style.backgroundPosition=`${x/(ids.length-1)*100}% ${y/(rows.length-1)*100}%`;
+  const label=document.createElement('span');label.className='label';label.textContent=id.endsWith('r')?id.slice(0,-1)+' 赤':id;
+  cell.append(face,label);row.append(cell);
+ });
+ document.querySelector('#tiles').append(title,row);
+});
+</script>
+</body>
+</html>

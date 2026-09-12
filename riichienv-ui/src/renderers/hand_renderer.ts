@@ -1,3 +1,5 @@
+import type { BoardState } from '../types';
+import { relativeSeat } from './seat_position';
 import { TileRenderer } from './tile_renderer';
 
 export class HandRenderer {
@@ -10,6 +12,7 @@ export class HandRenderer {
         dahaiAnim?: { insertIdx: number; tsumogiri: boolean },
         shouldAnimate: boolean = true,
         playerCount: number = 4,
+        state?: Pick<BoardState, 'players'>,
     ): HTMLElement {
         // Hand & Melds Area
         const handArea = document.createElement('div');
@@ -105,7 +108,7 @@ export class HandRenderer {
 
         if (melds.length > 0) {
             melds.forEach((m) => {
-                HandRenderer.renderMeld(meldsDiv, m, playerIndex, playerCount);
+                HandRenderer.renderMeld(meldsDiv, m, playerIndex, playerCount, state);
             });
         }
         handArea.appendChild(meldsDiv);
@@ -117,6 +120,7 @@ export class HandRenderer {
         m: { type: string; tiles: string[]; from: number },
         actor: number,
         playerCount: number = 4,
+        state?: Pick<BoardState, 'players'>,
     ) {
         const mGroup = document.createElement('div');
         Object.assign(mGroup.style, {
@@ -126,9 +130,9 @@ export class HandRenderer {
             gap: '0px', // Reduce gap between tiles within meld to 0 (borders provide separation)
         });
 
-        // Determine relative position of target: (target - actor + pc) % pc
-        // 1: Right, 2: Front, 3: Left
-        const rel = (m.from - actor + playerCount) % playerCount;
+        // Physical source edge: 1=right, 2=opposite, 3=left.
+        // Retain the legacy fallback for standalone callers without round state.
+        const rel = state ? relativeSeat(state, m.from, actor) : (m.from - actor + playerCount) % playerCount;
 
         const tiles = [...m.tiles]; // 3 for Pon/Chi, 4 for Kan
 

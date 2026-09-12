@@ -1,9 +1,16 @@
 import { CHAR_MAP, CHAR_SPRITE_BASE64 } from '../char_assets';
 import { COLORS } from '../constants';
+import { I18n } from '../i18n/index';
+import { relativeSeat } from './seat_position';
 import { TileRenderer } from './tile_renderer';
 
 export class CenterRenderer {
-    static renderCenter(state: any, onCenterClick: (() => void) | null, viewpoint: number = 0): HTMLElement {
+    static renderCenter(
+        state: any,
+        onCenterClick: (() => void) | null,
+        viewpoint: number = 0,
+        i18n = new I18n(),
+    ): HTMLElement {
         const center = document.createElement('div');
         center.className = 'center-info';
         Object.assign(center.style, {
@@ -31,49 +38,11 @@ export class CenterRenderer {
             if (onCenterClick) onCenterClick();
         };
 
-        // Helper to create sprite icon
-        const makeImg = (key: string, size: number = 26) => {
-            const asset = CHAR_MAP[key];
-            if (!asset) return document.createElement('div');
-
-            // Use 36 (base font size) as reference for 100% scale
-            const scale = size / 36.0;
-            // Use full asset width to ensure no clipping, margins are minimal (1px) now
-            // Round UP + 1px safety buffer to ensure we don't cut off sub-pixels in layout
-            const scaledW = Math.ceil(asset.w * scale) + 1;
-
-            const d = document.createElement('div');
-            Object.assign(d.style, {
-                width: `${asset.w + 8}px`,
-                height: `${asset.h}px`,
-                backgroundImage: `url(${CHAR_SPRITE_BASE64})`,
-                backgroundPosition: `-${asset.x}px -${asset.y}px`,
-                backgroundRepeat: 'no-repeat',
-                backgroundColor: 'transparent',
-                transformOrigin: 'center center',
-            });
-            d.style.transform = `scale(${scale})`;
-
-            // Wrapper fits the scaled content width (tight packing)
-            const w = document.createElement('div');
-            Object.assign(w.style, {
-                width: `${scaledW + 8}px`,
-                height: `${size}px`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                overflow: 'visible',
-                marginRight: '-8px',
-            });
-            w.appendChild(d);
-            return w;
-        };
-
         // 1. Render Wind Labels (Corners)
         const pc = state.playerCount || 4;
         const windMap = ['東_red', '南', '西', '北'].slice(0, pc); // Keys in CHAR_MAP
         state.players.forEach((p: any, i: number) => {
-            const relPos = (i - viewpoint + pc) % pc; // 0: Bottom, 1: Right, 2: Top, 3: Left
+            const relPos = relativeSeat(state, i, viewpoint); // 0: Bottom, 1: Right, 2: Top, 3: Left
             const windIdx = p.wind; // 0: East, 1: South, ...
             if (windIdx < 0 || windIdx >= pc) return;
 
@@ -98,47 +67,37 @@ export class CenterRenderer {
             const scale = Math.min(1, targetSize / maxDim);
 
             let rotation: string;
-            if (pc === 3) {
-                // 3P: 0=bottom, 1=right, 2=top (opposite)
-                if (relPos === 1) rotation = '-90deg';
-                else if (relPos === 2) rotation = '180deg';
-                else rotation = '0deg';
-            } else {
-                if (relPos === 1) rotation = '-90deg';
-                else if (relPos === 2) rotation = '180deg';
-                else if (relPos === 3) rotation = '90deg';
-                else rotation = '0deg';
-            }
+
+            if (relPos === 1) rotation = '-90deg';
+            else if (relPos === 2) rotation = '180deg';
+            else if (relPos === 3) rotation = '90deg';
+            else rotation = '0deg';
 
             icon.style.transform = `rotate(${rotation}) scale(${scale})`;
+            if (i18n.locale !== 'ja') {
+                icon.style.backgroundImage = 'none';
+                icon.textContent = i18n.wind(windIdx, true);
+                icon.style.fontSize = '30px';
+                icon.style.fontWeight = 'bold';
+                icon.style.color = windIdx === 0 ? '#ff6b6b' : 'white';
+            }
 
             // Positioning Logic
-            if (pc === 3) {
-                if (relPos === 0) {
-                    icon.style.bottom = '8px';
-                    icon.style.left = '8px';
-                } else if (relPos === 1) {
-                    icon.style.right = '8px';
-                    icon.style.bottom = '8px';
-                } else if (relPos === 2) {
-                    icon.style.top = '8px';
-                    icon.style.right = '8px';
-                }
-            } else {
-                if (relPos === 0) {
-                    icon.style.bottom = '8px';
-                    icon.style.left = '8px';
-                } else if (relPos === 1) {
-                    icon.style.right = '8px';
-                    icon.style.bottom = '8px';
-                } else if (relPos === 2) {
-                    icon.style.top = '8px';
-                    icon.style.right = '8px';
-                } else if (relPos === 3) {
-                    icon.style.left = '8px';
-                    icon.style.top = '8px';
-                }
+
+            if (relPos === 0) {
+                icon.style.bottom = '8px';
+                icon.style.left = '8px';
+            } else if (relPos === 1) {
+                icon.style.right = '8px';
+                icon.style.bottom = '8px';
+            } else if (relPos === 2) {
+                icon.style.top = '8px';
+                icon.style.right = '8px';
+            } else if (relPos === 3) {
+                icon.style.left = '8px';
+                icon.style.top = '8px';
             }
+
             center.appendChild(icon);
         });
 
@@ -159,7 +118,7 @@ export class CenterRenderer {
 
         // Render Scores (Edges)
         state.players.forEach((p: any, i: number) => {
-            const relPos = (i - viewpoint + pc) % pc;
+            const relPos = relativeSeat(state, i, viewpoint);
             const scoreRow = makeScoreRow(p.score);
 
             Object.assign(scoreRow.style, {
@@ -167,42 +126,25 @@ export class CenterRenderer {
                 zIndex: '11',
             });
 
-            if (pc === 3) {
-                // 3P: 0=bottom, 1=right, 2=top (opposite)
-                if (relPos === 0) {
-                    scoreRow.style.bottom = '20px';
-                    scoreRow.style.left = '50%';
-                    scoreRow.style.transform = 'translate(-50%, 0)';
-                } else if (relPos === 1) {
-                    scoreRow.style.right = '26px';
-                    scoreRow.style.top = '50%';
-                    scoreRow.style.transform = 'translate(50%, -50%) rotate(-90deg)';
-                    scoreRow.style.transformOrigin = 'center center';
-                } else if (relPos === 2) {
-                    scoreRow.style.top = '20px';
-                    scoreRow.style.left = '50%';
-                    scoreRow.style.transform = 'translate(-50%, 0) rotate(180deg)';
-                }
-            } else {
-                if (relPos === 0) {
-                    scoreRow.style.bottom = '20px';
-                    scoreRow.style.left = '50%';
-                    scoreRow.style.transform = 'translate(-50%, 0)';
-                } else if (relPos === 1) {
-                    scoreRow.style.right = '26px';
-                    scoreRow.style.top = '50%';
-                    scoreRow.style.transform = 'translate(50%, -50%) rotate(-90deg)';
-                    scoreRow.style.transformOrigin = 'center center';
-                } else if (relPos === 2) {
-                    scoreRow.style.top = '20px';
-                    scoreRow.style.left = '50%';
-                    scoreRow.style.transform = 'translate(-50%, 0) rotate(180deg)';
-                } else if (relPos === 3) {
-                    scoreRow.style.left = '26px';
-                    scoreRow.style.top = '50%';
-                    scoreRow.style.transform = 'translate(-50%, -50%) rotate(90deg)';
-                }
+            if (relPos === 0) {
+                scoreRow.style.bottom = '20px';
+                scoreRow.style.left = '50%';
+                scoreRow.style.transform = 'translate(-50%, 0)';
+            } else if (relPos === 1) {
+                scoreRow.style.right = '26px';
+                scoreRow.style.top = '50%';
+                scoreRow.style.transform = 'translate(50%, -50%) rotate(-90deg)';
+                scoreRow.style.transformOrigin = 'center center';
+            } else if (relPos === 2) {
+                scoreRow.style.top = '20px';
+                scoreRow.style.left = '50%';
+                scoreRow.style.transform = 'translate(-50%, 0) rotate(180deg)';
+            } else if (relPos === 3) {
+                scoreRow.style.left = '26px';
+                scoreRow.style.top = '50%';
+                scoreRow.style.transform = 'translate(-50%, -50%) rotate(90deg)';
             }
+
             center.appendChild(scoreRow);
 
             // Riichi Stick
@@ -234,40 +176,24 @@ export class CenterRenderer {
                 // We place it slightly outside the box, towards the player
                 const offset = '10px'; // pushes it out by 10px
 
-                if (pc === 3) {
-                    // 3P: 0=bottom, 1=right, 2=top (opposite)
-                    if (relPos === 0) {
-                        stick.style.bottom = offset;
-                        stick.style.left = '50%';
-                        stick.style.transform = 'translate(-50%, 0)';
-                    } else if (relPos === 1) {
-                        stick.style.right = offset;
-                        stick.style.top = '50%';
-                        stick.style.transform = 'translate(50%, -50%) rotate(90deg)';
-                    } else if (relPos === 2) {
-                        stick.style.top = offset;
-                        stick.style.left = '50%';
-                        stick.style.transform = 'translate(-50%, 0)';
-                    }
-                } else {
-                    if (relPos === 0) {
-                        stick.style.bottom = offset;
-                        stick.style.left = '50%';
-                        stick.style.transform = 'translate(-50%, 0)';
-                    } else if (relPos === 1) {
-                        stick.style.right = offset;
-                        stick.style.top = '50%';
-                        stick.style.transform = 'translate(50%, -50%) rotate(90deg)';
-                    } else if (relPos === 2) {
-                        stick.style.top = offset;
-                        stick.style.left = '50%';
-                        stick.style.transform = 'translate(-50%, 0)';
-                    } else if (relPos === 3) {
-                        stick.style.left = offset;
-                        stick.style.top = '50%';
-                        stick.style.transform = 'translate(-50%, -50%) rotate(90deg)';
-                    }
+                if (relPos === 0) {
+                    stick.style.bottom = offset;
+                    stick.style.left = '50%';
+                    stick.style.transform = 'translate(-50%, 0)';
+                } else if (relPos === 1) {
+                    stick.style.right = offset;
+                    stick.style.top = '50%';
+                    stick.style.transform = 'translate(50%, -50%) rotate(90deg)';
+                } else if (relPos === 2) {
+                    stick.style.top = offset;
+                    stick.style.left = '50%';
+                    stick.style.transform = 'translate(-50%, 0)';
+                } else if (relPos === 3) {
+                    stick.style.left = offset;
+                    stick.style.top = '50%';
+                    stick.style.transform = 'translate(-50%, -50%) rotate(90deg)';
                 }
+
                 center.appendChild(stick);
             }
         });
@@ -292,24 +218,18 @@ export class CenterRenderer {
             marginBottom: '4px',
         });
 
-        // Round Wind (0-3 -> E S W N)
-        const roundWindNames = ['東', '南', '西', '北'];
-        const rWindIdx = Math.floor(state.round / pc);
-        const rWindKey = roundWindNames[rWindIdx] || '東';
-
-        // Round Number (0-3 -> 1 2 3 4)
-        const rNumIdx = state.round % pc;
-        const rNumKey = ['一', '二', '三', '四'][rNumIdx] || '一';
-
-        row1.appendChild(makeImg(rWindKey, 26));
-        row1.appendChild(makeImg(rNumKey, 26));
-        row1.appendChild(makeImg('局', 26));
+        row1.textContent = i18n.round(state.round, pc);
+        row1.style.fontSize = '24px';
+        row1.style.fontWeight = 'bold';
 
         contentContainer.appendChild(row1);
 
         // Row 2: Text "{honba}, {kyotaku}"
         const row2 = document.createElement('div');
-        row2.innerText = `${state.honba}, ${state.kyotaku}`;
+        row2.innerText = i18n.text('{honba} honba / {kyotaku} riichi sticks', {
+            honba: state.honba,
+            kyotaku: state.kyotaku,
+        });
         Object.assign(row2.style, {
             fontSize: '1.2em',
             fontWeight: 'bold',
