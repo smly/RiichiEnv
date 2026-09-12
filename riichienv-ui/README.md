@@ -20,7 +20,7 @@ A standalone, web-based UI for RiichiEnv featuring 2D/3D replay viewers and a li
     - `tile_renderer.ts`, `hand_renderer.ts`, `river_renderer.ts`, `center_renderer.ts`, `info_renderer.ts`, `result_renderer.ts`: Sub-renderers.
   - `src/wasm/`: WASM integration layer (`loader.ts`, `bridge.ts`).
   - `src/styles.ts`, `src/styles_3d.ts`: CSS styles for 2D/3D modes.
-- `riichienv-mahjong-tiles-regular/`: SVG tile assets.
+- `assets/tile-art/tiles.png`, `tiles.json`: Tile atlas and tile positions.
 - `scripts/`: Build scripts (`gen_tiles.js`, `gen_sprite.js`, `build-wasm.sh`, `compress.js`).
 - `dist/viewer.js`: Bundled IIFE format (registers globals on `window`).
 - `dist/viewer.esm.js`: Bundled ESM format.
@@ -49,7 +49,7 @@ A standalone, web-based UI for RiichiEnv featuring 2D/3D replay viewers and a li
     ```
     This will:
     - Build `riichienv-wasm` via `wasm-pack` (`npm run build:wasm`).
-    - Generate `src/tiles.ts` from SVG assets (`npm run build:tiles`).
+    - Generate `src/tiles.ts` from the committed PNG atlas and tile positions (`npm run build:tiles`).
     - Bundle and minify into `dist/viewer.js` (IIFE) and `dist/viewer.esm.js` (ESM) using `esbuild` with WASM binary inlined.
     - Compress the bundle into `dist/viewer.js.gz`.
     - Copy `dist/viewer.js.gz` to `../src/riichienv/visualizer/assets/viewer.js.gz`.
@@ -111,6 +111,10 @@ viewer.pushEvent({ type: 'tsumo', ... });
 
 When WASM is loaded, wait tiles are automatically calculated in the browser for hands without pre-computed `meta.waits`.
 
+## Validation
+
+After building, run `npm test`, `npm run lint`, and `npm run typecheck`.
+
 ## Release Procedure
 
 1.  Follow the **Build Instructions** above (`npm run build`).
@@ -118,3 +122,28 @@ When WASM is loaded, wait tiles are automatically calculated in the browser for 
 3.  Commit the updated assets.
 
 Note: `src/tiles.ts`, `src/wasm/pkg/`, and `dist/` are excluded from the repository. The visualizer package transparently handles the Gzipped asset.
+
+### Display language
+
+The replay viewer supports Japanese (`ja`), English (`en`), Simplified Chinese
+(`zh-Hans`), and Traditional Chinese (`zh-Hant`), defaulting to Japanese.
+Change **設定 → 表示言語** to switch the
+current viewer immediately, or use the embedding API:
+
+```js
+const viewer = RiichiViewer.mount('viewer', { log, language: 'en' });
+viewer.setLanguage('ja');
+console.log(viewer.getLanguage()); // 'ja'
+```
+
+Language is stored per viewer instance. Switching preserves the replay position,
+viewpoint, and settings form inputs. It does not translate player names, tile
+artwork, or raw replay/debug data. Opponent-hand and wait-tile visibility settings
+apply immediately. Replays can be loaded from an HTTP(S) URL or a local `.jsonl`
+or `.jsonl.gz` file; local files are read in the browser.
+
+To add a language, add a complete message catalog matching `Messages` in
+`src/i18n/ja.ts`, supply the yaku ID catalog, and register its BCP 47 locale ID and
+native display name in `src/i18n/index.ts`. The settings options and exported
+`Locale` type derive from that registry. Translation completeness and placeholder
+compatibility are tested.

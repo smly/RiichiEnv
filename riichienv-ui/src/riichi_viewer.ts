@@ -1,5 +1,6 @@
 import { computeKyokuKeyEvents, computeKyokuSummaries } from './analyzer';
 import type { BaseViewer } from './base_viewer';
+import type { Locale } from './i18n/index';
 import type { KyokuInfo, KyokuKeyEvent, KyokuSummary, ViewerEventMap, ViewerOptions, ViewerPosition } from './types';
 import { Viewer } from './viewer';
 import { Viewer3D } from './viewer_3d';
@@ -73,6 +74,7 @@ export class RiichiViewer {
             );
         }
 
+        if (options.language) viewer.setLanguage(options.language);
         const rv = new RiichiViewer(viewer);
 
         // Handle initial kyoku position
@@ -81,6 +83,13 @@ export class RiichiViewer {
         }
 
         return rv;
+    }
+
+    setLanguage(locale: Locale) {
+        this._viewer.setLanguage(locale);
+    }
+    getLanguage(): Locale {
+        return this._viewer.i18n.locale;
     }
 
     // Navigation
@@ -152,7 +161,7 @@ export class RiichiViewer {
         if (!this._viewer.controller) return;
         // Find or create a dummy button for the controller
         const btn = this._viewer.container.querySelector(
-            '.icon-btn[title="Auto"], .icon-btn[title="Play/Pause"]',
+            '.replay-play, .icon-btn[data-control="btn-auto"]',
         ) as HTMLElement;
         if (btn) {
             this._viewer.controller.toggleAutoPlay(btn);
@@ -197,10 +206,8 @@ export class RiichiViewer {
 
     // Events
     on<K extends keyof ViewerEventMap>(event: K, handler: EventHandler<ViewerEventMap[K]>): void {
-        if (!this._listeners[event]) {
-            this._listeners[event] = new Set();
-        }
-        (this._listeners[event] as Set<EventHandler<ViewerEventMap[K]>>).add(handler);
+        const listeners = this._listeners as Partial<Record<K, Set<EventHandler<ViewerEventMap[K]>>>>;
+        (listeners[event] ??= new Set()).add(handler);
     }
 
     off<K extends keyof ViewerEventMap>(event: K, handler: EventHandler<ViewerEventMap[K]>): void {

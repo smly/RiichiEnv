@@ -1,15 +1,19 @@
 import { createLayoutConfig4P, type LayoutConfig } from '../config';
+import { I18n } from '../i18n/index';
 import { VIEWER_CSS } from '../styles';
 import type { BoardState } from '../types';
+import { type DisplayOptions, presentBoard } from './board_presentation';
 import { CenterRenderer } from './center_renderer';
 import { HandRenderer } from './hand_renderer';
 import { InfoRenderer } from './info_renderer';
 import type { IRenderer } from './renderer_interface';
 import { ResultRenderer } from './result_renderer';
 import { RiverRenderer } from './river_renderer';
+import { relativeSeat } from './seat_position';
 import { TileRenderer } from './tile_renderer';
 
 export class Renderer2D implements IRenderer {
+    i18n = new I18n();
     container: HTMLElement;
     private boardElement: HTMLElement | null = null;
     private layout: LayoutConfig;
@@ -113,7 +117,8 @@ export class Renderer2D implements IRenderer {
         }
     }
 
-    render(state: BoardState, debugPanel?: HTMLElement) {
+    render(sourceState: BoardState, debugPanel?: HTMLElement, displayOptions?: Readonly<DisplayOptions>) {
+        const state = presentBoard(sourceState, this.viewpoint, displayOptions);
         const pc = state.playerCount;
 
         // Ensure persistent DOM structure exists
@@ -136,7 +141,7 @@ export class Renderer2D implements IRenderer {
         }
 
         // Update center slot content
-        const center = CenterRenderer.renderCenter(state, this.onCenterClick, this.viewpoint);
+        const center = CenterRenderer.renderCenter(state, this.onCenterClick, this.viewpoint, this.i18n);
         this.centerSlot!.replaceChildren(center);
 
         const angles = this.layout.playerAngles;
@@ -165,7 +170,7 @@ export class Renderer2D implements IRenderer {
         });
 
         state.players.forEach((p, i) => {
-            const relIndex = (i - this.viewpoint + pc) % pc;
+            const relIndex = relativeSeat(i, this.viewpoint);
 
             // Update wrapper transform (may change with viewpoint)
             this.playerWrappers[i].style.transform = `rotate(${angles[relIndex]}deg)`;
@@ -181,20 +186,17 @@ export class Renderer2D implements IRenderer {
             if (state.lastEvent && state.lastEvent.actor === i) {
                 const type = state.lastEvent.type;
                 if (['chi', 'pon', 'kan', 'ankan', 'daiminkan', 'kakan', 'reach', 'kita'].includes(type)) {
-                    label = type.charAt(0).toUpperCase() + type.slice(1);
-                    if (type === 'daiminkan') label = 'Kan';
-                    if (type === 'reach') label = 'Reach';
-                    if (type === 'kita') label = 'Pei';
+                    label = this.i18n.call(type);
                     showOverlay = true;
                 } else if (type === 'hora') {
-                    label = state.lastEvent.target === state.lastEvent.actor ? 'Tsumo' : 'Ron';
+                    label = this.i18n.text(state.lastEvent.target === state.lastEvent.actor ? 'Tsumo' : 'Ron');
                     showOverlay = true;
                 }
             }
 
             // Ryukyoku Check (For Viewpoint Player Only)
             if (state.lastEvent && state.lastEvent.type === 'ryukyoku' && i === this.viewpoint) {
-                label = 'Ryukyoku';
+                label = this.i18n.text('Ryukyoku');
                 showOverlay = true;
             }
 
@@ -226,7 +228,7 @@ export class Renderer2D implements IRenderer {
                 });
                 const waitLabel = document.createElement('span');
                 waitLabel.style.marginRight = '4px';
-                waitLabel.textContent = 'Wait:';
+                waitLabel.textContent = this.i18n.text('Wait:');
                 wDiv.appendChild(waitLabel);
                 p.waits.forEach((w: string) => {
                     const d = document.createElement('div');
@@ -299,7 +301,6 @@ export class Renderer2D implements IRenderer {
                 hasDraw,
                 dAnim,
                 shouldAnimate,
-                pc,
             );
             children.push(hand);
 
@@ -319,10 +320,10 @@ export class Renderer2D implements IRenderer {
             let modal: HTMLElement | null = null;
 
             if (state.lastEvent.meta.ryukyoku) {
-                modal = ResultRenderer.renderRyukyokuModal(state.lastEvent.meta.ryukyoku, state);
+                modal = ResultRenderer.renderRyukyokuModal(state.lastEvent.meta.ryukyoku, sourceState, this.i18n);
             } else if (state.lastEvent.meta.results) {
                 const results = state.lastEvent.meta.results;
-                modal = ResultRenderer.renderModal(results, state);
+                modal = ResultRenderer.renderModal(results, sourceState, this.i18n);
             }
 
             if (modal) {

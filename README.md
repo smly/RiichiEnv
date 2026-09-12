@@ -25,7 +25,7 @@
 * **Game Visualization**: Integrated replay viewer for Jupyter Notebooks.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/smly/RiichiEnv/main/docs/assets/visualizer1.png" width="42%"> <img src="https://raw.githubusercontent.com/smly/RiichiEnv/main/docs/assets/visualizer2.png" width="38%">
+<img src="https://raw.githubusercontent.com/smly/RiichiEnv/main/docs/assets/visualizer1.png" width="49%" alt="Four-player mahjong in English with opponent hands hidden"> <img src="https://raw.githubusercontent.com/smly/RiichiEnv/main/docs/assets/visualizer2.png" width="49%" alt="Three-player mahjong in Japanese with two extracted North tiles and opponent hands hidden">
 </div>
 
 ## 📦 Installation
