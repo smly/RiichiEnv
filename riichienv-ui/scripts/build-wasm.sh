@@ -10,4 +10,6 @@ wasm-pack build "$REPO_ROOT/riichienv-wasm" \
   --target web \
   --out-dir "$OUT_DIR"
 
+cp "$REPO_ROOT/riichienv-core/LICENSE.nyanten" "$OUT_DIR/LICENSE.nyanten"
+
 echo "[build-wasm] WASM build complete: $OUT_DIR"

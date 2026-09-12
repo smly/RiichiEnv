@@ -14,6 +14,7 @@ export interface ViewerLike {
 export class ReplayController {
     viewer: ViewerLike;
     autoPlayTimer: number | null = null;
+    private listeners = new AbortController();
     private autoBtn: HTMLElement | null = null;
     private lastActionTime: number = 0;
     private static readonly ACTION_THROTTLE_MS = 80;
@@ -29,13 +30,28 @@ export class ReplayController {
         return false;
     }
 
-    setupKeyboardControls(target: HTMLElement | Window) {
-        target.addEventListener('keydown', (e: any) => {
-            if (e.key === 'ArrowRight') this.stepForward();
-            if (e.key === 'ArrowLeft') this.stepBackward();
-            if (e.key === 'ArrowUp') this.prevTurn();
-            if (e.key === 'ArrowDown') this.nextTurn();
-        });
+    setupKeyboardControls(target: HTMLElement | Window, playButton?: HTMLElement) {
+        target.addEventListener(
+            'keydown',
+            (e: any) => {
+                const element = e.target as HTMLElement;
+                if (element?.closest?.('input, select, textarea, [contenteditable="true"], .re-modal-overlay')) return;
+                const actions: Record<string, () => void> = {
+                    ArrowRight: () => this.stepForward(),
+                    ArrowLeft: () => this.stepBackward(),
+                    ArrowUp: () => this.prevTurn(),
+                    ArrowDown: () => this.nextTurn(),
+                };
+                if (actions[e.key]) {
+                    e.preventDefault();
+                    actions[e.key]();
+                } else if (e.key === ' ' && playButton && !element?.closest?.('button')) {
+                    e.preventDefault();
+                    this.toggleAutoPlay(playButton);
+                }
+            },
+            { signal: this.listeners.signal },
+        );
     }
 
     setupWheelControls(target: HTMLElement) {
@@ -59,7 +75,7 @@ export class ReplayController {
                     this.stepBackward();
                 }
             },
-            { passive: false },
+            { passive: false, signal: this.listeners.signal },
         );
     }
 
@@ -68,6 +84,7 @@ export class ReplayController {
     }
 
     stepForward() {
+        this.stopAutoPlay();
         if (this.isThrottled()) return;
         if (this.viewer.gameState.stepForward()) {
             this.viewer.update();
@@ -76,6 +93,7 @@ export class ReplayController {
     }
 
     stepBackward() {
+        this.stopAutoPlay();
         if (this.isThrottled()) return;
         if (this.viewer.gameState.stepBackward()) {
             this.viewer.update();
@@ -84,6 +102,7 @@ export class ReplayController {
     }
 
     nextTurn() {
+        this.stopAutoPlay();
         if (this.isThrottled()) return;
         const vp = this.viewer.renderer.viewpoint;
         if (this.viewer.gameState.jumpToNextTurn(vp)) {
@@ -93,6 +112,7 @@ export class ReplayController {
     }
 
     prevTurn() {
+        this.stopAutoPlay();
         if (this.isThrottled()) return;
         const vp = this.viewer.renderer.viewpoint;
         if (this.viewer.gameState.jumpToPrevTurn(vp)) {
@@ -102,6 +122,7 @@ export class ReplayController {
     }
 
     nextKyoku() {
+        this.stopAutoPlay();
         if (this.isThrottled()) return;
         if (this.viewer.gameState.jumpToNextKyoku()) {
             this.viewer.update();
@@ -110,6 +131,7 @@ export class ReplayController {
     }
 
     prevKyoku() {
+        this.stopAutoPlay();
         if (this.isThrottled()) return;
         if (this.viewer.gameState.jumpToPrevKyoku()) {
             this.viewer.update();
@@ -123,6 +145,7 @@ export class ReplayController {
             this.stopAutoPlay();
         } else {
             btn.classList.add('active-btn');
+            btn.setAttribute('aria-pressed', 'true');
 
             const loop = () => {
                 if (!this.autoPlayTimer) return; // Stopped
@@ -175,7 +198,13 @@ export class ReplayController {
         }
         if (this.autoBtn) {
             this.autoBtn.classList.remove('active-btn');
+            this.autoBtn.setAttribute('aria-pressed', 'false');
         }
+    }
+
+    destroy() {
+        this.stopAutoPlay();
+        this.listeners.abort();
     }
 
     toggleLog(btn: HTMLElement, panel: HTMLElement) {
@@ -183,9 +212,11 @@ export class ReplayController {
         if (display === 'none' || !display) {
             panel.style.display = 'block';
             btn.classList.add('active-btn');
+            btn.setAttribute('aria-pressed', 'true');
         } else {
             panel.style.display = 'none';
             btn.classList.remove('active-btn');
+            btn.setAttribute('aria-pressed', 'false');
         }
     }
 }

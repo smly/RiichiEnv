@@ -12,7 +12,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 
 dependencies = [
     "pyyaml>=6.0.3",
