@@ -386,7 +386,13 @@ The GitHub Actions workflow will automatically:
 - Publish the package to PyPI.
 - Publish `riichienv-core` to crates.io.
 
-Publishing the GitHub Release triggers `.github/workflows/release.yml` via `release.published`. Merging the PR, pushing a tag, or saving a draft release does not trigger package publication. There is no manual `workflow_dispatch` trigger.
+Publishing the GitHub Release triggers `.github/workflows/release.yml` via `release.published`. Merging the PR, pushing a tag, or saving a draft release does not trigger package publication. To rebuild an existing release with the updated workflow, merge the workflow fix into `main` and run:
+
+```bash
+gh workflow run release.yml --ref main -f tag=v0.4.11 -f publish=true
+```
+
+Omit `-f publish=true` for a build-only run. All jobs check out the specified tag; a normal **Re-run jobs** uses the original workflow revision. This recovery command publishes to GitHub Releases, PyPI, and crates.io; use it while the crate version is still unpublished.
 
 ### 4. Verify Publication
 
