@@ -100,14 +100,20 @@ fn issue_214_south_1_repeats_after_non_dealer_nagashi() {
         assert!(state.last_error.is_none(), "{:?}", state.last_error);
     }
 
-    // All events through settlement, including the riichi deposit in deltas,
-    // match the report. Only the dealer of the following round changes.
+    // Preserve the original report, but exclude the dealer's accepted riichi
+    // deposit from the expected draw payment (issue #247).
+    let mut expected = events.clone();
+    let draw = expected
+        .iter_mut()
+        .find(|event| event["type"] == "ryukyoku")
+        .unwrap();
+    draw["deltas"] = json!([-4000, -2000, 8000, -2000]);
     let generated: Vec<Value> = state
         .mjai_log
         .iter()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    assert_eq!(&generated[..events.len()], events.as_slice());
+    assert_eq!(&generated[..expected.len()], expected.as_slice());
     let next = &generated[events.len()];
     assert_eq!(next["type"], "start_kyoku");
     assert_eq!(next["bakaze"], "S");
