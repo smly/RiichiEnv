@@ -365,21 +365,76 @@ describe('GameState', () => {
             expect(state.kyotaku).toBe(1);
         });
 
-        it('should detect double riichi (first turn, no calls)', () => {
+        it.each([3, 4])('should preserve double riichi through later calls and hora in %iP', (playerCount) => {
+            const actor = playerCount - 1;
+            const events: MjaiEvent[] = [
+                makeStartKyoku({ tehais: Array.from({ length: playerCount }, () => ['1m', '2m', '3m', '4m']) }),
+                ...Array.from({ length: actor }, (_, pid): MjaiEvent => ({ type: 'dahai', actor: pid, pai: '1m' })),
+                { type: 'reach', actor },
+                { type: 'dahai', actor, pai: '1m' },
+                { type: 'pon', actor: 0, target: actor, pai: '1m', consumed: ['1m', '1m'] },
+                { type: 'reach_accepted', actor },
+                { type: 'dahai', actor: 0, pai: '2m' },
+                { type: 'dahai', actor, pai: '2m' },
+                { type: 'hora', actor, target: 0, pai: '3m' },
+            ];
+            const gs = new GameState(events, playerCount === 3 ? createGameConfig3P() : undefined);
+            gs.jumpTo(events.length);
+            expect(gs.getState().conditions.doubleRiichi[actor]).toBe(true);
+            expect(gs.events[gs.events.length - 1]._horaConditions?.doubleRiichi).toBe(true);
+            expect(gs.getState().conditions.doubleRiichi[0]).toBe(false);
+
+            // Rewinding and replaying must reconstruct the same declaration-time state.
+            gs.jumpTo(0);
+            gs.jumpTo(events.length);
+            expect(gs.getState().conditions.doubleRiichi[actor]).toBe(true);
+        });
+
+        it.each(['before', 'after', 'inline'])('should detect a declaration encoded as %s the discard', (format) => {
             const events: MjaiEvent[] = [
                 makeStartKyoku(),
                 { type: 'tsumo', actor: 0, pai: '1s' },
+                ...(format === 'before' ? [{ type: 'reach', actor: 0 } as MjaiEvent] : []),
+                { type: 'dahai', actor: 0, pai: '1m', reach: format === 'inline' },
+                ...(format === 'after' ? [{ type: 'reach', actor: 0 } as MjaiEvent] : []),
+                { type: 'reach_accepted', actor: 0 },
+            ];
+            const gs = new GameState(events);
+            gs.jumpTo(events.length);
+            expect(gs.getState().conditions.doubleRiichi[0]).toBe(true);
+        });
+
+        it.each<MjaiEvent>([
+            { type: 'dahai', actor: 0, pai: '2m' },
+            { type: 'pon', actor: 1, target: 2, pai: '2m', consumed: ['2m', '2m'] },
+            { type: 'ankan', actor: 1, consumed: ['2m', '2m', '2m', '2m'] },
+        ])('should reject double riichi after $type before the declaration', (priorEvent) => {
+            const events: MjaiEvent[] = [
+                makeStartKyoku(),
+                priorEvent,
+                { type: 'tsumo', actor: 0, pai: '1s' },
+                { type: 'reach', actor: 0 },
                 { type: 'dahai', actor: 0, pai: '1m' },
                 { type: 'reach_accepted', actor: 0 },
             ];
             const gs = new GameState(events);
             gs.jumpTo(events.length);
-            const state = gs.getState();
-            // First turn not completed before reach_accepted since dahai sets firstTurnCompleted
-            // But the check is !callsMade && !firstTurnCompleted — by the time reach_accepted
-            // is processed, firstTurnCompleted[0] is already true from the dahai, so
-            // this should NOT be double riichi
-            expect(state.conditions.doubleRiichi[0]).toBe(false);
+            expect(gs.getState().conditions.doubleRiichi[0]).toBe(false);
+        });
+
+        it('should reset double riichi at the start of the next hand', () => {
+            const events: MjaiEvent[] = [
+                makeStartKyoku(),
+                { type: 'reach', actor: 0 },
+                { type: 'dahai', actor: 0, pai: '1m' },
+                { type: 'reach_accepted', actor: 0 },
+                makeStartKyoku({ kyoku: 2 }),
+            ];
+            const gs = new GameState(events);
+            gs.jumpTo(events.length - 1);
+            expect(gs.getState().conditions.doubleRiichi[0]).toBe(true);
+            gs.jumpTo(events.length);
+            expect(gs.getState().conditions.doubleRiichi).toEqual([false, false, false, false]);
         });
     });
 

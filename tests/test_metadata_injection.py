@@ -121,3 +121,79 @@ def test_waits_calculation(enriched_log):
                 break
 
     assert found_waits, "No waits calculated in any Dahai event"
+
+
+def make_riichi_round(player_count, actor, *, inline_reach=False, late_reach=False, call=None, call_before=False):
+    # Only the winner's hand matters for scoring; other players draw and discard.
+    tehais = [[] for _ in range(player_count)]
+    tehais[actor] = ["1p", "2p", "3p", "4p", "5pr", "6p", "7s", "8s", "9s", "5s", "5s", "4s", "6s"]
+    events = [{"type": "start_kyoku", "tehais": tehais, "dora_marker": "C", "oya": 0, "honba": 1}]
+
+    def discard(pid, tile, reach=False):
+        events.append({"type": "tsumo", "actor": pid, "pai": tile})
+        if reach and not inline_reach:
+            events.append({"type": "reach", "actor": pid})
+        events.append({"type": "dahai", "actor": pid, "pai": tile, "reach": reach and inline_reach})
+        if reach:
+            events.append({"type": "reach_accepted", "actor": pid})
+
+    if call and call_before:
+        events.append(call)
+    if late_reach:
+        for pid in range(player_count):
+            discard(pid, "E")
+    for pid in range(player_count):
+        discard(pid, "S", reach=pid == actor)
+    if call and not call_before:
+        events.append(call)
+    # End the winner's ippatsu window before a later ron.
+    discard(actor, "W")
+    target = (actor + 1) % player_count
+    discard(target, "5s")
+    events.extend(
+        [
+            {"type": "hora", "actor": actor, "target": target, "pai": "5s", "ura_markers": ["4p"]},
+            {"type": "end_kyoku"},
+        ]
+    )
+    return events
+
+
+@pytest.mark.parametrize("player_count,actor", [(4, 0), (4, 3), (3, 0), (3, 2)])
+@pytest.mark.parametrize("inline_reach", [False, True])
+@pytest.mark.parametrize("late_reach", [False, True])
+def test_riichi_scoring_after_first_round(player_count, actor, inline_reach, late_reach):
+    events = make_riichi_round(player_count, actor, inline_reach=inline_reach, late_reach=late_reach)
+    enriched = MetadataInjector(events).process()
+    score = get_hora_score(enriched)
+    assert score is not None
+    assert set(score["yaku"]) == {2 if late_reach else 18, 32, 33}
+    assert score["han"] == (3 if late_reach else 4)
+    assert score["fu"] == 40
+    # Metadata points exclude honba; the browser adds it when scoring with WASM.
+    points = (7700 if actor == 0 else 5200) if late_reach else (12000 if actor == 0 else 8000)
+    assert score["points"] == str(points)
+    assert enriched[-1]["meta"]["results"][0]["score"] == score
+
+
+@pytest.mark.parametrize("call_before", [False, True])
+@pytest.mark.parametrize(
+    "call",
+    [
+        {"type": "pon", "actor": 1, "target": 0, "pai": "N", "consumed": ["N", "N"]},
+        {"type": "ankan", "actor": 1, "consumed": ["N"] * 4},
+    ],
+)
+def test_double_riichi_depends_on_calls_before_declaration(call, call_before):
+    events = make_riichi_round(4, 3, call=call, call_before=call_before)
+    score = get_hora_score(MetadataInjector(events).process())
+    assert score is not None
+    assert set(score["yaku"]) == {2 if call_before else 18, 32, 33}
+
+
+def test_double_riichi_resets_between_rounds():
+    events = make_riichi_round(4, 3) + make_riichi_round(4, 3, late_reach=True)
+    enriched = MetadataInjector(events).process()
+    scores = [ev["meta"]["score"] for ev in enriched if ev["type"] == "hora"]
+    assert set(scores[0]["yaku"]) == {18, 32, 33}
+    assert set(scores[1]["yaku"]) == {2, 32, 33}
