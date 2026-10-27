@@ -1,3 +1,4 @@
+import { relativeSeat } from './seat_position';
 import { TileRenderer } from './tile_renderer';
 
 export class HandRenderer {
@@ -9,7 +10,6 @@ export class HandRenderer {
         hasDraw?: boolean,
         dahaiAnim?: { insertIdx: number; tsumogiri: boolean },
         shouldAnimate: boolean = true,
-        playerCount: number = 4,
     ): HTMLElement {
         // Hand & Melds Area
         const handArea = document.createElement('div');
@@ -34,7 +34,6 @@ export class HandRenderer {
             flexGrow: 1, // Let it take available space but align start
         });
 
-        const _totalTiles = hand.length + melds.length * 3;
         // Use passed hasDraw flag, default to false if undefined
         const isSeparated = hasDraw || false;
 
@@ -105,7 +104,7 @@ export class HandRenderer {
 
         if (melds.length > 0) {
             melds.forEach((m) => {
-                HandRenderer.renderMeld(meldsDiv, m, playerIndex, playerCount);
+                HandRenderer.renderMeld(meldsDiv, m, playerIndex);
             });
         }
         handArea.appendChild(meldsDiv);
@@ -116,7 +115,6 @@ export class HandRenderer {
         container: HTMLElement,
         m: { type: string; tiles: string[]; from: number },
         actor: number,
-        playerCount: number = 4,
     ) {
         const mGroup = document.createElement('div');
         Object.assign(mGroup.style, {
@@ -126,9 +124,8 @@ export class HandRenderer {
             gap: '0px', // Reduce gap between tiles within meld to 0 (borders provide separation)
         });
 
-        // Determine relative position of target: (target - actor + pc) % pc
-        // 1: Right, 2: Front, 3: Left
-        const rel = (m.from - actor + playerCount) % playerCount;
+        // Physical source edge: 1=right, 2=opposite, 3=left.
+        const rel = relativeSeat(m.from, actor);
 
         const tiles = [...m.tiles]; // 3 for Pon/Chi, 4 for Kan
 

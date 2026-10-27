@@ -1,4 +1,6 @@
+import type { I18n } from '../i18n/index';
 import type { BoardState } from '../types';
+import type { DisplayOptions } from './board_presentation';
 
 /**
  * Common interface for all renderer implementations (2D, 3D, etc.).
@@ -8,6 +10,7 @@ import type { BoardState } from '../types';
  * changing the viewer or game-state logic.
  */
 export interface IRenderer {
+    i18n?: I18n;
     /** Index of the player shown at the bottom of the board. */
     viewpoint: number;
 
@@ -17,8 +20,11 @@ export interface IRenderer {
     /** Callback fired when the user clicks the center info area. */
     onCenterClick: (() => void) | null;
 
+    /** Optional settings entry point for renderers that expose one. */
+    onSettingsClick?: (() => void) | null;
+
     /** Render the current board state. */
-    render(state: BoardState, debugPanel?: HTMLElement): void;
+    render(state: BoardState, debugPanel?: HTMLElement, displayOptions?: Readonly<DisplayOptions>): void;
 
     /** Optional: resize the rendered board to fit a given width. */
     resize?(width: number): void;

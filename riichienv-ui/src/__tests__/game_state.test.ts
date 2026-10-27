@@ -99,6 +99,31 @@ describe('GameState', () => {
         });
     });
 
+    describe('player display names', () => {
+        it('uses Player0 through Player3 when names are missing', () => {
+            expect(new GameState([]).getState().playerNames).toEqual(['Player0', 'Player1', 'Player2', 'Player3']);
+            expect(new GameState([], createGameConfig3P()).getState().playerNames).toEqual([
+                'Player0',
+                'Player1',
+                'Player2',
+            ]);
+        });
+
+        it('replaces numbered log placeholders and preserves custom names', () => {
+            const events = [{ type: 'start_game', names: ['0', 'Alice', '2', '牌効率くん'] }, makeStartKyoku()];
+            const gs = new GameState(events);
+            expect(gs.getState().playerNames).toEqual(['Player0', 'Alice', 'Player2', '牌効率くん']);
+            gs.jumpTo(0);
+            expect(gs.getState().playerNames).toEqual(['Player0', 'Alice', 'Player2', '牌効率くん']);
+        });
+
+        it('keeps explicitly configured names, including numeric names', () => {
+            const events = [{ type: 'start_game', names: ['0', '1', '2', '3'] }];
+            const gs = new GameState(events, undefined, [{ name: '0' }, { name: 'Custom bot' }]);
+            expect(gs.getState().playerNames).toEqual(['0', 'Custom bot', 'Player2', 'Player3']);
+        });
+    });
+
     describe('3P config initialization', () => {
         it('should create with 3 players', () => {
             const config = createGameConfig3P();

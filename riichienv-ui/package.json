@@ -20,18 +20,20 @@
     "build:no-wasm": "npm run build:tiles && npm run build:bundle && npm run build:esm && npm run build:compress && npm run build:copy",
     "watch": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --loader:.wasm=binary --global-name=RiichiEnvViewer --watch",
     "dev": "esbuild src/index.ts --bundle --outfile=dist/viewer.js --format=iife --loader:.wasm=binary --servedir=.",
+    "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
     "lint:fix": "biome check src/ --fix",
     "format": "biome format src/ --write",
     "format:check": "biome format src/",
+    "pretest": "npm run build:tiles",
     "test": "vitest run",
+    "pretest:watch": "npm run build:tiles",
     "test:watch": "vitest"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.6",
     "esbuild": "^0.28.2",
     "sharp": "^0.35.4",
-    "svgo": "^4.1.0",
     "text-to-svg": "^3.1.5",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"

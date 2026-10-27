@@ -158,9 +158,9 @@ describe('LayoutConfig', () => {
     describe('createLayoutConfig3P', () => {
         let layout: LayoutConfig;
 
-        it('should have 3 player angles', () => {
+        it('should have all four physical table angles', () => {
             layout = createLayoutConfig3P();
-            expect(layout.playerAngles).toHaveLength(3);
+            expect(layout.playerAngles).toEqual([0, -90, 180, 90]);
         });
 
         it('should have bottom player at 0 degrees', () => {
@@ -181,10 +181,9 @@ describe('LayoutConfig', () => {
             expect(layout.playerAngles.length).toBe(config.playerCount);
         });
 
-        it('3P layout angles match player count', () => {
-            const config = createGameConfig3P();
+        it('3P layout keeps the same physical edges as 4P', () => {
             const layout = createLayoutConfig3P();
-            expect(layout.playerAngles.length).toBe(config.playerCount);
+            expect(layout.playerAngles).toEqual(createLayoutConfig4P().playerAngles);
         });
     });
 });

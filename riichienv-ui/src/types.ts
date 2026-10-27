@@ -1,3 +1,4 @@
+import type { Locale } from './i18n/index';
 export interface MjaiEvent {
     type: string;
     actor?: number;
@@ -55,6 +56,7 @@ export interface PlayerConfig {
 }
 
 export interface ViewerOptions {
+    language?: Locale;
     log: MjaiEvent[];
     renderer?: '2d' | '3d';
     perspective?: number;
@@ -86,6 +88,9 @@ export type ViewerEventMap = {
 
 export interface KyokuSummary {
     index: number;
+    dealer?: number;
+    completed?: boolean;
+    deltasKnown?: boolean;
     round: number;
     honba: number;
     startScores: number[];
@@ -109,6 +114,7 @@ export interface KyokuWinner {
     han: number;
     fu: number;
     yaku: string[];
+    limit?: string;
 }
 
 export interface KyokuPlayerAction {

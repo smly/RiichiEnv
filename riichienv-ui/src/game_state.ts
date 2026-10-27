@@ -111,7 +111,11 @@ export class GameState {
         // Build player names: option override > log names > default
         this._playerNames = Array(pc)
             .fill(0)
-            .map((_, i) => playerConfigs?.[i]?.name || logNames[i] || `player${i}`);
+            .map((_, i) => {
+                // Logs commonly use the player index as an unnamed-player placeholder.
+                const logName = logNames[i] === String(i) ? undefined : logNames[i];
+                return playerConfigs?.[i]?.name || logName || `Player${i}`;
+            });
         this._playerAvatars = Array(pc)
             .fill(0)
             .map((_, i) => playerConfigs?.[i]?.avatarUrl || null);
@@ -263,13 +267,30 @@ export class GameState {
         for (let i = 0; i < pc; i++) {
             const p = this.current.players[i];
             p.waits = undefined;
-            const tileIds = p.hand.map((t) => mjaiToTileId(t)).filter((id): id is number => id !== null);
             const meldInputs = meldsToWasmInput(p.melds);
             const expectedLen = 13 - meldInputs.length * 3;
+            const event = this.current.lastEvent;
+            const drawPhase =
+                this.current.currentActor === i &&
+                ((event?.type === 'tsumo' && event.actor === i) ||
+                    (event?.type === 'reach' && event.actor === i) ||
+                    (event?.type === 'hora' && event.actor === i && event.target === i) ||
+                    (event?.type === 'end_kyoku' &&
+                        event.meta?.results?.some(
+                            (result: { actor: number; target: number }) => result.actor === i && result.target === i,
+                        )));
+            // Reconstruct the waiting hand before the draw, including when
+            // seeking directly to a self-draw win. Do not mutate the live hand.
+            const waitingHand =
+                drawPhase && p.hand.length === expectedLen + 1 && p.hand[p.hand.length - 1] === p.lastDrawnTile
+                    ? p.hand.slice(0, -1)
+                    : p.hand;
+            const tileIds = waitingHand.map((t) => mjaiToTileId(t)).filter((id): id is number => id !== null);
             if (tileIds.length === expectedLen) {
                 const waits34 = calculateWaits(tileIds, meldInputs);
                 if (Array.isArray(waits34) && waits34.length > 0) {
-                    p.waits = waits34.map((t34) => tileIdToMjai(t34 * 4)).filter((s): s is string => s !== null);
+                    // Waits represent tile types; copy 0 is the red tile for fives.
+                    p.waits = waits34.map((t34) => tileIdToMjai(t34 * 4 + 1)).filter((s): s is string => s !== null);
                 }
             }
         }
@@ -562,7 +583,7 @@ export class GameState {
                                 const waits34 = calculateWaits(tileIds, meldInputs);
                                 if (Array.isArray(waits34) && waits34.length > 0) {
                                     p.waits = waits34
-                                        .map((t34) => tileIdToMjai(t34 * 4))
+                                        .map((t34) => tileIdToMjai(t34 * 4 + 1))
                                         .filter((s): s is string => s !== null);
                                 }
                             }

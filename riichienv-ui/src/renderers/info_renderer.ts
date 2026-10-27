@@ -29,7 +29,7 @@ export class InfoRenderer {
             marginBottom: '4px',
             color: 'white',
         });
-        nameDiv.textContent = playerName || `P${index}`;
+        nameDiv.textContent = playerName || `Player${index}`;
         infoBox.appendChild(nameDiv);
 
         // Blinking Bar for Active Player
