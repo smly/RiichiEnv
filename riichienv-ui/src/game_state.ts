@@ -557,6 +557,10 @@ export class GameState {
                     if (p.pendingRiichi || e.reach || prevWasReach || nextIsReach) {
                         isRiichi = true;
                         p.pendingRiichi = false;
+                        // Record eligibility at the declaration discard, before completing this turn.
+                        if (!cond.callsMade && !cond.firstTurnCompleted[e.actor]) {
+                            cond.doubleRiichi[e.actor] = true;
+                        }
                     }
 
                     p.discards.push({ tile: e.pai, isRiichi, isTsumogiri: !!e.tsumogiri });
@@ -744,12 +748,6 @@ export class GameState {
 
                         // Set ippatsu for this player
                         this.current.conditions.ippatsu[e.actor] = true;
-
-                        // Check double riichi: no calls made and first turn not completed
-                        const cond = this.current.conditions;
-                        if (!cond.callsMade && !cond.firstTurnCompleted[e.actor]) {
-                            cond.doubleRiichi[e.actor] = true;
-                        }
                     }
                 }
                 break;

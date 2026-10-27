@@ -55,6 +55,7 @@ class MetadataInjector:
         self.bakaze_map = {"E": 0, "S": 1, "W": 2, "N": 3}
         self.oya = 0
         self.riichi_declared = [False] * pc
+        self.double_riichi_declared = [False] * pc
         self.tile_counts = {}  # To track unique IDs for string tiles
         self.kyoku_results = []
         self.last_tile: str | None = None
@@ -139,6 +140,7 @@ class MetadataInjector:
                 self.kyoku_num = ev.get("kyoku", 1)  # Default to 1
                 self.honba = ev.get("honba", 0)
                 self.riichi_declared = [False] * pc
+                self.double_riichi_declared = [False] * pc
                 self.hands = {i: [] for i in range(pc)}
                 self.melds = {i: [] for i in range(pc)}
                 self.kita_count = {i: 0 for i in range(pc)}
@@ -185,6 +187,11 @@ class MetadataInjector:
                 if ev.get("reach"):
                     self.riichi_declared[actor] = True
                     self.ippatsu_eligible[actor] = True
+                    self.just_reached[actor] = True
+
+                # Save the declaration-time condition before this discard ends the first round.
+                if self.just_reached[actor]:
+                    self.double_riichi_declared[actor] = self.is_first_round_of_kyoku and not self.any_melds_in_kyoku
 
                 # First round ends when every player has discarded at least once
                 if self.is_first_round_of_kyoku and self.turn_count + 1 >= self.player_count:
@@ -282,6 +289,7 @@ class MetadataInjector:
 
                 m_tiles.sort()
                 self.melds[actor].append(Meld(MeldType.Ankan, m_tiles, False, actor))
+                self.any_melds_in_kyoku = True
                 self.is_rinshan = True
                 self.ippatsu_eligible = [False] * self.player_count
 
@@ -325,11 +333,6 @@ class MetadataInjector:
                 elif pai_str:
                     pai_tid = self._get_tid(pai_str)
 
-                # Double Riichi check
-                is_double_riichi = False
-                if self.riichi_declared[actor] and self.is_first_round_of_kyoku and not self.any_melds_in_kyoku:
-                    is_double_riichi = True
-
                 # Helpers for Wind conversion
                 def get_wind(idx: int) -> Wind:
                     idx = idx % 4
@@ -344,7 +347,7 @@ class MetadataInjector:
                 cond = Conditions(
                     tsumo=is_tsumo,
                     riichi=self.riichi_declared[actor],
-                    double_riichi=is_double_riichi,
+                    double_riichi=self.double_riichi_declared[actor],
                     ippatsu=self.ippatsu_eligible[actor],
                     rinshan=self.is_rinshan if is_tsumo else False,
                     chankan=self.is_chankan if not is_tsumo else False,
