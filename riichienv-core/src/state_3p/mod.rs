@@ -1776,6 +1776,11 @@ impl GameState3P {
         let mut nagashi_winners = Vec::new();
 
         if reason == "exhaustive_draw" {
+            // Riichi deposits were already recorded by reach_accepted.
+            // Track only this draw's noten or nagashi-mangan payments.
+            for player in &mut self.players {
+                player.score_delta = 0;
+            }
             for (i, p) in self.players.iter().enumerate() {
                 let calc =
                     crate::hand_evaluator_3p::HandEvaluator3P::new(p.hand.clone(), p.melds.clone());
