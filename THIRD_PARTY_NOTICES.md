@@ -66,6 +66,13 @@ and WASM binaries. The five binary key tables contain the arrays from
 Source: https://github.com/Cryolite/nyanten
 Reference revision: 581aa72ce53e0ffeb0ef8d1ed14df2521ca5fb9b
 
+The copyright notices below come from two sources in the referenced
+upstream revision:
+
+- The 2024 notice is from LICENSE.md.
+- The 2025 notice is from the header of nyanten/standard/keys.hpp,
+  whose five lookup-table arrays are included here as binary data.
+
 The same MIT notice is included separately in `riichienv-core/LICENSE.nyanten`
 for distribution with the standalone Rust crate.
 

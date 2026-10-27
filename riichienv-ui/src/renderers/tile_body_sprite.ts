@@ -9,7 +9,7 @@ export interface TileBodyShape {
     radius: number;
     edge: number;
     flipped: boolean;
-    /** Composite meld skins and artwork on the same plane in painter order. */
+    /** Composite meld/standing-hand skins and faces on one plane in painter order. */
     facePlane?: boolean;
 }
 export interface TileBodyRequest extends TileBodyShape {
@@ -114,8 +114,8 @@ function mesh(request: TileBodyShape): Face[] {
     return faces;
 }
 
-/** Keep the bitmap above the tabletop. Melds share their artwork plane for
- * painter ordering; other tiles use a camera-facing plane ahead of the body.
+/** Keep the bitmap above the tabletop. Melds and standing hands share their
+ * face plane for painter ordering; other tiles use a camera-facing plane ahead of the body.
  * Reprojection preserves the silhouette when moving the supporting plane. */
 export function tileBodyImageOrigin(request: TileBodyShape, n: Vec): Vec {
     if (request.facePlane) return [request.width / 2, request.height / 2, request.depth + 0.02];
@@ -287,23 +287,24 @@ export function paintTileBodies(requests: TileBodyRequest[], scene: HTMLElement)
         }
         return { request, u, v, n, eye };
     });
-    const meldOrder = new Map<HTMLElement, number>();
+    const tileOrder = new Map<HTMLElement, number>();
     for (const { request, u, v, n, eye } of plans) {
         if (request.facePlane && eye) {
             const center: Vec = [request.width / 2, request.height / 2, request.depth / 2];
             const order = -Math.round(Math.hypot(...sub(eye, center)) * 100);
-            // Coplanar surfaces must paint whole tiles from far to near. Apply
-            // the same ordering to nested added-kan pairs and separate melds.
+            // Coplanar surfaces must paint whole tiles from far to near. Stop
+            // at their row so hand ordering does not change the table/UI stack.
+            // Melds also need this ordering on nested added-kan pairs/groups.
             for (
                 let el: HTMLElement | null = request.element;
-                el && !el.classList.contains('opp-melds-inner');
+                el && !el.classList.contains('opp-melds-inner') && !el.classList.contains('opp-tiles-inner');
                 el = el.parentElement
             ) {
-                meldOrder.set(el, Math.max(meldOrder.get(el) ?? -Infinity, order));
+                tileOrder.set(el, Math.max(tileOrder.get(el) ?? -Infinity, order));
             }
         }
         const sprite = getTileBodySprite(request, u, v, n, eye);
-        // Melds share one plane with their artwork, so a camera-facing
+        // Melds and standing hands share one plane with their faces, so a camera-facing
         // billboard cannot slice a neighbor. Each tile paints body then art.
         const [imageU, imageV, imageN]: Vec[] = request.facePlane
             ? [
@@ -342,5 +343,5 @@ export function paintTileBodies(requests: TileBodyRequest[], scene: HTMLElement)
         });
         request.element.prepend(image);
     }
-    for (const [element, order] of meldOrder) element.style.zIndex = `${order}`;
+    for (const [element, order] of tileOrder) element.style.zIndex = `${order}`;
 }

@@ -118,6 +118,7 @@ export class Renderer2D implements IRenderer {
     }
 
     render(sourceState: BoardState, debugPanel?: HTMLElement, displayOptions?: Readonly<DisplayOptions>) {
+        this.container.dataset.tileLabels = displayOptions?.showTileLabels === true ? 'show' : 'hide';
         const state = presentBoard(sourceState, this.viewpoint, displayOptions);
         const pc = state.playerCount;
 

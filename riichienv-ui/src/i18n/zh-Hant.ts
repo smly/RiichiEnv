@@ -15,6 +15,7 @@ export const zhHant: Messages = {
     Language: '顯示語言',
     'Opponent hands': '對手手牌',
     'Wait tiles': '待牌顯示',
+    'Tile labels': '牌面輔助標記',
     Show: '顯示',
     Hide: '隱藏',
     'Load replay': '載入牌譜',

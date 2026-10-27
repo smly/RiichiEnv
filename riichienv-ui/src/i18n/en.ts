@@ -17,6 +17,7 @@ export const en: Messages = {
     Language: 'Language',
     'Opponent hands': 'Opponent hands',
     'Wait tiles': 'Wait tiles',
+    'Tile labels': 'Tile labels',
     Show: 'Show',
     Hide: 'Hide',
     'Load replay': 'Load replay',

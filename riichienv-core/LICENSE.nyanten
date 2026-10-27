@@ -2,6 +2,13 @@ Nyanten-derived lookup tables in src/data/nyanten_*.bin and src/shanten.rs
 Source: https://github.com/Cryolite/nyanten
 Reference revision: 581aa72ce53e0ffeb0ef8d1ed14df2521ca5fb9b
 
+The copyright notices below come from two sources in the referenced
+upstream revision:
+
+- The 2024 notice is from LICENSE.md.
+- The 2025 notice is from the header of nyanten/standard/keys.hpp,
+  whose five lookup-table arrays are included here as binary data.
+
 MIT License
 
 Copyright (c) 2024 Cryolite

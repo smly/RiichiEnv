@@ -121,6 +121,7 @@ export class Renderer3D implements IRenderer {
     }
 
     render(sourceState: BoardState, debugPanel?: HTMLElement, displayOptions?: Readonly<DisplayOptions>): void {
+        this.container.dataset.tileLabels = displayOptions?.showTileLabels === true ? 'show' : 'hide';
         const state = presentBoard(sourceState, this.viewpoint, displayOptions);
         this.pendingBodies.clear();
         const pc = state.playerCount;
@@ -321,7 +322,11 @@ export class Renderer3D implements IRenderer {
         this.sceneEl.replaceChildren(sceneFrag);
         const bodies = [...this.pendingBodies.values()];
         for (const body of bodies) {
-            body.facePlane = !!body.element.closest('.opp-hand-3d .opp-meld-group, .own-melds-3d .opp-meld-group');
+            // Standing backs need the same coplanar composition as melds:
+            // a camera-facing body image can otherwise cut through the next back.
+            body.facePlane = !!body.element.closest(
+                '.opp-hand-3d .opp-meld-group, .own-melds-3d .opp-meld-group, .opp-tiles-inner > .tile-face-down',
+            );
         }
         paintTileBodies(bodies, this.sceneEl);
         if (focusedViewpoint !== undefined) {

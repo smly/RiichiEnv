@@ -20,9 +20,10 @@ This document describes how to build and develop the RiichiEnv UI (`riichienv-ui
 
 ## Asset Generation
 
-`npm run build:tiles` embeds the committed `assets/tile-art/tiles.png` atlas and
-`tiles.json` positions in `src/tiles.ts`. Both viewer builds and tests run this step
-automatically. Edit the atlas when changing tile artwork.
+`npm run build:tiles` embeds the committed `assets/tile-art/tiles.png` and
+`tiles-unlabeled.png` atlases with the shared `tiles.json` positions in `src/tiles.ts`.
+Both viewer builds and tests run this step automatically. Keep both atlases in sync
+when changing tile artwork or positions; their only difference is the corner labels.
 
 The 2D viewer also uses the committed `src/char_assets.ts` wind-character sprite.
 Normal builds do not require a font download or character-sprite generation.

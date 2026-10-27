@@ -3,11 +3,14 @@ import type { BoardState } from '../types';
 export interface DisplayOptions {
     showOpponentHands: boolean;
     showWaits: boolean;
+    /** Whether tile faces include corner numbers and honor abbreviations. Defaults to false. */
+    showTileLabels?: boolean;
 }
 
 export const DEFAULT_DISPLAY_OPTIONS: Readonly<DisplayOptions> = {
     showOpponentHands: true,
     showWaits: true,
+    showTileLabels: false,
 };
 
 /** Filter board presentation without changing replay data or result information. */

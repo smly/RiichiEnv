@@ -15,6 +15,7 @@ export const zhHans: Messages = {
     Language: '显示语言',
     'Opponent hands': '对手手牌',
     'Wait tiles': '待牌显示',
+    'Tile labels': '牌面辅助标记',
     Show: '显示',
     Hide: '隐藏',
     'Load replay': '载入牌谱',

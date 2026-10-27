@@ -49,6 +49,13 @@ export function createSettingsModal(
                         <label><input type="radio" name="${id}-waits" value="hide"><span data-i18n="Hide">非表示</span></label>
                     </div>
                 </fieldset>
+                <fieldset class="settings-row">
+                    <legend data-i18n="Tile labels">牌の補助文字</legend>
+                    <div class="settings-options">
+                        <label><input type="radio" name="${id}-tile-labels" value="show"><span data-i18n="Show">表示</span></label>
+                        <label><input type="radio" name="${id}-tile-labels" value="hide" checked><span data-i18n="Hide">非表示</span></label>
+                    </div>
+                </fieldset>
                 <fieldset class="settings-load">
                     <legend data-i18n="Load replay">牌譜のロード</legend>
                     <div class="settings-options settings-source">
@@ -73,13 +80,14 @@ export function createSettingsModal(
         </section>`;
 
     i18n.apply(overlay);
-    let currentDisplayOptions = { ...displayOptions };
+    let currentDisplayOptions = { ...DEFAULT_DISPLAY_OPTIONS, ...displayOptions };
     for (const [group, key] of [
         ['opponents', 'showOpponentHands'],
         ['waits', 'showWaits'],
+        ['tile-labels', 'showTileLabels'],
     ] as const) {
         overlay.querySelectorAll<HTMLInputElement>(`input[name="${id}-${group}"]`).forEach((radio) => {
-            radio.checked = (radio.value === 'show') === currentDisplayOptions[key];
+            radio.checked = (radio.value === 'show') === (currentDisplayOptions[key] ?? DEFAULT_DISPLAY_OPTIONS[key]);
             radio.onchange = () => {
                 if (!radio.checked) return;
                 currentDisplayOptions = { ...currentDisplayOptions, [key]: radio.value === 'show' };

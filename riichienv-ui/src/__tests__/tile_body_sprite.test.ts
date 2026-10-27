@@ -86,6 +86,34 @@ describe('tile body bitmap projection', () => {
         expect(back.visible.some((face) => face.normal[2] === -1 && face.cap)).toBe(true);
     });
 
+    it.each([
+        1, 2, 3,
+    ])('keeps standing opponent bodies on the back plane without shifting their projection (seat %i)', (seat) => {
+        const [u, v, n] = basis(seat, true);
+        const eye = center.map((c, i) => c + u[i] * (seat === 3 ? -250 : 250) - v[i] * 170 + n[i] * 1800) as Vec;
+        const standing = { ...shape, flipped: true, facePlane: true };
+        const projection = projectTileBody(standing, u, v, n, eye);
+        expect(projection.visible.length).toBeGreaterThan(0);
+        expect(projection.origin[2]).toBe(shape.depth + 0.02);
+        expect([projection.left, projection.top, projection.width, projection.height].every(Number.isFinite)).toBe(
+            true,
+        );
+        for (const face of projection.visible) {
+            face.points.forEach((point, i) => {
+                const imagePoint: Vec = [
+                    projection.origin[0] + face.xy[i][0],
+                    projection.origin[1] + face.xy[i][1],
+                    projection.origin[2],
+                ];
+                // Even at the nearly edge-on side seats, every bitmap pixel
+                // must lie on the back plane and keep its original camera ray.
+                const t = (imagePoint[2] - eye[2]) / (point[2] - eye[2]);
+                expect(imagePoint[0]).toBeCloseTo(eye[0] + t * (point[0] - eye[0]), 9);
+                expect(imagePoint[1]).toBeCloseTo(eye[1] + t * (point[1] - eye[1]), 9);
+            });
+        }
+    });
+
     it.each([false, true])('keeps the amber cap in the thin back layer (flipped=$0)', (flipped) => {
         const [u, v, n] = basis(1, true);
         const { visible } = projectTileBody({ ...shape, flipped }, u, v, n, null);

@@ -1,7 +1,7 @@
 import { COLORS } from './constants';
 import { PANEL_CSS } from './styles_panels';
 import { ROUND_SELECTOR_CSS } from './styles_round_selector';
-import { TILE_COLUMNS, TILE_ROWS, TILE_SPRITE_URL } from './tiles';
+import { TILE_COLUMNS, TILE_ROWS, TILE_SPRITE_UNLABELED_URL, TILE_SPRITE_URL } from './tiles';
 
 export const VIEWER_CSS = `
     .mahjong-board {
@@ -44,11 +44,13 @@ export const VIEWER_CSS = `
         border-radius: 4px;
         box-shadow: 1px 1px 2px rgba(0,0,0,0.3);
     }
+    [data-tile-labels="show"] { --riichienv-tile-sprite: url("${TILE_SPRITE_URL}"); }
+    [data-tile-labels="hide"] { --riichienv-tile-sprite: initial; }
     .tile-sprite {
         width: 100%;
         height: 100%;
         border-radius: inherit;
-        background-image: url("${TILE_SPRITE_URL}");
+        background-image: var(--riichienv-tile-sprite, url("${TILE_SPRITE_UNLABELED_URL}"));
         background-size: ${TILE_COLUMNS * 100}% ${TILE_ROWS * 100}%;
         background-repeat: no-repeat;
     }

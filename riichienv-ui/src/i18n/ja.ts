@@ -15,6 +15,7 @@ export const ja = {
     Language: '表示言語',
     'Opponent hands': '相手の手牌表示',
     'Wait tiles': '待ち牌表示',
+    'Tile labels': '牌の補助文字',
     Show: '表示',
     Hide: '非表示',
     'Load replay': '牌譜のロード',

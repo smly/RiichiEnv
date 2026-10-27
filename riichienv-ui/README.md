@@ -20,7 +20,7 @@ A standalone, web-based UI for RiichiEnv featuring 2D/3D replay viewers and a li
     - `tile_renderer.ts`, `hand_renderer.ts`, `river_renderer.ts`, `center_renderer.ts`, `info_renderer.ts`, `result_renderer.ts`: Sub-renderers.
   - `src/wasm/`: WASM integration layer (`loader.ts`, `bridge.ts`).
   - `src/styles.ts`, `src/styles_3d.ts`: CSS styles for 2D/3D modes.
-- `assets/tile-art/tiles.png`, `tiles.json`: Tile atlas and tile positions.
+- `assets/tile-art/tiles.png`, `tiles-unlabeled.png`, `tiles.json`: Tile atlases with/without corner labels and their shared tile positions.
 - `scripts/`: Build scripts (`gen_tiles.js`, `gen_sprite.js`, `build-wasm.sh`, `compress.js`).
 - `dist/viewer.js`: Bundled IIFE format (registers globals on `window`).
 - `dist/viewer.esm.js`: Bundled ESM format.
@@ -60,6 +60,12 @@ npm run build:no-wasm
 ```
 
 ## Usage
+
+In the 3D replay viewer's settings, **Tile labels** switches corner numbers and
+honor abbreviations on or off immediately. Labels are hidden by default. The
+selection is kept for that viewer while navigating or loading another replay;
+other viewers on the same page keep their own settings. Red-five identification
+dots remain visible in both versions.
 
 ### RiichiViewer (recommended API)
 
