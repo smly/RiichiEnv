@@ -62,7 +62,7 @@ let mut state = GameState::new(0, true, None, 0, rule);
 let obs = state.get_observation(0);
 let legal_actions = obs.legal_actions_method();
 
-// Advance the game state (actions is a HashMap<u8, Action>)
+// Advance the game state (actions is a HashMap<u8, Action> , keyed by player_id)
 let mut actions = HashMap::new();
 actions.insert(0, legal_actions[0].clone());
 state.step(&actions);
