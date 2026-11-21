@@ -136,6 +136,19 @@ impl KyokuStepIterator {
                 continue;
             }
             if claimers.contains(&i) {
+                // Declining a ron by making another call still causes temporary furiten.
+                let (claim_actions, _missed) =
+                    self.state._get_claim_actions_for_player(i, discarder, tile);
+                if claim_actions
+                    .iter()
+                    .any(|a| a.action_type == ActionType::Ron)
+                {
+                    let iu = i as usize;
+                    self.state.players[iu].missed_agari_doujun = true;
+                    if self.state.players[iu].riichi_declared {
+                        self.state.players[iu].missed_agari_riichi = true;
+                    }
+                }
                 continue;
             }
 
@@ -549,6 +562,19 @@ impl KyokuStepIterator3P {
                 continue;
             }
             if claimers.contains(&i) {
+                // Declining a ron by making another call still causes temporary furiten.
+                let (claim_actions, _missed) =
+                    self.state._get_claim_actions_for_player(i, discarder, tile);
+                if claim_actions
+                    .iter()
+                    .any(|a| a.action_type == ActionType::Ron)
+                {
+                    let iu = i as usize;
+                    self.state.players[iu].missed_agari_doujun = true;
+                    if self.state.players[iu].riichi_declared {
+                        self.state.players[iu].missed_agari_riichi = true;
+                    }
+                }
                 continue;
             }
 
