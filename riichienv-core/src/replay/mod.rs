@@ -465,6 +465,13 @@ impl KyokuStepIterator {
                     slf.state.apply_log_action(action);
                     slf.idx += 1;
 
+                    if atype == ActionType::Kakan
+                        && let Some(tile) = env_action.tile
+                    {
+                        let claimers = slf._peek_next_claimers();
+                        slf._collect_pass_observations(pid, tile, &claimers);
+                    }
+
                     if let Some(target) = slf.filter_seat {
                         if pid == target {
                             if slf.skip_single_action && obs._legal_actions.len() <= 1 {
@@ -930,6 +937,13 @@ impl KyokuStepIterator3P {
 
                     slf.state.apply_log_action(action);
                     slf.idx += 1;
+
+                    if atype == ActionType::Kakan
+                        && let Some(tile) = env_action.tile
+                    {
+                        let claimers = slf._peek_next_claimers();
+                        slf._collect_pass_observations(pid, tile, &claimers);
+                    }
 
                     let env_action_3p = Action3P::from_action(env_action);
                     if let Some(target) = slf.filter_seat {
