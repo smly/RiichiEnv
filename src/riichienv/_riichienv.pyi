@@ -228,12 +228,16 @@ class Observation:
         events: Accumulated MJAI JSON event strings visible to this player.
         prev_events_size: Number of events already consumed; used internally
             by :meth:`new_events` to return only unseen events.
+        drawn_tile: The tile id this player has just drawn, while it is still
+            this player's turn; ``None`` for every other player, including
+            one asked whether to rob this player's kan.
     """
 
     events: list[Any]
     hand: list[int]
     player_id: int
     prev_events_size: int
+    drawn_tile: int | None
     forced_tedashi: bool
     def new_events(self) -> list[str]:
         """Return MJAI JSON events unseen by this player since their previous observation.
@@ -488,6 +492,9 @@ class Observation3P:
         last_tedashis: The last tedashi (hand-picked discard) per player,
             or ``None``.
         last_discard: The most recently discarded tile id, or ``None``.
+        drawn_tile: The tile id this player has just drawn, while it is still
+            this player's turn; ``None`` for every other player, including
+            one asked whether to rob this player's kan or ron its North.
     """
 
     player_id: int
@@ -509,6 +516,7 @@ class Observation3P:
     riichi_sutehais: list[int | None]
     last_tedashis: list[int | None]
     last_discard: int | None
+    drawn_tile: int | None
     @property
     def hand(self) -> list[int]:
         """Shorthand for ``hands[player_id]``."""
