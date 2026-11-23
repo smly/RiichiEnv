@@ -228,6 +228,10 @@ impl GameState {
         let discards: [Vec<u8>; 4] = std::array::from_fn(|i| self.players[i].discards.clone());
         let scores: [i32; 4] = std::array::from_fn(|i| self.players[i].score);
         let riichi_declared: [bool; 4] = std::array::from_fn(|i| self.players[i].riichi_declared);
+        // The drawn tile is concealed: only the seat that drew it, whose turn
+        // it still is, may see it. A seat asked whether to rob that seat's
+        // kan must not.
+        let drawn_tile = self.drawn_tile.filter(|_| player_id == self.current_player);
 
         let mut obs = Observation::new(
             player_id,
@@ -249,7 +253,7 @@ impl GameState {
             self.riichi_sutehais,
             self.last_tedashis,
             self.last_discard.map(|(_pid, tile)| tile as u32),
-            self.drawn_tile,
+            drawn_tile,
         );
 
         obs.forced_tedashi = self.is_forced_tedashi(player_id);

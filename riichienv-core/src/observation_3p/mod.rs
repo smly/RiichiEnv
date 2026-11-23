@@ -41,6 +41,9 @@ pub struct Observation3P {
     pub riichi_sutehais: [Option<u8>; 3],
     pub last_tedashis: [Option<u8>; 3],
     pub last_discard: Option<u32>,
+    /// The tile this player has just drawn, while it is still this player's
+    /// turn. `None` for every other player, including one asked whether to
+    /// rob this player's kan or ron its North.
     #[serde(default)]
     pub drawn_tile: Option<u8>,
     /// Every discard from this initial hand is recorded as tedashi, including
