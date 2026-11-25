@@ -398,11 +398,8 @@ impl MjaiReplay {
                     seat: actor,
                     tile,
                     doras: None,
-                    left_tile_count: None, // Could decrement builder.left_tile_count?
+                    left_tile_count: None,
                 });
-                if builder.left_tile_count > 0 {
-                    builder.left_tile_count -= 1;
-                }
             }
             MjaiEvent::Dahai {
                 actor,
@@ -505,7 +502,7 @@ impl MjaiReplay {
                     seat: actor,
                     meld_type: MeldType::Ankan,
                     tiles,
-                    tile_raw_id: 0,
+                    tile_raw_id: consumed.first().map_or(0, |s| parse_mjai_tile(s) / 4),
                     doras: None,
                 });
             }
@@ -522,7 +519,6 @@ impl MjaiReplay {
             }
             MjaiEvent::Dora { dora_marker } => {
                 let marker = parse_mjai_tile(&dora_marker);
-                builder.doras.push(marker);
                 builder.actions.push(Action::Dora {
                     dora_marker: marker,
                 });
