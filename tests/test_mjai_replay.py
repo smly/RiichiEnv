@@ -289,3 +289,42 @@ def test_mjai_replay_haitei_only_on_last_live_tile(tmp_path, n_draws, haitei):
 
     assert kyoku.left_tile_count == 70
     assert ctx.conditions.haitei is haitei
+
+
+def test_mjai_replay_kan_dora_is_counted_once(tmp_path):
+    data = [
+        {
+            "type": "start_kyoku",
+            "bakaze": "E",
+            "kyoku": 1,
+            "honba": 0,
+            "kyoutaku": 0,
+            "oya": 0,
+            "scores": [25000, 25000, 25000, 25000],
+            "dora_marker": "9s",
+            "tehais": [
+                ["P", "P", "P", "1m", "2m", "3m", "4p", "5p", "6p", "7s", "8s", "9s", "E"],
+                ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "E"],
+                ["1s", "1s", "1s", "3s", "3s", "3s", "4s", "4s", "4s", "5s", "5s", "5s", "S"],
+                ["5m", "5m", "6m", "6m", "7m", "7m", "8m", "8m", "9m", "9m", "1p", "1p", "W"],
+            ],
+        },
+        {"type": "tsumo", "actor": 0, "pai": "P"},
+        {"type": "ankan", "actor": 0, "consumed": ["P", "P", "P", "P"]},
+        {"type": "dora", "dora_marker": "1s"},
+        {"type": "tsumo", "actor": 0, "pai": "2s"},
+        {"type": "dahai", "actor": 0, "pai": "E", "tsumogiri": False},
+        {"type": "hora", "actor": 1, "target": 0, "pai": "E"},
+        {"type": "end_kyoku"},
+    ]
+
+    file_path = tmp_path / "test_kan_dora.jsonl"
+    with open(file_path, "w") as f:
+        for event in data:
+            f.write(json.dumps(event) + "\n")
+
+    kyoku = list(MjaiReplay.from_jsonl(str(file_path)).take_kyokus())[0]
+    ctx = next(iter(kyoku.take_win_result_contexts()))
+
+    assert len(kyoku.doras) == 1  # only the start-of-round marker
+    assert len(ctx.dora_indicators) == 2  # start-of-round marker + one kan dora

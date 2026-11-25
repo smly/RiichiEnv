@@ -519,7 +519,6 @@ impl MjaiReplay {
             }
             MjaiEvent::Dora { dora_marker } => {
                 let marker = parse_mjai_tile(&dora_marker);
-                builder.doras.push(marker);
                 builder.actions.push(Action::Dora {
                     dora_marker: marker,
                 });
