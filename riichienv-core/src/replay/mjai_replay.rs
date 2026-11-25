@@ -502,7 +502,7 @@ impl MjaiReplay {
                     seat: actor,
                     meld_type: MeldType::Ankan,
                     tiles,
-                    tile_raw_id: 0,
+                    tile_raw_id: consumed.first().map_or(0, |s| parse_mjai_tile(s) / 4),
                     doras: None,
                 });
             }
