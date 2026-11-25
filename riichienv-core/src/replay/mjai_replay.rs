@@ -398,11 +398,8 @@ impl MjaiReplay {
                     seat: actor,
                     tile,
                     doras: None,
-                    left_tile_count: None, // Could decrement builder.left_tile_count?
+                    left_tile_count: None,
                 });
-                if builder.left_tile_count > 0 {
-                    builder.left_tile_count -= 1;
-                }
             }
             MjaiEvent::Dahai {
                 actor,

@@ -253,3 +253,39 @@ def test_mjai_replay_4p_reach_discard_observation_is_not_duplicated_state(tmp_pa
     discard_legals = [a.action_type for a in discard_obs.legal_actions()]
     assert ActionType.RIICHI in riichi_legals
     assert ActionType.RIICHI not in discard_legals
+
+
+@pytest.mark.parametrize(("n_draws", "haitei"), [(35, False), (70, True)])
+def test_mjai_replay_haitei_only_on_last_live_tile(tmp_path, n_draws, haitei):
+    hand = ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "1p", "2p", "3p", "4p"]
+    data = [
+        {
+            "type": "start_kyoku",
+            "bakaze": "E",
+            "kyoku": 1,
+            "honba": 0,
+            "kyoutaku": 0,
+            "oya": 0,
+            "scores": [25000, 25000, 25000, 25000],
+            "dora_marker": "9s",
+            "tehais": [hand, hand, hand, hand],
+        },
+    ]
+    for i in range(n_draws - 1):
+        data.append({"type": "tsumo", "actor": i % 4, "pai": "N"})
+        data.append({"type": "dahai", "actor": i % 4, "pai": "N", "tsumogiri": True})
+    winner = (n_draws - 1) % 4
+    data.append({"type": "tsumo", "actor": winner, "pai": "4p"})
+    data.append({"type": "hora", "actor": winner, "target": winner, "pai": "4p"})
+    data.append({"type": "end_kyoku"})
+
+    file_path = tmp_path / "test_haitei.jsonl"
+    with open(file_path, "w") as f:
+        for event in data:
+            f.write(json.dumps(event) + "\n")
+
+    kyoku = list(MjaiReplay.from_jsonl(str(file_path)).take_kyokus())[0]
+    ctx = next(iter(kyoku.take_win_result_contexts()))
+
+    assert kyoku.left_tile_count == 70
+    assert ctx.conditions.haitei is haitei
